@@ -1,7 +1,9 @@
 /**
- * The email + one-time-code sign-in form, shared by the dashboard and the
- * OAuth consent page. Both need exactly the same two steps, and the session
- * cookie the server sets is what carries the login onwards.
+ * The sign-in panel, shared by the dashboard and the OAuth consent page.
+ *
+ * There is no form to fill in: the server says which providers it has
+ * configured, and each button is a plain link into that provider's flow. The
+ * session cookie set on the way back is what carries the login onwards.
  */
 
 export const el = (tag, props = {}, children = []) => {
@@ -30,80 +32,58 @@ export async function currentUser() {
   }
 }
 
+const PROVIDER_LABELS = { google: 'Continue with Google', apple: 'Continue with Apple' };
+
 /**
- * Render the sign-in form into `container` and resolve `onSignedIn` with the
- * user once the code is accepted.
+ * Render the sign-in buttons into `container`.
+ *
+ * Signing in is a full-page navigation, so there is no callback: the browser
+ * leaves and comes back to `returnTo` already authenticated.
  */
-export function mountLogin(container, onSignedIn, { intro } = {}) {
-  let email = '';
-
+export async function mountLogin(container, { intro, returnTo } = {}) {
   const message = el('p', { className: 'note' });
-  const showError = (text) => {
+
+  // A failed sign-in comes back as ?error=... on the dashboard.
+  const reported = new URLSearchParams(location.search).get('error');
+  if (reported) {
     message.className = 'error';
-    message.textContent = text;
-  };
-  const showNote = (text) => {
-    message.className = 'note';
-    message.textContent = text;
-  };
+    message.textContent = reported;
+  }
 
-  function askForEmail() {
-    const input = el('input', { type: 'email', placeholder: 'you@example.com', autocomplete: 'email', required: true });
-    const submit = el('button', { className: 'primary', type: 'submit', textContent: 'Email me a code' });
+  let providers = [];
+  try {
+    ({ providers } = await api('/auth/providers'));
+  } catch (error) {
+    message.className = 'error';
+    message.textContent = error.message;
+  }
 
-    const form = el('form', {}, [input, submit]);
-    form.onsubmit = async (event) => {
-      event.preventDefault();
-      submit.disabled = true;
-      try {
-        email = input.value.trim();
-        await api('/api/auth/request-code', { method: 'POST', body: { email } });
-        askForCode();
-      } catch (error) {
-        showError(error.message);
-        submit.disabled = false;
-      }
-    };
-
+  if (providers.length === 0) {
     container.replaceChildren(
-      ...(intro ? [el('p', { className: 'sub', textContent: intro })] : []),
-      el('div', { className: 'row' }, [form]),
+      el('p', { className: 'error' }, [
+        'No sign-in provider is configured. Set ',
+        el('code', { textContent: 'GOOGLE_CLIENT_ID' }),
+        ' and ',
+        el('code', { textContent: 'GOOGLE_CLIENT_SECRET' }),
+        ' on the Worker.',
+      ]),
       message,
     );
-    input.focus();
+    return;
   }
 
-  function askForCode() {
-    const input = el('input', {
-      className: 'code',
-      inputMode: 'numeric',
-      autocomplete: 'one-time-code',
-      placeholder: '000000',
-      maxLength: 6,
-      required: true,
+  const buttons = providers.map((provider) => {
+    const href = `/auth/${provider}/start`;
+    return el('a', {
+      className: 'button provider',
+      href: returnTo ? `${href}?return_to=${encodeURIComponent(returnTo)}` : href,
+      textContent: PROVIDER_LABELS[provider] ?? `Continue with ${provider}`,
     });
-    const submit = el('button', { className: 'primary', type: 'submit', textContent: 'Sign in' });
+  });
 
-    const form = el('form', {}, [input, submit]);
-    form.onsubmit = async (event) => {
-      event.preventDefault();
-      submit.disabled = true;
-      try {
-        onSignedIn(await api('/api/auth/verify', { method: 'POST', body: { email, code: input.value } }));
-      } catch (error) {
-        showError(error.message);
-        submit.disabled = false;
-        input.select();
-      }
-    };
-
-    const back = el('button', { className: 'link', type: 'button', textContent: 'Use a different address' });
-    back.onclick = askForEmail;
-
-    container.replaceChildren(el('div', { className: 'row' }, [form]), message, back);
-    showNote(`We sent a six-digit code to ${email}. It expires in 10 minutes.`);
-    input.focus();
-  }
-
-  askForEmail();
+  container.replaceChildren(
+    ...(intro ? [el('p', { className: 'sub', textContent: intro })] : []),
+    el('div', { className: 'providers' }, buttons),
+    message,
+  );
 }

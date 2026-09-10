@@ -10,6 +10,7 @@
 
 import { AuthorizationError } from '@cloudflare/workers-oauth-provider';
 import * as auth from './auth';
+import * as identity from './identity';
 import * as db from './db';
 import type { Env, User } from './db';
 import { encodeWorkoutFit, fitFilename } from './fit';
@@ -54,30 +55,65 @@ function splitDateId(slug: string): { date: string; id: string } | null {
 }
 
 // ---------------------------------------------------------------------------
-// Login
+// Sign-in
 // ---------------------------------------------------------------------------
 
-async function handleLogin(request: Request, url: URL, env: Env): Promise<Response | null> {
+/** A message for the dashboard to show after a failed sign-in. */
+const backToDashboard = (origin: string, message?: string): Response =>
+  Response.redirect(message ? `${origin}/?error=${encodeURIComponent(message)}` : `${origin}/`, 302);
+
+async function handleSignIn(request: Request, url: URL, env: Env): Promise<Response | null> {
   const secure = url.protocol === 'https:';
 
-  if (url.pathname === '/api/auth/request-code' && request.method === 'POST') {
-    const body = (await request.json().catch(() => ({}))) as { email?: unknown };
-    const result = await auth.requestLoginCode(env, body.email, appName(env));
-    if (result.ok) return json({ sent: true, expires_in: auth.CODE_TTL_MINUTES * 60 });
-    return json(
-      { error: result.error },
-      result.status,
-      result.retryAfter ? { 'Retry-After': String(result.retryAfter) } : {},
-    );
+  // Which buttons the dashboard should offer.
+  if (url.pathname === '/auth/providers' && request.method === 'GET') {
+    return json({ providers: identity.configuredProviders(env, url.origin) });
   }
 
-  if (url.pathname === '/api/auth/verify' && request.method === 'POST') {
-    const body = (await request.json().catch(() => ({}))) as { email?: unknown; code?: unknown };
-    const result = await auth.verifyLoginCode(env, body.email, body.code);
-    if (!result.ok) return json({ error: result.error }, result.status);
+  const start = url.pathname.match(/^\/auth\/([a-z]+)\/start$/);
+  if (start && request.method === 'GET') {
+    if (!identity.isProviderName(start[1])) return error(`unknown sign-in provider "${start[1]}"`, 404);
+    try {
+      const returnTo = url.searchParams.get('return_to');
+      return Response.redirect(await identity.startLogin(env, start[1], url.origin, returnTo), 302);
+    } catch (err) {
+      if (err instanceof identity.LoginError) return error(err.message, 400);
+      throw err;
+    }
+  }
 
-    const session = await auth.createSession(env, result.user.id);
-    return json(result.user, 200, { 'Set-Cookie': auth.sessionCookie(session, secure) });
+  const callback = url.pathname.match(/^\/auth\/([a-z]+)\/callback$/);
+  if (callback && (request.method === 'GET' || request.method === 'POST')) {
+    if (!identity.isProviderName(callback[1])) return error(`unknown sign-in provider "${callback[1]}"`, 404);
+
+    // Google comes back as a redirect; Apple posts a form, cross-site.
+    const params =
+      request.method === 'POST'
+        ? new URLSearchParams(await request.text())
+        : url.searchParams;
+
+    let who: identity.Identity;
+    try {
+      who = await identity.completeLogin(env, callback[1], params, url.origin);
+    } catch (err) {
+      if (err instanceof identity.LoginError) return backToDashboard(url.origin, err.message);
+      throw err;
+    }
+
+    if (!auth.isAllowed(env, who.email)) {
+      return backToDashboard(url.origin, 'that account is not allowed to sign in here');
+    }
+
+    const user = await auth.upsertUser(env, who);
+    const session = await auth.createSession(env, user.id);
+    // 303, so the browser follows Apple's POST callback with a GET.
+    return new Response(null, {
+      status: 303,
+      headers: {
+        Location: `${url.origin}${who.returnTo ?? '/'}`,
+        'Set-Cookie': auth.sessionCookie(session, secure),
+      },
+    });
   }
 
   if (url.pathname === '/api/auth/logout' && request.method === 'POST') {
@@ -289,8 +325,8 @@ export const app = {
           : error('unknown client_id', 404);
       }
 
-      const loginResponse = await handleLogin(request, url, env);
-      if (loginResponse) return loginResponse;
+      const signInResponse = await handleSignIn(request, url, env);
+      if (signInResponse) return signInResponse;
 
       const needsUser =
         url.pathname === '/oauth/authorize' || url.pathname.startsWith('/api/') || url.pathname.startsWith('/export/');

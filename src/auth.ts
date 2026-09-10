@@ -1,7 +1,8 @@
 /**
- * Identity: email plus a one-time code, no passwords.
+ * Sessions and API tokens.
  *
- * Two credentials come out of it:
+ * Who the athlete is comes from `identity.ts` (Google or Apple); this module
+ * turns that into the two credentials the app uses:
  *
  *   - a browser session cookie, for the dashboard and the consent page;
  *   - an API token (`wk_...`), pasted into a watch app or an MCP client that
@@ -13,13 +14,9 @@
 
 import type { Env, User } from './db';
 import { newId } from './db';
-import { sendLoginCode } from './email';
+import type { Identity } from './identity';
 
 export const SESSION_TTL_DAYS = 30;
-export const CODE_TTL_MINUTES = 10;
-/** How long before a second code may be requested for the same address. */
-export const CODE_COOLDOWN_SECONDS = 60;
-export const MAX_CODE_ATTEMPTS = 5;
 
 const SESSION_COOKIE = 'workout_session';
 
@@ -38,33 +35,16 @@ export async function sha256(value: string): Promise<string> {
 
 const iso = (date: Date): string => date.toISOString();
 const inDays = (days: number, from = new Date()): Date => new Date(from.getTime() + days * 86_400_000);
-const inMinutes = (minutes: number, from = new Date()): Date => new Date(from.getTime() + minutes * 60_000);
-
-/** A six-digit code, drawn without modulo bias. */
-export function newLoginCode(): string {
-  const buffer = new Uint32Array(1);
-  do {
-    crypto.getRandomValues(buffer);
-  } while (buffer[0] >= 4_294_000_000); // largest multiple of 1e6 below 2^32
-  return String(buffer[0] % 1_000_000).padStart(6, '0');
-}
-
-/** Deliberately narrow: enough to catch typos, not to police the RFC. */
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
-
-export function normalizeEmail(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const email = value.trim().toLowerCase();
-  return email.length <= 254 && EMAIL_PATTERN.test(email) ? email : null;
-}
 
 /**
- * An optional allowlist, because an open sign-up form on a personal service is
- * an invitation to burn someone else's email quota. `ALLOWED_EMAILS` takes
- * addresses or `@domain` entries, comma separated; unset means open.
+ * An optional allowlist. Anyone with a Google account can reach the sign-in
+ * button, so a public deployment usually wants to name who may actually get
+ * in. `ALLOWED_EMAILS` takes addresses or `@domain` entries, comma separated;
+ * unset means anyone may sign up.
  */
-export function isAllowed(env: Env, email: string): boolean {
+export function isAllowed(env: Env, email: string | null): boolean {
   if (!env.ALLOWED_EMAILS) return true;
+  if (!email) return false;
   const domain = email.slice(email.indexOf('@'));
   return env.ALLOWED_EMAILS.split(',')
     .map((entry) => entry.trim().toLowerCase())
@@ -73,81 +53,23 @@ export function isAllowed(env: Env, email: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Login codes
+// Accounts
 // ---------------------------------------------------------------------------
 
-export type LoginRequest = { ok: true } | { ok: false; status: number; error: string; retryAfter?: number };
-
-export async function requestLoginCode(env: Env, rawEmail: unknown, appName: string): Promise<LoginRequest> {
-  const email = normalizeEmail(rawEmail);
-  if (!email) return { ok: false, status: 400, error: 'that does not look like an email address' };
-  if (!isAllowed(env, email)) return { ok: false, status: 403, error: 'that address is not allowed to sign in here' };
-
-  const existing = await env.DB.prepare('SELECT created_at FROM login_codes WHERE email = ?')
-    .bind(email)
-    .first<{ created_at: string }>();
-
-  if (existing) {
-    const age = (Date.now() - Date.parse(existing.created_at)) / 1000;
-    if (age < CODE_COOLDOWN_SECONDS) {
-      const retryAfter = Math.ceil(CODE_COOLDOWN_SECONDS - age);
-      return { ok: false, status: 429, error: `a code was just sent; try again in ${retryAfter}s`, retryAfter };
-    }
-  }
-
-  const code = newLoginCode();
-  await env.DB.prepare(
-    `INSERT INTO login_codes (email, code_hash, expires_at, attempts, created_at) VALUES (?1, ?2, ?3, 0, ?4)
-     ON CONFLICT (email) DO UPDATE SET
-       code_hash = excluded.code_hash, expires_at = excluded.expires_at, attempts = 0, created_at = excluded.created_at`,
-  )
-    .bind(email, await sha256(code), iso(inMinutes(CODE_TTL_MINUTES)), iso(new Date()))
-    .run();
-
-  await sendLoginCode(env, email, code, appName);
-  return { ok: true };
-}
-
-export type VerifyResult = { ok: true; user: User } | { ok: false; status: number; error: string };
-
-export async function verifyLoginCode(env: Env, rawEmail: unknown, rawCode: unknown): Promise<VerifyResult> {
-  const email = normalizeEmail(rawEmail);
-  const code = typeof rawCode === 'string' ? rawCode.trim().replace(/\s/g, '') : '';
-  if (!email || !/^\d{6}$/.test(code)) return { ok: false, status: 400, error: 'enter the six-digit code' };
-
-  const row = await env.DB.prepare('SELECT code_hash, expires_at, attempts FROM login_codes WHERE email = ?')
-    .bind(email)
-    .first<{ code_hash: string; expires_at: string; attempts: number }>();
-
-  const wrong = { ok: false as const, status: 400, error: 'that code is wrong or has expired' };
-  if (!row) return wrong;
-
-  // Burn the code on expiry or too many guesses, so it cannot be ground down.
-  if (Date.parse(row.expires_at) < Date.now() || row.attempts >= MAX_CODE_ATTEMPTS) {
-    await env.DB.prepare('DELETE FROM login_codes WHERE email = ?').bind(email).run();
-    return wrong;
-  }
-
-  if ((await sha256(code)) !== row.code_hash) {
-    await env.DB.prepare('UPDATE login_codes SET attempts = attempts + 1 WHERE email = ?').bind(email).run();
-    return wrong;
-  }
-
-  await env.DB.prepare('DELETE FROM login_codes WHERE email = ?').bind(email).run();
-  return { ok: true, user: await upsertUser(env, email) };
-}
-
-/** First verified login creates the account; later ones just stamp it. */
-async function upsertUser(env: Env, email: string): Promise<User> {
+/** The first sign-in creates the account; later ones just stamp it. */
+export async function upsertUser(env: Env, identity: Identity): Promise<User> {
   const now = iso(new Date());
   await env.DB.prepare(
-    `INSERT INTO users (id, email, created_at, last_login_at) VALUES (?1, ?2, ?3, ?3)
-     ON CONFLICT (email) DO UPDATE SET last_login_at = excluded.last_login_at`,
+    `INSERT INTO users (id, provider, subject, email, created_at, last_login_at) VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+     ON CONFLICT (provider, subject) DO UPDATE SET
+       email = excluded.email, last_login_at = excluded.last_login_at`,
   )
-    .bind(newId(12), email, now)
+    .bind(newId(12), identity.provider, identity.subject, identity.email, now)
     .run();
 
-  const user = await env.DB.prepare('SELECT id, email FROM users WHERE email = ?').bind(email).first<User>();
+  const user = await env.DB.prepare('SELECT id, email FROM users WHERE provider = ? AND subject = ?')
+    .bind(identity.provider, identity.subject)
+    .first<User>();
   if (!user) throw new Error('user vanished immediately after being written');
   return user;
 }
@@ -275,12 +197,8 @@ export async function revokeToken(env: Env, userId: string, prefix: string): Pro
   return (result.meta.changes ?? 0) > 0;
 }
 
-/** Sweep expired sessions and login codes. Called by the nightly cron. */
+/** Sweep expired sessions. Called by the nightly cron. */
 export async function pruneExpired(env: Env, now: Date = new Date()): Promise<number> {
-  const stamp = iso(now);
-  const results = await env.DB.batch([
-    env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(stamp),
-    env.DB.prepare('DELETE FROM login_codes WHERE expires_at < ?').bind(stamp),
-  ]);
-  return results.reduce((total, result) => total + (result.meta.changes ?? 0), 0);
+  const result = await env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(iso(now)).run();
+  return result.meta.changes ?? 0;
 }

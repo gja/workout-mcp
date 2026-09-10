@@ -18,13 +18,14 @@ import { OAuthProvider } from '@cloudflare/workers-oauth-provider';
 import { SCOPE, app } from './app';
 import * as auth from './auth';
 import * as db from './db';
+import * as identity from './identity';
 import type { Env, User } from './db';
 import { handleMcp } from './mcp';
 import { ToolError } from './tools';
 import { WorkoutError } from './workout';
 
 /** What `completeAuthorization` stores on the grant, and hands back here. */
-type AuthProps = { userId: string; email: string };
+type AuthProps = { userId: string; email: string | null };
 
 const mcpHandler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -75,10 +76,11 @@ export default {
   async scheduled(_event: ScheduledController, env: Env): Promise<void> {
     const workouts = await db.pruneAll(env);
     const credentials = await auth.pruneExpired(env);
+    const abandoned = await identity.pruneLoginStates(env);
     const purged = await provider.purgeExpiredData(env);
     console.log(
-      `nightly sweep removed ${workouts} workouts, ${credentials} expired logins, ` +
-        `and ${purged.grantsPurged ?? 0} stale grants`,
+      `nightly sweep removed ${workouts} workouts, ${credentials} expired sessions, ` +
+        `${abandoned} abandoned sign-ins, and ${purged.grantsPurged ?? 0} stale grants`,
     );
   },
 } satisfies ExportedHandler<Env>;

@@ -24,17 +24,25 @@ export type Env = {
   OAUTH_KV: KVNamespace;
   /** Injected by the OAuth provider on every request it passes through. */
   OAUTH_PROVIDER: OAuthHelpers;
-  /** Shown in the login email and on the dashboard. */
+  /** Shown on the dashboard and the consent page. */
   APP_NAME?: string;
-  /** Resend API key. Without it, login codes are written to the log instead. */
-  RESEND_API_KEY?: string;
-  /** The From address for login emails, e.g. "Workouts <login@example.com>". */
-  EMAIL_FROM?: string;
+
+  /** Google sign-in. Both are needed for the button to appear. */
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+
+  /** Sign in with Apple. All four are needed for the button to appear. */
+  APPLE_CLIENT_ID?: string;
+  APPLE_TEAM_ID?: string;
+  APPLE_KEY_ID?: string;
+  /** The .p8 private key, base64 PKCS#8, with or without its PEM armour. */
+  APPLE_PRIVATE_KEY?: string;
+
   /** Optional sign-up allowlist: addresses or "@domain", comma separated. */
   ALLOWED_EMAILS?: string;
 };
 
-export type User = { id: string; email: string };
+export type User = { id: string; email: string | null };
 
 type WorkoutRow = { id: string; date: string; data: string };
 

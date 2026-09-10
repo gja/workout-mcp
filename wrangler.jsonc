@@ -10,10 +10,12 @@
 
   "vars": {
     "APP_NAME": "Workouts"
-    // Set as secrets, not here:
-    //   RESEND_API_KEY  npx wrangler secret put RESEND_API_KEY
-    //   EMAIL_FROM      e.g. "Workouts <login@your-domain.com>"
-    //   ALLOWED_EMAILS  optional sign-up allowlist, e.g. "me@example.com,@myteam.com"
+    // Sign-in is configured with secrets, not here. Google alone is enough:
+    //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+    // Apple is optional and needs a paid developer account:
+    //   APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY
+    // Optional allowlist, e.g. "me@example.com,@myteam.com":
+    //   ALLOWED_EMAILS
   },
 
   // The OAuth provider stores clients, grants and tokens here.

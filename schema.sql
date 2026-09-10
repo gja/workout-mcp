@@ -1,20 +1,28 @@
 -- Run with: npx wrangler d1 execute workout-mcp --remote --file=./schema.sql
 
--- An athlete. Identity is the email address; there is no password.
+-- An athlete. Identity is a Google or Apple account: the account is keyed by
+-- (provider, subject), and the email is kept for display only. Apple's private
+-- relay means the same person can have a different address per provider, so
+-- signing in with the other provider makes a separate account.
 CREATE TABLE IF NOT EXISTS users (
   id            TEXT PRIMARY KEY,
-  email         TEXT NOT NULL UNIQUE,   -- always stored lower-cased
+  provider      TEXT NOT NULL,          -- 'google' | 'apple'
+  subject       TEXT NOT NULL,          -- the provider's stable user id
+  email         TEXT,                   -- lower-cased, may be a relay address
   created_at    TEXT NOT NULL,
-  last_login_at TEXT
+  last_login_at TEXT,
+  UNIQUE (provider, subject)
 );
 
--- One-time login codes, at most one outstanding per email address.
-CREATE TABLE IF NOT EXISTS login_codes (
-  email      TEXT PRIMARY KEY,
-  code_hash  TEXT NOT NULL,
-  expires_at TEXT NOT NULL,
-  attempts   INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL
+-- In-flight sign-ins: the CSRF state and PKCE verifier, held server-side so
+-- the flow does not depend on a cookie surviving Apple's cross-site form POST.
+-- Single use, and swept once expired.
+CREATE TABLE IF NOT EXISTS login_states (
+  state         TEXT PRIMARY KEY,
+  provider      TEXT NOT NULL,
+  code_verifier TEXT,
+  return_to     TEXT,                   -- same-origin path to land on afterwards
+  expires_at    TEXT NOT NULL
 );
 
 -- Browser sessions for the dashboard, held in an httpOnly cookie.

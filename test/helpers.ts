@@ -1,12 +1,11 @@
 import { env } from 'cloudflare:test';
-import { vi } from 'vitest';
 import schema from '../schema.sql?raw';
 import { issueToken } from '../src/auth';
 import { newId } from '../src/db';
 
 /** Fresh, empty tables for each test file. */
 export async function resetDatabase(): Promise<void> {
-  const tables = ['workouts', 'tokens', 'sessions', 'login_codes', 'users'];
+  const tables = ['workouts', 'tokens', 'sessions', 'login_states', 'users'];
   for (const table of tables) await env.DB.exec(`DROP TABLE IF EXISTS ${table}`);
   // Strip `--` comments first: a chunk of pure comment is not a statement.
   const statements = schema
@@ -17,31 +16,46 @@ export async function resetDatabase(): Promise<void> {
   for (const statement of statements) await env.DB.prepare(statement).run();
 }
 
-/** A user with an API token, skipping the login flow. */
+/** A user with an API token, skipping the sign-in flow. */
 export async function seedUser(email = 'test@example.com'): Promise<{ id: string; email: string; token: string }> {
   const id = newId(12);
-  await env.DB.prepare('INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)')
-    .bind(id, email, new Date().toISOString())
+  await env.DB.prepare('INSERT INTO users (id, provider, subject, email, created_at) VALUES (?, ?, ?, ?, ?)')
+    .bind(id, 'google', `subject-${id}`, email, new Date().toISOString())
     .run();
   const { token } = await issueToken(env, id, 'test');
   return { id, email, token };
 }
 
+const BASE = 'https://workouts.example';
+
 /**
- * Run something that triggers a login email and return the code.
+ * Drive a full sign-in and return the session cookie.
  *
- * With no email provider configured the Worker logs the code instead of
- * sending it, which is the same path `wrangler dev` takes.
+ * The `code` handed to the callback picks what the stand-in provider returns,
+ * so a test can ask for a bad issuer or an expired token by name.
  */
-export async function captureLoginCode(run: () => Promise<unknown>): Promise<string> {
-  const logged: string[] = [];
-  const spy = vi.spyOn(console, 'log').mockImplementation((...args) => void logged.push(args.join(' ')));
-  try {
-    await run();
-  } finally {
-    spy.mockRestore();
-  }
-  const match = logged.join('\n').match(/\[login\] code for \S+: (\d{6})/);
-  if (!match) throw new Error(`no login code was logged; saw: ${logged.join(' | ')}`);
-  return match[1];
+export async function signIn(provider: 'google' | 'apple' = 'google', code = 'ok'): Promise<Response> {
+  const { SELF } = await import('cloudflare:test');
+
+  const started = await SELF.fetch(`${BASE}/auth/${provider}/start`, { redirect: 'manual' });
+  const state = new URL(started.headers.get('Location')!).searchParams.get('state')!;
+  const params = new URLSearchParams({ code, state });
+
+  // Google redirects back; Apple posts a form.
+  return provider === 'google'
+    ? SELF.fetch(`${BASE}/auth/google/callback?${params}`, { redirect: 'manual' })
+    : SELF.fetch(`${BASE}/auth/apple/callback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+        redirect: 'manual',
+      });
+}
+
+/** Sign in and return just the cookie to send back. */
+export async function sessionCookieFor(provider: 'google' | 'apple' = 'google'): Promise<string> {
+  const response = await signIn(provider);
+  const cookie = response.headers.get('Set-Cookie');
+  if (!cookie) throw new Error(`sign-in did not set a session cookie (status ${response.status})`);
+  return cookie.split(';')[0];
 }

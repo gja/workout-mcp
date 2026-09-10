@@ -174,7 +174,10 @@
           };
 
           body.replaceChildren(
-            el('div', { className: 'row' }, [el('span', { className: 'note', textContent: user.email }), signOut]),
+            el('div', { className: 'row' }, [
+              el('span', { className: 'note', textContent: user.email ?? 'Signed in' }),
+              signOut,
+            ]),
             ...renderWorkouts(workouts, reload),
             ...renderConnections(connections, reload),
             ...renderTokens(tokens, reload),
@@ -188,7 +191,7 @@
       async function start() {
         const user = await currentUser();
         if (user) return showDashboard(user);
-        mountLogin(body, showDashboard, { intro: 'Sign in with your email — we will send you a code.' });
+        mountLogin(body, { intro: 'Sign in to see your planned workouts.' });
       }
 
       start();

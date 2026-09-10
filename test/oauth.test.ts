@@ -8,10 +8,9 @@
 
 import { SELF, env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { captureLoginCode, resetDatabase, seedUser } from './helpers';
+import { resetDatabase, seedUser, sessionCookieFor } from './helpers';
 
 const BASE = 'https://workouts.example';
-const EMAIL = 'athlete@example.com';
 const REDIRECT = 'http://localhost:41234/callback';
 
 beforeEach(resetDatabase);
@@ -34,12 +33,6 @@ async function registerClient(redirectUris: string[] = [REDIRECT]) {
   });
   expect(response.status, await response.clone().text()).toBe(201);
   return (await response.json()) as { client_id: string; client_name: string };
-}
-
-async function signIn(): Promise<string> {
-  const code = await captureLoginCode(() => postJson('/api/auth/request-code', { email: EMAIL }));
-  const response = await postJson('/api/auth/verify', { email: EMAIL, code });
-  return response.headers.get('Set-Cookie')!.split(';')[0];
 }
 
 const base64url = (bytes: Uint8Array) =>
@@ -65,7 +58,7 @@ const authorizeQuery = (clientId: string, challenge: string, extra: Record<strin
 /** Register, sign in, approve — and hand back the authorization code. */
 async function authorizeUpToCode() {
   const client = await registerClient();
-  const cookie = await signIn();
+  const cookie = await sessionCookieFor();
   const { verifier, challenge } = await pkce();
   const query = authorizeQuery(client.client_id, challenge);
 

@@ -8,7 +8,7 @@ Worker, a D1 database, and a static dashboard.
 - **REST** at `/api/*` — for a Garmin Connect IQ app, Watchletic, or curl.
 - **FIT** at `/export/2026-09-12-a1b2c3d4.fit` — drop it on a watch.
 - **Dashboard** at `/` — see the plan, download files, manage tokens.
-- **Sign-in** by email and a six-digit code. No passwords.
+- **Sign-in** with Google or Apple. No passwords, and no email to send.
 - **OAuth 2.1** via `@cloudflare/workers-oauth-provider`, so an MCP client can
   connect with a button rather than a pasted token.
 
@@ -26,47 +26,67 @@ npm run db:remote                           # apply schema.sql
 npm run deploy
 ```
 
-Then open the dashboard, enter your email, and type in the code. The first
-verified login creates the account.
+Then configure at least one sign-in provider — see below — and open the
+dashboard.
 
-For that email to arrive you need one more thing — see **Sending the login
-code** below. Locally you do not: `npm run db:local` seeds a local D1, and
-`npm run dev` serves everything at `http://localhost:8787` with the login code
-printed to the terminal instead of emailed.
+`npm run db:local` seeds a local D1 and `npm run dev` serves everything at
+`http://localhost:8787`.
 
-## Sending the login code
+## Signing in
 
-Cloudflare has no outbound transactional email. Email Routing is inbound only,
-and an Email Worker may only send to addresses already verified on your own
-account — fine for forwarding yourself a notification, useless for signing up
-an athlete. So the one-time code goes out through an HTTP email API.
+There are no passwords and no email to send: identity comes from Google or
+Apple. Each provider appears on the sign-in page only when its variables are
+set, so **Google alone is a complete setup** — Apple is optional, and needs a
+paid developer account.
 
-The default is [Resend](https://resend.com): one `fetch` call, and its free
-tier (3,000/month) is far more than a training log needs. Verify your domain
-with them, then:
+Both are ordinary OpenID Connect flows, handled by
+[`arctic`](https://arcticjs.dev), which also builds the ES256 client-secret
+JWT that Apple wants instead of a static secret.
 
-```bash
-npx wrangler secret put RESEND_API_KEY
-npx wrangler secret put EMAIL_FROM        # "Workouts <login@your-domain.com>"
-```
+### Google
 
-Swapping it for Postmark, SES or anything else is one function in
-`src/email.ts`.
-
-**With no key set, the code is written to the log instead of sent.** That is
-what makes local development work without signing up for anything, but it also
-means a deployed Worker without `RESEND_API_KEY` cannot log anyone in who
-cannot read your Worker logs.
-
-Since anyone who can reach the page can ask for a code, set an allowlist if the
-Worker is public:
+In the Google Cloud console, create an OAuth 2.0 Client ID of type *Web
+application* and add `https://<your-worker>/auth/google/callback` as an
+authorized redirect URI (plus `http://localhost:8787/auth/google/callback` for
+local work — Google allows loopback). Then:
 
 ```bash
-npx wrangler secret put ALLOWED_EMAILS    # "me@example.com,@myteam.com"
+npx wrangler secret put GOOGLE_CLIENT_ID
+npx wrangler secret put GOOGLE_CLIENT_SECRET
 ```
 
-Codes are six digits, stored only as a hash, good for 10 minutes and five
-guesses, and one address may only ask for a code once a minute.
+### Apple
+
+Sign in with Apple needs an Apple Developer Program membership, which is paid.
+You need a Services ID, a Team ID, and a private key (a `.p8` file) with its
+Key ID. Apple will not redirect to `localhost`, so this one only works on your
+real domain.
+
+```bash
+npx wrangler secret put APPLE_CLIENT_ID     # the Services ID, e.g. com.example.workouts
+npx wrangler secret put APPLE_TEAM_ID
+npx wrangler secret put APPLE_KEY_ID
+npx wrangler secret put APPLE_PRIVATE_KEY   # the .p8 contents, base64 or PEM
+```
+
+### Who may sign in
+
+Anyone with a Google account can reach the button, so a public deployment
+usually wants to name who may actually get in:
+
+```bash
+npx wrangler secret put ALLOWED_EMAILS      # "me@example.com,@myteam.com"
+```
+
+Unset means anyone may sign up.
+
+Two things worth knowing. An account is keyed by *(provider, subject)*, so
+signing in with Google and then with Apple makes two separate accounts, each
+with its own workouts — Apple's private relay hands out a different address
+anyway, so there is no reliable way to link them. And the in-flight sign-in
+state lives in D1 rather than a cookie, because Apple posts its callback back
+cross-site, where a `SameSite=Lax` cookie would not be sent; the state is a
+single-use random value with a ten-minute life.
 
 ## Connecting an MCP client
 
@@ -76,8 +96,8 @@ plan.
 
 **With OAuth**, which is what a client that can open a browser will do on its
 own: point it at `https://<your-worker>/mcp` and it discovers the rest. The
-client registers itself, sends you to a consent page, you sign in with your
-email code and approve, and it gets a token. Nothing to copy.
+client registers itself, sends you to a consent page, you sign in with Google
+or Apple and approve, and it gets a token. Nothing to copy.
 
 That half is [`@cloudflare/workers-oauth-provider`](https://github.com/cloudflare/workers-oauth-provider),
 Cloudflare's OAuth 2.1 library for exactly this case. It wraps the Worker and
@@ -216,8 +236,9 @@ session cookie set at login.
 | Route | Does |
 | --- | --- |
 | `GET /api/health` | Liveness, no auth |
-| `POST /api/auth/request-code` | `{email}` — send a login code |
-| `POST /api/auth/verify` | `{email, code}` — sign in, sets the session cookie |
+| `GET /auth/providers` | Which sign-in providers are configured |
+| `GET /auth/:provider/start` | Begin a Google or Apple sign-in |
+| `GET`/`POST /auth/:provider/callback` | Finish it, sets the session cookie |
 | `POST /api/auth/logout` | End the session |
 | `GET /api/me` | Who you are |
 | `GET /api/tokens` | List API tokens |
@@ -250,8 +271,8 @@ src/workout.ts    the loose-JSON -> strict-model normalizer, and its errors
 src/fit.ts        FIT encoding, including flattening nested repeats
 src/describe.ts   human-readable rendering, shared by MCP and the dashboard
 src/db.ts         D1 queries and retention
-src/auth.ts       login codes, sessions and API tokens
-src/email.ts      sending the login code
+src/identity.ts   signing in with Google or Apple
+src/auth.ts       sessions, accounts and API tokens
 src/tools.ts      the tool surface shared by MCP and REST
 src/mcp.ts        JSON-RPC over Streamable HTTP
 src/app.ts        the OAuth provider's defaultHandler: login, consent, REST, assets
@@ -262,10 +283,17 @@ src/index.ts      the provider itself, and the protected /mcp handler
 claims the OAuth endpoints and `/mcp`, and passes every other request to
 `src/app.ts`.
 
-Nothing is stored in the clear. Sessions, login codes and API tokens are
-SHA-256 hashes in D1; OAuth grants and their tokens are the library's problem,
-in KV. The dashboard only ever shows a token prefix, and the full value is
-returned exactly once, when it is minted.
+Nothing is stored in the clear. Session ids and API tokens are SHA-256 hashes
+in D1; OAuth grants and their tokens are the library's problem, in KV. The
+dashboard only ever shows a token prefix, and the full value is returned
+exactly once, when it is minted.
+
+An ID token coming back from Google or Apple is not signature-checked, and
+does not need to be: it arrives over TLS from the provider's own token
+endpoint, in response to a request authenticated with our client secret, which
+[OpenID Connect Core 3.1.3.7](https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation)
+allows explicitly. The issuer, audience and expiry are checked anyway, since
+they cost nothing and catch a misconfigured client.
 
 Two things are worth knowing if you touch `fit.ts`:
 
@@ -281,7 +309,9 @@ Two things are worth knowing if you touch `fit.ts`:
 Tests run inside `workerd` via `@cloudflare/vitest-pool-workers`, so the FIT
 encoder and the D1 queries are exercised on the same runtime that serves
 production traffic. FIT files are asserted by decoding them again with the
-SDK's own decoder.
+SDK's own decoder. Google and Apple are stood in for by an auxiliary Worker
+that Miniflare routes all outbound traffic to, so the real `arctic` path runs
+— Apple's signed client secret included — without touching the network.
 
 ```bash
 npm test
@@ -292,16 +322,16 @@ npm run typecheck
 
 Everything here fits the Cloudflare free plan: Workers (100k requests/day),
 D1 (5 GB, 5M row reads/day), KV, static assets and cron triggers. Encoding a
-30-step workout is well under the free plan's 10 ms CPU limit. Resend's free
-tier covers the login emails. The only thing you pay for is the domain, and
-Cloudflare Registrar sells those at cost.
+30-step workout is well under the free plan's 10 ms CPU limit. Google sign-in
+is free. The only things you pay for are the domain — Cloudflare Registrar
+sells those at cost — and, if you want the Apple button, an Apple Developer
+membership.
 
-Identity is self-contained rather than delegated to Auth0, Clerk, WorkOS or
-Stytch. Those all have workable free tiers, and the MCP-focused ones will host
-the whole authorization server — but each adds an account every self-hoster of
-this repo would also have to create. The OAuth protocol work is Cloudflare's
-library rather than ours, and the only genuinely hard part left to self-host
-is *sending* the email, which is the one thing outsourced.
+There is no auth vendor in the stack. Auth0, Clerk, WorkOS and Stytch all have
+workable free tiers, and the MCP-focused ones will host the whole
+authorization server — but each adds an account every self-hoster of this repo
+would also have to create, on top of the Google client they need anyway. The
+protocol work is Cloudflare's library and `arctic`, not ours.
 
 ## Licence
 

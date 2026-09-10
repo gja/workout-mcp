@@ -59,7 +59,7 @@
           el('p', { className: 'sub' }, [
             el('strong', { textContent: client.client_name }),
             ' wants to read and write the workouts for ',
-            el('strong', { textContent: user.email }),
+            el('strong', { textContent: user.email ?? 'your account' }),
             '.',
           ]),
           el('div', { className: 'row' }, [approve, cancel]),
@@ -82,8 +82,10 @@
         const user = await currentUser();
         if (user) return consent(user, client);
 
-        mountLogin(body, (signedIn) => consent(signedIn, client), {
+        // Signing in leaves the page, so come back to this exact request.
+        await mountLogin(body, {
           intro: `Sign in to connect ${client.client_name}.`,
+          returnTo: location.pathname + location.search,
         });
       }
 
