@@ -10,6 +10,7 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import migration0002 from '../migrations/0002_workout_steps_column.sql?raw';
+import migration0003 from '../migrations/0003_sub_sport_and_external_id.sql?raw';
 import { getWorkout, putWorkout } from '../src/db';
 import { normalizeWorkout } from '../src/workout';
 import { resetDatabase, seedUser } from './helpers';
@@ -62,6 +63,7 @@ describe('0002, steps into their own column', () => {
       .run();
 
     await runMigration(migration0002);
+    await runMigration(migration0003);
 
     const migrated = await getWorkout(env, userId, old.date, old.id);
     expect(migrated).toMatchObject({
@@ -88,10 +90,40 @@ describe('0002, steps into their own column', () => {
       .run();
 
     await runMigration(migration0002);
+    await runMigration(migration0003);
 
     const migrated = await getWorkout(env, userId, data.date, data.id);
     expect(migrated).not.toBeNull();
     expect(migrated).not.toHaveProperty('notes');
+  });
+});
+
+describe('0003, sub-sport and external id', () => {
+  it('keeps an external id unique per athlete, and only when set', async () => {
+    const { id: userId } = await seedUser();
+    const insert = (id: string, externalId: string | null) =>
+      env.DB.prepare(
+        `INSERT INTO workouts (user_id, date, id, name, sport, steps, external_id, created_at, updated_at)
+         VALUES (?, '2026-09-12', ?, 'W', 'running', '[]', ?, '', '')`,
+      )
+        .bind(userId, id, externalId)
+        .run();
+
+    await insert('aaaaaaaa', 'plan-1');
+    await expect(insert('bbbbbbbb', 'plan-1')).rejects.toThrow(/UNIQUE|constraint/i);
+
+    // The index is partial, so any number of workouts may have none.
+    await insert('cccccccc', null);
+    await insert('dddddddd', null);
+
+    // And another athlete may use the same key.
+    const other = await seedUser('other@example.com');
+    await env.DB.prepare(
+      `INSERT INTO workouts (user_id, date, id, name, sport, steps, external_id, created_at, updated_at)
+       VALUES (?, '2026-09-12', 'eeeeeeee', 'W', 'running', '[]', 'plan-1', '', '')`,
+    )
+      .bind(other.id)
+      .run();
   });
 });
 

@@ -39,6 +39,24 @@ describe('file structure', () => {
     expect(fitFilename({ date: '2026-09-12', id: 'a1b2c3d4' })).toBe('2026-09-12-a1b2c3d4.fit');
   });
 
+  it('writes the description, so the watch shows what the session is for', () => {
+    const workout = build([{ goal_s: 600 }], { notes: 'Steady aerobic hour, keep it conversational' });
+    expect(roundTrip(workout).workoutMesgs[0]).toMatchObject({
+      wktDescription: 'Steady aerobic hour, keep it conversational',
+    });
+  });
+
+  it('writes the sub-sport, so the watch picks the right profile', () => {
+    const workout = build([{ goal_s: 600 }], { sub_sport: 'treadmill' });
+    expect(roundTrip(workout).workoutMesgs[0]).toMatchObject({ sport: 'running', subSport: 'treadmill' });
+  });
+
+  it('leaves both out when the workout has neither', () => {
+    const mesg = roundTrip(build([{ goal_s: 600 }])).workoutMesgs[0];
+    expect(mesg.wktDescription).toBeUndefined();
+    expect(mesg.subSport).toBeUndefined();
+  });
+
   it('gives every sport its FIT equivalent', () => {
     const workout = build([{ goal_s: 60 }], { sport: 'cycling' });
     expect(roundTrip(workout).workoutMesgs[0]).toMatchObject({ sport: 'cycling' });
@@ -153,6 +171,32 @@ describe('targets', () => {
     const step = roundTrip(build([{ goal_s: 600 }])).workoutStepMesgs[0];
     expect(step).toMatchObject({ targetType: 'open' });
     expect(step.customTargetValueLow).toBeUndefined();
+  });
+});
+
+describe('a second target', () => {
+  it('writes the primary and secondary under their own fields', () => {
+    const step = roundTrip(
+      build([{ goal_meters: 400, target_pace_km: ['4:00', '4:15'], target_cadence: [178, 184] }]),
+    ).workoutStepMesgs[0];
+
+    expect(step).toMatchObject({ targetType: 'speed', secondaryTargetType: 'cadence' });
+    expect(step.customTargetSpeedLow as number).toBeCloseTo(1000 / 255, 2);
+    expect(step).toMatchObject({ secondaryCustomTargetCadenceLow: 178, secondaryCustomTargetCadenceHigh: 184 });
+  });
+
+  it('writes a zone as the secondary target value, not a range', () => {
+    const step = roundTrip(
+      build([{ goal_s: 300, target_watts: [240, 260], target_hr_zone: 3 }]),
+    ).workoutStepMesgs[0];
+
+    expect(step).toMatchObject({ targetType: 'power', secondaryTargetType: 'heartRate', secondaryTargetHrZone: 3 });
+    expect(step.secondaryCustomTargetValueLow).toBeUndefined();
+  });
+
+  it('writes no secondary fields when there is only one target', () => {
+    const step = roundTrip(build([{ goal_s: 60, target_heart_rate: [140, 150] }])).workoutStepMesgs[0];
+    expect(step.secondaryTargetType).toBeUndefined();
   });
 });
 

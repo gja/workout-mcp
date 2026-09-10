@@ -33,6 +33,22 @@ export const SPORTS: readonly Sport[] = [
   'running', 'cycling', 'swimming', 'walking', 'hiking', 'rowing', 'training', 'generic',
 ];
 
+/**
+ * How the sport is done, which a watch uses to pick the activity profile —
+ * a treadmill session should not sit waiting for GPS. Names map to the FIT
+ * sub-sport enum.
+ */
+export type SubSport =
+  | 'treadmill' | 'street' | 'trail' | 'track' | 'ultra'
+  | 'road' | 'mountain' | 'indoor_cycling' | 'spin' | 'virtual_activity'
+  | 'lap_swimming' | 'open_water' | 'indoor_rowing' | 'indoor_walking' | 'generic';
+
+export const SUB_SPORTS: readonly SubSport[] = [
+  'treadmill', 'street', 'trail', 'track', 'ultra',
+  'road', 'mountain', 'indoor_cycling', 'spin', 'virtual_activity',
+  'lap_swimming', 'open_water', 'indoor_rowing', 'indoor_walking', 'generic',
+];
+
 export type Intensity = 'warmup' | 'active' | 'interval' | 'rest' | 'recovery' | 'cooldown';
 
 export const INTENSITIES: readonly Intensity[] = ['warmup', 'active', 'interval', 'rest', 'recovery', 'cooldown'];
@@ -58,7 +74,16 @@ export type Target =
 
 export type Step =
   | { kind: 'repeat'; times: number; steps: Step[] }
-  | { kind: 'step'; name?: string; notes?: string; intensity: Intensity; duration: Duration; target: Target };
+  | {
+      kind: 'step';
+      name?: string;
+      notes?: string;
+      intensity: Intensity;
+      duration: Duration;
+      target: Target;
+      /** FIT stores one more target alongside the primary — pace plus cadence, say. */
+      secondary_target?: Target;
+    };
 
 export type Workout = {
   version: 1;
@@ -66,7 +91,10 @@ export type Workout = {
   date: string;
   name: string;
   sport: Sport;
+  sub_sport?: SubSport;
   notes?: string;
+  /** The caller's own key for this workout, for idempotent re-syncs. */
+  external_id?: string;
   steps: Step[];
   updated_at: string;
 };
@@ -251,16 +279,39 @@ function parseZone(value: unknown, path: string, metric: ZoneMetric): Target {
     : { type: 'power', low: percent(low), high: percent(high) };
 }
 
-function parseTarget(raw: Record<string, unknown>, path: string): Target {
-  const present = setKeys(raw, TARGET_KEYS);
-  if (present.length === 0) return { type: 'open' };
-  if (present.length > 1) {
-    fail(path, `a step can only have one target, but ${present.join(' and ')} were both set`);
-  }
-  const key = present[0];
-  const at = `${path}.${key}`;
-  const value = raw[key];
+/** Which metric a target constrains, for de-duplication and ordering. */
+type TargetMetric = 'pace' | 'power' | 'heart_rate' | 'cadence';
 
+/**
+ * When a step carries two targets, FIT stores one as primary and one as
+ * secondary. This is the order they are chosen in: what you are told to run,
+ * then what follows from it. So pace plus cadence makes pace the primary.
+ */
+const TARGET_PRIORITY: readonly TargetMetric[] = ['pace', 'power', 'heart_rate', 'cadence'];
+
+function targetMetric(target: Target): TargetMetric | null {
+  switch (target.type) {
+    case 'speed':
+      return 'pace';
+    case 'power':
+      return 'power';
+    case 'heart_rate':
+      return 'heart_rate';
+    case 'cadence':
+      return 'cadence';
+    case 'zone':
+      return target.metric;
+    case 'open':
+      return null;
+  }
+}
+
+const priorityOf = (target: Target): number => {
+  const metric = targetMetric(target);
+  return metric === null ? TARGET_PRIORITY.length : TARGET_PRIORITY.indexOf(metric);
+};
+
+function parseOneTarget(key: string, value: unknown, at: string): Target {
   switch (key) {
     case 'target_pace_km':
       return { type: 'speed', unit: 'km', ...paceRangeToSpeed(value, at, 1000) };
@@ -288,6 +339,41 @@ function parseTarget(raw: Record<string, unknown>, path: string): Target {
     default:
       return parseZone(value, at, 'power');
   }
+}
+
+/**
+ * A step may carry two targets, which FIT stores as a primary and a
+ * secondary — "400m at 4:00/km and 180 spm". They have to constrain different
+ * metrics, and the priority list decides which of the two leads.
+ */
+function parseTargets(raw: Record<string, unknown>, path: string): { target: Target; secondary?: Target } {
+  const present = setKeys(raw, TARGET_KEYS);
+  if (present.length === 0) return { target: { type: 'open' } };
+
+  const parsed = present.map((key) => ({ key, target: parseOneTarget(key, raw[key], `${path}.${key}`) }));
+
+  // Two targets on the same metric contradict each other.
+  const seen = new Map<TargetMetric, string>();
+  for (const { key, target } of parsed) {
+    const metric = targetMetric(target);
+    if (metric === null) continue;
+    const already = seen.get(metric);
+    if (already) fail(path, `${already} and ${key} both set a ${metric.replace('_', ' ')} target; pick one`);
+    seen.set(metric, key);
+  }
+
+  if (parsed.length > 2) {
+    fail(
+      path,
+      `a step can have at most two targets — FIT stores a primary and a secondary — but ` +
+        `${present.join(', ')} were all set`,
+    );
+  }
+
+  parsed.sort((a, b) => priorityOf(a.target) - priorityOf(b.target));
+  return parsed.length === 1
+    ? { target: parsed[0].target }
+    : { target: parsed[0].target, secondary: parsed[1].target };
 }
 
 function assertOrdered(low: number | undefined, high: number | undefined, path: string, raw: unknown): void {
@@ -346,7 +432,9 @@ function parseStep(value: unknown, path: string, depth: number, insideRepeat: bo
     intensity = given;
   }
 
-  const step: Step = { kind: 'step', intensity, duration: parseDuration(raw, path), target: parseTarget(raw, path) };
+  const { target, secondary } = parseTargets(raw, path);
+  const step: Step = { kind: 'step', intensity, duration: parseDuration(raw, path), target };
+  if (secondary) step.secondary_target = secondary;
   if (name) step.name = name;
   if (notes) step.notes = notes;
   return step;
@@ -368,7 +456,7 @@ export function countSteps(steps: Step[]): number {
 // Workout parsing
 // ---------------------------------------------------------------------------
 
-const WORKOUT_KEYS = new Set(['date', 'name', 'sport', 'notes', 'steps']);
+const WORKOUT_KEYS = new Set(['date', 'name', 'sport', 'sub_sport', 'notes', 'external_id', 'steps']);
 
 export function normalizeWorkout(value: unknown): WorkoutInput {
   if (!isObject(value)) fail('', `expected a workout object, got ${typeof value}`);
@@ -399,9 +487,21 @@ export function normalizeWorkout(value: unknown): WorkoutInput {
     : parseText(raw.name, 'name', 80) || `${sport} ${date}`;
 
   const workout: WorkoutInput = { date, name, sport, steps };
+
+  if (raw.sub_sport !== undefined && raw.sub_sport !== null) {
+    const given = String(raw.sub_sport).toLowerCase() as SubSport;
+    if (!SUB_SPORTS.includes(given)) {
+      fail('sub_sport', `unknown sub_sport ${JSON.stringify(raw.sub_sport)}, expected one of ${SUB_SPORTS.join(', ')}`);
+    }
+    workout.sub_sport = given;
+  }
   if (raw.notes !== undefined && raw.notes !== null) {
     const notes = parseText(raw.notes, 'notes', 1000);
     if (notes) workout.notes = notes;
+  }
+  if (raw.external_id !== undefined && raw.external_id !== null) {
+    const externalId = parseText(raw.external_id, 'external_id', 128);
+    if (externalId) workout.external_id = externalId;
   }
   return workout;
 }

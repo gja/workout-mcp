@@ -38,9 +38,8 @@ describe('workout basics', () => {
     }
   });
 
-  it('allows only one duration and one target per step', () => {
+  it('allows only one duration per step', () => {
     expect(() => workout([{ goal_s: 60, goal_meters: 400 }])).toThrow(/only have one duration/);
-    expect(() => workout([{ goal_s: 60, target_heart_rate: 150, target_watts: 200 }])).toThrow(/only have one target/);
   });
 });
 
@@ -168,6 +167,49 @@ describe('targets', () => {
   });
 });
 
+describe('two targets on a step', () => {
+  it('makes the higher-priority metric the primary', () => {
+    // Pace leads cadence: the pace is the instruction, the cadence follows.
+    const paced = step(workout([{ goal_meters: 400, target_cadence: [178, 184], target_pace_km: ['4:00', '4:15'] }]));
+    expect(paced.target.type).toBe('speed');
+    expect(paced.secondary_target?.type).toBe('cadence');
+
+    // Power leads heart rate.
+    const bike = step(workout([{ goal_s: 300, target_heart_rate: [150, 160], target_watts: [240, 260] }]));
+    expect(bike.target.type).toBe('power');
+    expect(bike.secondary_target?.type).toBe('heart_rate');
+  });
+
+  it('orders the same whichever way the fields are written', () => {
+    const one = step(workout([{ goal_s: 60, target_pace_km: ['4:00', '4:15'], target_cadence: 180 }]));
+    const other = step(workout([{ goal_s: 60, target_cadence: 180, target_pace_km: ['4:00', '4:15'] }]));
+    expect(one).toEqual(other);
+  });
+
+  it('leaves a single target with no secondary', () => {
+    expect(step(workout([{ goal_s: 60, target_heart_rate: [140, 150] }])).secondary_target).toBeUndefined();
+  });
+
+  it('counts a zone as a target on its metric', () => {
+    const zoned = step(workout([{ goal_s: 60, target_hr_zone: 2, target_cadence: 180 }]));
+    expect(zoned.target).toMatchObject({ type: 'zone', metric: 'heart_rate' });
+    expect(zoned.secondary_target?.type).toBe('cadence');
+  });
+
+  it('refuses two targets on the same metric', () => {
+    expect(() => workout([{ goal_s: 60, target_heart_rate: [140, 150], target_hr_zone: 3 }])).toThrow(
+      /both set a heart rate target/,
+    );
+    expect(() => workout([{ goal_s: 60, target_pace_km: '4:00', target_pace_zone: 3 }])).toThrow(/both set a pace target/);
+  });
+
+  it('refuses a third target, which FIT cannot hold', () => {
+    expect(() =>
+      workout([{ goal_s: 60, target_pace_km: '4:00', target_heart_rate: 150, target_cadence: 180 }]),
+    ).toThrow(/at most two targets/);
+  });
+});
+
 describe('zone ranges', () => {
   it('reads the endpoints as boundaries on a continuous scale', () => {
     // Garmin's default zones put the bottom of zone 2 at 60% of max HR and
@@ -255,6 +297,29 @@ describe('repeats', () => {
     expect(() => workout([{ repeat: 4, steps: [] }])).toThrow(/at least one step to repeat/);
     const deep = (depth: number): unknown => (depth === 0 ? { goal_s: 60 } : { repeat: 2, steps: [deep(depth - 1)] });
     expect(() => workout([deep(5)])).toThrow(/nest more than/);
+  });
+});
+
+describe('workout fields', () => {
+  it('takes a sub-sport from the known list', () => {
+    expect(normalizeWorkout({ date: '2026-09-12', sub_sport: 'treadmill', steps: [{ goal_s: 60 }] })).toMatchObject({
+      sub_sport: 'treadmill',
+    });
+    expect(() => normalizeWorkout({ date: '2026-09-12', sub_sport: 'moonwalking', steps: [{ goal_s: 60 }] })).toThrow(
+      /unknown sub_sport/,
+    );
+  });
+
+  it('takes an external id', () => {
+    expect(
+      normalizeWorkout({ date: '2026-09-12', external_id: 'watchletic-8891', steps: [{ goal_s: 60 }] }),
+    ).toMatchObject({ external_id: 'watchletic-8891' });
+  });
+
+  it('leaves both out when they are not given', () => {
+    const plain = normalizeWorkout({ date: '2026-09-12', steps: [{ goal_s: 60 }] });
+    expect(plain).not.toHaveProperty('sub_sport');
+    expect(plain).not.toHaveProperty('external_id');
   });
 });
 
