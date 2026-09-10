@@ -28,6 +28,42 @@ function roundTrip(workout: Workout): Decoded {
   return { bytes, ...(messages as Record<string, DecodedMesg[]>) } as Decoded;
 }
 
+describe('the encoder buffer', () => {
+  /**
+   * The SDK asks for a resizable ArrayBuffer with a 500 MB maxByteLength.
+   * Dev workerd allows it; production refuses it against the isolate memory
+   * cap, and the encoder threw before writing a byte. Assert on the size we
+   * ask for, since the environment that rejects it is not the one under test.
+   */
+  it('never reserves more than a megabyte', () => {
+    const requested: number[] = [];
+    const NativeArrayBuffer = globalThis.ArrayBuffer;
+
+    class SpyArrayBuffer extends NativeArrayBuffer {
+      constructor(length: number, options?: { maxByteLength?: number }) {
+        if (options?.maxByteLength !== undefined) requested.push(options.maxByteLength);
+        super(length, options as never);
+      }
+    }
+
+    globalThis.ArrayBuffer = SpyArrayBuffer as unknown as ArrayBufferConstructor;
+    try {
+      roundTrip(build([{ goal_s: 1800, target_pace_km: ['6:00', '6:30'] }]));
+    } finally {
+      globalThis.ArrayBuffer = NativeArrayBuffer;
+    }
+
+    expect(requested.length, 'the encoder should have asked for a resizable buffer').toBeGreaterThan(0);
+    expect(Math.max(...requested)).toBeLessThanOrEqual(1024 * 1024);
+  });
+
+  it('puts the global back, so nothing else sees the clamp', () => {
+    const before = globalThis.ArrayBuffer;
+    roundTrip(build([{ goal_s: 600 }]));
+    expect(globalThis.ArrayBuffer).toBe(before);
+  });
+});
+
 describe('file structure', () => {
   it('writes a workout file the SDK can read back', () => {
     const result = roundTrip(build([{ name: 'Easy', goal_s: 1800 }]));

@@ -17,6 +17,12 @@ import { Encoder, Profile } from '@garmin/fitsdk';
 import type { Duration, HrValue, PowerValue, Sport, Step, SubSport, Target, Workout } from './workout';
 
 /**
+ * The most the encoder's scratch buffer may reserve. A workout file is a few
+ * hundred bytes; a megabyte is already far more than any plan will need.
+ */
+const MAX_FIT_BYTES = 1024 * 1024;
+
+/**
  * Values written when one end of a range is left open. FIT has no "unbounded"
  * encoding, so we use limits no human will reach.
  */
@@ -198,9 +204,43 @@ function serialFor(id: string): number {
 }
 
 /** Encode a stored workout as a FIT workout file. */
+/**
+ * Build an encoder whose scratch buffer fits inside a Worker.
+ *
+ * The SDK's `OutputStream` asks for a *resizable* ArrayBuffer with a 500 MB
+ * `maxByteLength`. V8 reserves that much address space up front, which
+ * production workerd refuses against the isolate's memory cap — so the
+ * encoder threw before writing a byte, while dev workerd let it through. The
+ * size is a private field with no constructor option, so the allocation is
+ * clamped here instead.
+ *
+ * The swap spans a single synchronous constructor call with no `await` in it,
+ * so no other request can run while the global is replaced.
+ */
+function createEncoder(): Encoder {
+  const NativeArrayBuffer = globalThis.ArrayBuffer;
+
+  class ClampedArrayBuffer extends NativeArrayBuffer {
+    constructor(length: number, options?: { maxByteLength?: number }) {
+      if (options?.maxByteLength === undefined) {
+        super(length);
+        return;
+      }
+      super(length, { maxByteLength: Math.max(length, Math.min(options.maxByteLength, MAX_FIT_BYTES)) });
+    }
+  }
+
+  globalThis.ArrayBuffer = ClampedArrayBuffer as unknown as ArrayBufferConstructor;
+  try {
+    return new Encoder();
+  } finally {
+    globalThis.ArrayBuffer = NativeArrayBuffer;
+  }
+}
+
 export function encodeWorkoutFit(workout: Workout, now: Date = new Date()): Uint8Array {
   const steps = flattenSteps(workout.steps);
-  const encoder = new Encoder();
+  const encoder = createEncoder();
 
   write(encoder, Profile.MesgNum.FILE_ID, {
     type: 'workout',
