@@ -1,0 +1,204 @@
+:root {
+  --bg: #fbfbf9;
+  --card: #ffffff;
+  --ink: #1a1a17;
+  --muted: #6b6b63;
+  --line: #e4e4de;
+  --accent: #1f6feb;
+  --danger: #c0392b;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16161a;
+    --card: #1e1e23;
+    --ink: #ececec;
+    --muted: #9a9a95;
+    --line: #2e2e35;
+    --accent: #63a2ff;
+    --danger: #ff6b5b;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 24px 16px 64px;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+main { max-width: 880px; margin: 0 auto; }
+main.narrow { max-width: 420px; margin-top: 8vh; }
+
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 16px; margin: 32px 0 10px; }
+h3 { font-size: 15px; margin: 24px 0 8px; }
+
+.sub { color: var(--muted); margin: 0 0 24px; font-size: 14px; }
+.note, .empty { color: var(--muted); font-size: 14px; }
+.error { color: var(--danger); font-size: 14px; }
+
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.row form { display: contents; }
+
+input, button {
+  font: inherit;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  padding: 9px 12px;
+  background: var(--card);
+  color: var(--ink);
+}
+input { flex: 1 1 240px; min-width: 0; }
+button { cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.link { border: none; background: none; color: var(--accent); padding: 4px 0; }
+button.link.danger { color: var(--danger); }
+button[disabled] { opacity: 0.55; cursor: default; }
+
+a.button {
+  display: block;
+  text-align: center;
+  text-decoration: none;
+  padding: 11px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  font-weight: 500;
+}
+a.button:hover { border-color: var(--accent); }
+.providers { display: flex; flex-direction: column; gap: 10px; margin: 16px 0; }
+
+/* --- Calendar ----------------------------------------------------------- */
+
+/*
+ * A flat seven-column grid: no week wrappers, so the narrow-width collapse
+ * below is pure CSS with no resize handling in React.
+ */
+.calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+
+.weekday {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  padding-bottom: 2px;
+}
+
+.cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 76px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+}
+/* Padding days that complete the week but sit outside the retention window. */
+.cell.outside { background: none; border-color: transparent; opacity: 0.4; }
+.cell.today { border-color: var(--accent); }
+.cell.today .num, .cell.today .full { color: var(--accent); font-weight: 600; }
+
+.cell .num { font-size: 12px; color: var(--muted); }
+.cell .full { display: none; }
+.entries { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+
+.chip {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 4px 6px;
+  font-size: 11px;
+  line-height: 1.35;
+  background: var(--bg);
+  border-radius: 6px;
+}
+.chip span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip .total { color: var(--muted); }
+.chip.on { border-color: var(--accent); color: var(--accent); }
+.chip.on .total { color: var(--accent); }
+
+@media (max-width: 640px) {
+  /* Seven narrow columns stop being readable; become one row per day. */
+  .calendar { display: block; }
+  .weekday, .cell .num, .cell.outside { display: none; }
+
+  .cell {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 10px;
+    min-height: 0;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+  }
+  .cell .full { display: block; flex: 0 0 92px; font-size: 12px; color: var(--muted); }
+  .entries { flex: 1 1 auto; }
+  .chip { font-size: 13px; }
+}
+
+/* --- Cards -------------------------------------------------------------- */
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+}
+.card header { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.card h3 { margin: 0; font-size: 16px; }
+.card p { margin: 6px 0 0; }
+
+.day { margin-top: 24px; }
+.day > h3 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+
+.id {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+pre {
+  margin: 10px 0 0;
+  white-space: pre-wrap;
+  font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted);
+}
+/* A wrapped JSON snippet reads worse than a scrolled one, and this keeps the
+   page body from scrolling sideways on a phone. */
+pre.snippet {
+  white-space: pre;
+  overflow-x: auto;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.actions { display: flex; gap: 14px; margin-top: 10px; }
+
+.secret {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--line);
+  word-break: break-all;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+code { background: var(--line); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
