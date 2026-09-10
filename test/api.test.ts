@@ -23,8 +23,16 @@ const call = (path: string, init: RequestInit = {}) =>
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...init.headers },
   });
 
+/**
+ * Fixture dates are relative to today, not written down: a workout only exists
+ * inside the retention window, so a literal date would quietly fall out of it
+ * as real time moved past and take the suite with it.
+ */
+const DAY = shiftDate(today(), 2);
+const NEXT_DAY = shiftDate(today(), 3);
+
 const INTERVALS = {
-  date: '2026-09-12',
+  date: DAY,
   name: '8x400m',
   steps: [
     { name: 'Warmup', goal_s: 600, target_heart_rate: [146, 153] },
@@ -92,11 +100,11 @@ describe('workout CRUD', () => {
       await call('/api/workouts', { method: 'POST', body: JSON.stringify(INTERVALS) })
     ).json()) as Record<string, unknown>;
 
-    expect(created.date).toBe('2026-09-12');
+    expect(created.date).toBe(DAY);
     expect(created.id).toMatch(/^[0-9a-z]{8}$/);
     expect(created.name).toBe('8x400m');
-    expect(created.fit_url).toBe(`${BASE}/export/2026-09-12-${created.id as string}.fit`);
-    expect(created.json_url).toBe(`${BASE}/api/workouts/2026-09-12/${created.id as string}.json`);
+    expect(created.fit_url).toBe(`${BASE}/export/${DAY}-${created.id as string}.fit`);
+    expect(created.json_url).toBe(`${BASE}/api/workouts/${DAY}/${created.id as string}.json`);
 
     // A write says which workout it was, not what the caller just sent.
     expect(created).not.toHaveProperty('steps');
@@ -155,11 +163,11 @@ describe('workout CRUD', () => {
     const { date, id } = await createIntervals();
     await call(`/api/workouts/${date}/${id}.json`, {
       method: 'PUT',
-      body: JSON.stringify({ ...INTERVALS, date: '2026-09-13' }),
+      body: JSON.stringify({ ...INTERVALS, date: NEXT_DAY }),
     });
 
     expect((await call(`/api/workouts/${date}/${id}.json`)).status).toBe(404);
-    expect((await call(`/api/workouts/2026-09-13/${id}.json`)).status).toBe(200);
+    expect((await call(`/api/workouts/${NEXT_DAY}/${id}.json`)).status).toBe(200);
   });
 
   it('deletes a workout', async () => {
@@ -170,7 +178,7 @@ describe('workout CRUD', () => {
 
   it('filters the list by date range', async () => {
     await createIntervals();
-    const empty = (await (await call('/api/workouts.json?from=2026-09-13&to=2026-09-20')).json()) as {
+    const empty = (await (await call(`/api/workouts.json?from=${NEXT_DAY}&to=${shiftDate(today(), 10)}`)).json()) as {
       workouts: unknown[];
     };
     expect(empty.workouts).toHaveLength(0);
@@ -179,7 +187,7 @@ describe('workout CRUD', () => {
   it('explains what is wrong with a bad workout', async () => {
     const response = await call('/api/workouts', {
       method: 'POST',
-      body: JSON.stringify({ date: '2026-09-12', steps: [{ goal_s: 60, goal_meters: 400 }] }),
+      body: JSON.stringify({ date: DAY, steps: [{ goal_s: 60, goal_meters: 400 }] }),
     });
     expect(response.status).toBe(400);
     expect((await response.json()) as { error: string }).toMatchObject({
@@ -246,13 +254,13 @@ describe('an external id', () => {
 
   it('moves the workout when the plan moves it, without leaving a copy', async () => {
     const first = (await (await withKey()).json()) as { id: string; date: string };
-    const moved = (await (await withKey({ date: '2026-09-13' })).json()) as { id: string; date: string };
+    const moved = (await (await withKey({ date: NEXT_DAY })).json()) as { id: string; date: string };
 
     expect(moved.id).toBe(first.id);
-    expect(moved.date).toBe('2026-09-13');
+    expect(moved.date).toBe(NEXT_DAY);
 
     const { workouts } = (await (await call('/api/workouts.json')).json()) as { workouts: { date: string }[] };
-    expect(workouts.map((w) => w.date)).toEqual(['2026-09-13']);
+    expect(workouts.map((w) => w.date)).toEqual([NEXT_DAY]);
   });
 
   it('keeps workouts without a key independent', async () => {
@@ -337,7 +345,7 @@ describe('bad requests', () => {
   });
 
   it('will not replace a workout that is not there', async () => {
-    const response = await call('/api/workouts/2026-09-12/zzzzzzzz.json', {
+    const response = await call(`/api/workouts/${DAY}/zzzzzzzz.json`, {
       method: 'PUT',
       body: JSON.stringify(INTERVALS),
     });
@@ -378,7 +386,7 @@ describe('FIT export', () => {
 
   it('rejects a malformed slug and an unknown workout', async () => {
     expect((await call('/export/not-a-workout.fit')).status).toBe(400);
-    expect((await call('/export/2026-09-12-zzzzzzzz.fit')).status).toBe(404);
+    expect((await call(`/export/${DAY}-zzzzzzzz.fit`)).status).toBe(404);
   });
 
   it('will not export another athlete\'s workout', async () => {
