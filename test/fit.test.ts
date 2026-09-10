@@ -138,39 +138,49 @@ describe('targets', () => {
   });
 
   /**
-   * An open end leaves the field out entirely. FIT has no value meaning "no
-   * limit" — a 0 power floor reads as 0% of FTP, not as "no floor" — and a
-   * step carrying an invented bound was what Watchletic refused to import.
+   * FIT has no "below X" target — a target is a band — so an open end is
+   * filled with the extreme of the range rather than left out. The filler
+   * must be in the unit the caller used: the profile packs a percentage and
+   * an absolute into one field, so a raw 0 floor under a ceiling in watts is
+   * two different units, which is what an importer refused.
    */
-  it('writes no field at all for an open end', () => {
+  it('fills an open end in the unit the caller used, never a raw zero', () => {
+    // Asserted on the raw field: the decoder renders the offset values
+    // themselves by their profile names ("wattsOffset", "bpmOffset"), which
+    // says nothing about what was written.
+
+    // 0 W is 1000 in workoutPower's watts offset, not 0 — 0 would be 0% FTP.
+    const capped = roundTrip(build([{ goal_s: 60, target_watts: ['-', 120] }])).workoutStepMesgs[0];
+    expect(capped).toMatchObject({ customTargetValueLow: 1000, customTargetValueHigh: 1120 });
+
+    // 0 bpm is 100 in workoutHr's bpm offset.
+    const under = roundTrip(build([{ goal_s: 60, target_heart_rate: ['-', 150] }])).workoutStepMesgs[0];
+    expect(under).toMatchObject({ customTargetValueLow: 100, customTargetValueHigh: 250 });
+
+    // A percentage stays a percentage, where a raw 0 is correct.
+    const percent = roundTrip(build([{ goal_s: 60, target_watts: ['-', '80%'] }])).workoutStepMesgs[0];
+    expect(percent).toMatchObject({ customTargetPowerLow: 0, customTargetPowerHigh: 80 });
+
+    const hrPercent = roundTrip(build([{ goal_s: 60, target_heart_rate: ['70%', '-'] }])).workoutStepMesgs[0];
+    expect(hrPercent).toMatchObject({ customTargetValueLow: 70, customTargetValueHigh: 100 });
+  });
+
+  it('writes both bounds even when one end is open', () => {
+    // Speed and cadence have no dual encoding, so a plain zero is genuinely
+    // zero there — but the field still has to be present.
     const faster = roundTrip(build([{ goal_s: 60, target_pace_km: ['6:30', '-'] }])).workoutStepMesgs[0];
     expect(faster.customTargetSpeedLow as number).toBeCloseTo(1000 / 390, 2);
-    expect(faster.customTargetSpeedHigh).toBeUndefined();
-
-    const under = roundTrip(build([{ goal_s: 60, target_heart_rate: ['-', 150] }])).workoutStepMesgs[0];
-    expect(under.customTargetHeartRateLow).toBeUndefined();
-    expect(under.customTargetHeartRateHigh).toBe(250);
-
-    const capped = roundTrip(build([{ goal_s: 60, target_watts: ['-', 120] }])).workoutStepMesgs[0];
-    expect(capped.customTargetPowerLow).toBeUndefined();
-    expect(capped.customTargetPowerHigh).toBe(1120);
+    expect(faster.customTargetSpeedHigh as number).toBeCloseTo(25, 2);
 
     const spun = roundTrip(build([{ goal_s: 60, target_cadence: [85, '-'] }])).workoutStepMesgs[0];
-    expect(spun.customTargetCadenceLow).toBe(85);
-    expect(spun.customTargetCadenceHigh).toBeUndefined();
+    expect(spun).toMatchObject({ customTargetCadenceLow: 85, customTargetCadenceHigh: 254 });
   });
 
-  it('still writes both ends when both were given', () => {
-    const step = roundTrip(build([{ goal_s: 60, target_watts: [152, 180] }])).workoutStepMesgs[0];
-    expect(step).toMatchObject({ customTargetPowerLow: 1152, customTargetPowerHigh: 1180 });
-  });
-
-  it('leaves the open end out of a secondary target too', () => {
+  it('fills the open end of a secondary target too', () => {
     const step = roundTrip(
       build([{ goal_s: 60, target_watts: [152, 180], target_cadence: ['-', 95] }]),
     ).workoutStepMesgs[0];
-    expect(step.secondaryCustomTargetCadenceLow).toBeUndefined();
-    expect(step.secondaryCustomTargetCadenceHigh).toBe(95);
+    expect(step).toMatchObject({ secondaryCustomTargetCadenceLow: 0, secondaryCustomTargetCadenceHigh: 95 });
   });
 
   it('offsets heart rate by 100 and power by 1000', () => {

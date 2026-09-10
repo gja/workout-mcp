@@ -45,16 +45,32 @@ function encodeDuration(duration: Duration): DurationFields {
   }
 }
 
-/**
- * A target in FIT's shape, before it is named primary or secondary.
- *
- * `low` and `high` are absent when that end of the range was left open. An
- * absent field means "not set", which is what an open end is; writing a
- * stand-in value instead invents a bound the athlete never asked for, and
- * FIT has no value that reads as "no limit" — a 0 floor on a power range is
- * read as 0% of FTP, not as "no floor".
- */
+/** A target in FIT's shape, before it is named primary or secondary. */
 type TargetFields = { type: string; value: number; low?: number; high?: number };
+
+/**
+ * Filling in the end of a range the caller left open.
+ *
+ * FIT has no target meaning "below X" or "above X" — one-sided constructs
+ * exist only for durations, never targets — so a target is always a band and
+ * both bounds are needed to describe one. Leaving a bound out makes the
+ * target unreadable rather than open.
+ *
+ * The filler has to be in the same unit as the end that was given. The
+ * profile defines `workoutHr` as { 100: bpmOffset } and `workoutPower` as
+ * { 1000: wattsOffset }: under the offset the value is a percentage, at or
+ * above it an absolute. So 0 W encodes as 1000 and 0 bpm as 100 — a raw 0
+ * would read as 0% of FTP against a ceiling in watts, which is two different
+ * units in one range.
+ */
+const OPEN_ENDED = {
+  hr: { bpm: { low: 0, high: 255 }, percent: { low: 0, high: 100 } },
+  power: { watts: { low: 0, high: 2000 }, percent: { low: 0, high: 999 } },
+  speedLow: 0, // m/s
+  speedHigh: 25, // m/s, about 90 km/h
+  cadenceLow: 0,
+  cadenceHigh: 254, // rpm
+} as const;
 
 /** FIT target type per zone metric. Pace zones are speed zones. */
 const ZONE_TARGET_TYPE = { heart_rate: 'heartRate', pace: 'speed', power: 'power' } as const;
@@ -65,33 +81,39 @@ function encodeTarget(target: Target): TargetFields {
       return { type: 'open', value: 0 };
     case 'zone':
       return { type: ZONE_TARGET_TYPE[target.metric], value: target.zone };
-    case 'heart_rate':
+    case 'heart_rate': {
+      const unit = target.low?.unit ?? target.high?.unit ?? 'bpm';
+      const open = OPEN_ENDED.hr[unit];
       return {
         type: 'heartRate',
         value: 0,
-        ...(target.low ? { low: encodeHr(target.low) } : {}),
-        ...(target.high ? { high: encodeHr(target.high) } : {}),
+        low: encodeHr(target.low ?? { unit, value: open.low }),
+        high: encodeHr(target.high ?? { unit, value: open.high }),
       };
+    }
     case 'speed':
       return {
         type: 'speed',
         value: 0,
-        ...(target.low === null ? {} : { low: encodeSpeed(target.low) }),
-        ...(target.high === null ? {} : { high: encodeSpeed(target.high) }),
+        low: encodeSpeed(target.low ?? OPEN_ENDED.speedLow),
+        high: encodeSpeed(target.high ?? OPEN_ENDED.speedHigh),
       };
-    case 'power':
+    case 'power': {
+      const unit = target.low?.unit ?? target.high?.unit ?? 'watts';
+      const open = OPEN_ENDED.power[unit];
       return {
         type: 'power',
         value: 0,
-        ...(target.low ? { low: encodePower(target.low) } : {}),
-        ...(target.high ? { high: encodePower(target.high) } : {}),
+        low: encodePower(target.low ?? { unit, value: open.low }),
+        high: encodePower(target.high ?? { unit, value: open.high }),
       };
+    }
     case 'cadence':
       return {
         type: 'cadence',
         value: 0,
-        ...(target.low === null ? {} : { low: target.low }),
-        ...(target.high === null ? {} : { high: target.high }),
+        low: target.low ?? OPEN_ENDED.cadenceLow,
+        high: target.high ?? OPEN_ENDED.cadenceHigh,
       };
   }
 }
