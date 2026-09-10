@@ -1,4 +1,4 @@
-import { StrictMode, useCallback, useEffect, useState } from 'react';
+import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { currentUser, listWorkouts, signOut, type Me, type Workout } from './api';
 import { relativeDate } from './dates';
@@ -12,6 +12,7 @@ function Dashboard({ me }: { me: Me }) {
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const panel = useRef<HTMLDivElement>(null);
 
   const reload = useCallback(() => {
     listWorkouts().then(
@@ -26,12 +27,12 @@ function Dashboard({ me }: { me: Me }) {
   // panel goes with it — no cleanup needed.
   const open = workouts.find((workout) => `${workout.date}/${workout.id}` === selected);
 
-  const byDate = workouts.reduce<Array<[string, Workout[]]>>((groups, workout) => {
-    const last = groups[groups.length - 1];
-    if (last && last[0] === workout.date) last[1].push(workout);
-    else groups.push([workout.date, [workout]]);
-    return groups;
-  }, []);
+  // Picking a day off the calendar should bring its workout into view, since
+  // the panel opens below the fold on a short viewport. Keyed on the selection
+  // rather than on `open`, so a reload of the same workout does not re-scroll.
+  useEffect(() => {
+    if (selected) panel.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [selected]);
 
   return (
     <>
@@ -45,20 +46,15 @@ function Dashboard({ me }: { me: Me }) {
       {error && <p className="error">{error}</p>}
 
       <Calendar window={me.window} workouts={workouts} selected={selected} onSelect={setSelected} />
-      {open && <WorkoutCard workout={open} onChanged={reload} />}
 
-      <section>
-        <h2>Planned workouts</h2>
-        {workouts.length === 0 && <p className="empty">No workouts planned in this window.</p>}
-        {byDate.map(([date, onDate]) => (
-          <div className="day" key={date}>
-            <h3>{relativeDate(date)}</h3>
-            {onDate.map((workout) => (
-              <WorkoutCard key={workout.id} workout={workout} onChanged={reload} />
-            ))}
-          </div>
-        ))}
-      </section>
+      {workouts.length === 0 && <p className="empty">No workouts planned in this window.</p>}
+
+      {open && (
+        <div className="day" ref={panel}>
+          <h3>{relativeDate(open.date)}</h3>
+          <WorkoutCard workout={open} onChanged={reload} />
+        </div>
+      )}
 
       <ConnectToClaude />
     </>
