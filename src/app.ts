@@ -67,6 +67,13 @@ async function callbackParams(request: Request, url: URL): Promise<URLSearchPara
   return params;
 }
 
+/** `Response.redirect` gives an immutable response, so it has to be rebuilt. */
+function withCookie(response: Response, cookie: string): Response {
+  const headers = new Headers(response.headers);
+  headers.append('Set-Cookie', cookie);
+  return new Response(response.body, { status: response.status, headers });
+}
+
 /** A message for the dashboard to show after a failed sign-in. */
 const backToDashboard = (origin: string, message?: string): Response =>
   Response.redirect(message ? `${origin}/?error=${encodeURIComponent(message)}` : `${origin}/`, 302);
@@ -84,7 +91,13 @@ async function handleSignIn(request: Request, url: URL, env: Env): Promise<Respo
     if (!identity.isProviderName(start[1])) return error(`unknown sign-in provider "${start[1]}"`, 404);
     try {
       const returnTo = url.searchParams.get('return_to');
-      return Response.redirect(await identity.startLogin(env, start[1], url.origin, returnTo), 302);
+      const { url: authorizationUrl, state } = await identity.startLogin(env, start[1], url.origin, returnTo);
+      // The state also goes to the browser, so the callback can prove it is
+      // finishing the sign-in this browser started rather than someone else's.
+      return new Response(null, {
+        status: 302,
+        headers: { Location: authorizationUrl, 'Set-Cookie': identity.loginCookie(state, secure) },
+      });
     } catch (err) {
       if (err instanceof identity.LoginError) return error(err.message, 400);
       throw err;
@@ -97,29 +110,42 @@ async function handleSignIn(request: Request, url: URL, env: Env): Promise<Respo
 
     // Google comes back as a redirect; Apple posts a form, cross-site.
     const params = await callbackParams(request, url);
+    const started = auth.readCookie(request, identity.LOGIN_COOKIE);
+    // Spent either way, so a failed attempt cannot be retried against it.
+    const clearLoginCookie = identity.loginCookie(null, secure);
 
     let who: identity.Identity;
     try {
-      who = await identity.completeLogin(env, callback[1], params, url.origin);
+      who = await identity.completeLogin(env, callback[1], params, url.origin, started);
     } catch (err) {
-      if (err instanceof identity.LoginError) return backToDashboard(url.origin, err.message);
+      if (err instanceof identity.LoginError) {
+        return withCookie(backToDashboard(url.origin, err.message), clearLoginCookie);
+      }
       throw err;
     }
 
-    if (!auth.isAllowed(env, who.email)) {
-      return backToDashboard(url.origin, 'that account is not allowed to sign in here');
+    // An unverified address is only a claim, and `ALLOWED_EMAILS` is an
+    // authorization decision — so it is weighed as if no address were given,
+    // which the allowlist refuses. The address is still stored for display.
+    if (!auth.isAllowed(env, who.emailVerified ? who.email : null)) {
+      return withCookie(
+        backToDashboard(url.origin, 'that account is not allowed to sign in here'),
+        clearLoginCookie,
+      );
     }
 
     const user = await auth.upsertUser(env, who);
     const session = await auth.createSession(env, user.id);
     // 303, so the browser follows Apple's POST callback with a GET.
-    return new Response(null, {
+    const response = new Response(null, {
       status: 303,
       headers: {
         Location: `${url.origin}${who.returnTo ?? '/'}`,
         'Set-Cookie': auth.sessionCookie(session, secure),
       },
     });
+    response.headers.append('Set-Cookie', clearLoginCookie);
+    return response;
   }
 
   if (url.pathname === '/api/auth/logout' && request.method === 'POST') {
@@ -275,6 +301,9 @@ async function handleApi(request: Request, url: URL, env: Env, user: User, baseU
     if (method === 'PUT') {
       if (!(await db.getWorkout(env, user.id, date, id))) return error(`no workout ${id} on ${date}`, 404);
       const input = parseWorkout(await request.json());
+      // Before the delete below, so a refused date does not also cost the
+      // workout the caller was trying to move.
+      db.assertRetainable(input.date);
       if (input.date !== date) await db.deleteWorkout(env, user.id, date, id);
       return json(presentBrief(await db.putWorkout(env, user.id, input, id), baseUrl));
     }

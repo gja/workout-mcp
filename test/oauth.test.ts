@@ -8,6 +8,7 @@
 
 import { SELF, env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { shiftDate, today } from '../src/units';
 import { resetDatabase, seedUser, sessionCookieFor } from './helpers';
 
 const BASE = 'https://workouts.example';
@@ -201,7 +202,8 @@ describe('token exchange', () => {
         jsonrpc: '2.0',
         id: 1,
         method: 'tools/call',
-        params: { name: 'create_workout', arguments: { date: '2026-09-12', steps: [{ goal_s: 600 }] } },
+        // Relative to today, so the write stays inside the retention window.
+        params: { name: 'create_workout', arguments: { date: shiftDate(today(), 2), steps: [{ goal_s: 600 }] } },
       }),
     });
     const result = (await created.json()) as { result: { structuredContent: { id: string; date: string } } };

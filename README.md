@@ -13,8 +13,15 @@ Worker, a D1 database, and a static dashboard.
   connect with a button rather than a pasted token.
 
 Only a rolling window is kept: **7 days back, 14 days ahead**, capped at 50
-workouts per user. Anything outside that is pruned on write and by a nightly
-cron trigger.
+workouts per user. A write outside that is refused rather than accepted and
+swept away a moment later; anything that falls out of the window later is
+pruned on the next write and by a nightly cron trigger.
+
+Reads are bounded by the same window plus a day of slack on each side — 8 back,
+15 ahead — because dates are the athlete's local day while the window is
+computed in UTC. Every read goes through that bound, so no `from`/`to` and no
+hand-written URL reaches a workout outside it, whatever the sweep has yet to
+catch up on.
 
 ## Quick start
 
@@ -386,7 +393,7 @@ session cookie set at login.
 | `DELETE /api/tokens/:prefix` | Revoke one |
 | `GET /api/connections` | List OAuth grants (connected MCP clients) |
 | `DELETE /api/connections/:id` | Disconnect one |
-| `GET /api/workouts.json?from=&to=` | List within the retention window |
+| `GET /api/workouts.json?from=&to=` | List within the retention window; a wider range is narrowed to it |
 | `POST /api/workouts` | Create; returns the id and URLs |
 | `GET /api/workouts/:date/:id.json` | Read one |
 | `PUT /api/workouts/:date/:id.json` | Replace one; change `date` to move it |

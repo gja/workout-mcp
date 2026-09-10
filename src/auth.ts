@@ -86,7 +86,8 @@ export async function createSession(env: Env, userId: string): Promise<string> {
   return id;
 }
 
-function readCookie(request: Request, name: string): string | null {
+/** One named cookie off the request, or null. */
+export function readCookie(request: Request, name: string): string | null {
   const header = request.headers.get('Cookie');
   if (!header) return null;
   for (const part of header.split(';')) {

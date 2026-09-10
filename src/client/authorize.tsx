@@ -5,6 +5,13 @@ import { SignIn } from './components/SignIn';
 import './styles.css';
 
 /**
+ * Where the Worker serves this bundle from once it has validated the request.
+ * The same file is also reachable as the static /authorize.html, where nothing
+ * has been validated, so the path is what tells the two apart.
+ */
+const CONSENT_PATH = '/oauth/authorize';
+
+/**
  * The OAuth consent screen. The Worker has already validated the client and
  * the redirect URI before serving this page, and approving posts the same
  * query string back for it to re-validate.
@@ -26,7 +33,17 @@ function Consent({ me, client }: { me: Me; client: OAuthClient }) {
   };
 
   // Cancelling is reported to the client rather than left hanging.
+  //
+  // Only the Worker's /oauth/authorize route checks that `redirect_uri` is one
+  // the client actually registered, and this bundle is also served as the
+  // static /authorize.html. Reached that way the query string is whatever the
+  // link said, so following it would turn the consent page into an open
+  // redirect; there is nothing to report back to in that case anyway.
   const cancel = () => {
+    if (location.pathname !== CONSENT_PATH) {
+      location.href = '/';
+      return;
+    }
     const params = new URLSearchParams(location.search);
     const target = new URL(params.get('redirect_uri') as string);
     target.searchParams.set('error', 'access_denied');
@@ -58,6 +75,12 @@ function App() {
   const [state, setState] = useState<{ me: Me | null; client: OAuthClient } | { error: string } | null>(null);
 
   useEffect(() => {
+    // Opened as the bare asset, so no authorization request has been checked.
+    if (location.pathname !== CONSENT_PATH) {
+      setState({ error: 'This page is only reached from an app asking to connect. Start again from the app.' });
+      return;
+    }
+
     const params = new URLSearchParams(location.search);
     const clientId = params.get('client_id');
     if (!clientId || !params.get('redirect_uri') || !params.get('code_challenge')) {

@@ -137,7 +137,8 @@ export const TOOLS = [
     annotations: { title: 'List planned workouts', readOnlyHint: true, openWorldHint: false },
     description:
       'List planned workouts within the retention window (7 days back, 14 days ahead). ' +
-      'Returns each workout with its date, id and download URL.',
+      'Returns each workout with its date, id and download URL. ' +
+      'A wider from/to is narrowed to the window rather than honoured.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -294,7 +295,10 @@ export async function callTool(
 
       const { id: _id, current_date: _currentDate, ...rest } = args;
       const input = parseWorkout(rest);
-      // A moved workout keeps its id, so the old row has to go first.
+      // A moved workout keeps its id, so the old row has to go first — which
+      // means the date has to be checked before that, or a refused move takes
+      // the workout with it.
+      db.assertRetainable(input.date);
       if (input.date !== currentDate) await db.deleteWorkout(env, user.id, currentDate, id);
       return presentBrief(await db.putWorkout(env, user.id, input, id), baseUrl);
     }

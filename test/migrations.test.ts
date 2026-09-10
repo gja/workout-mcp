@@ -12,8 +12,16 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import migration0002 from '../migrations/0002_workout_steps_column.sql?raw';
 import migration0003 from '../migrations/0003_sub_sport_and_external_id.sql?raw';
 import { getWorkout, putWorkout } from '../src/db';
+import { shiftDate, today } from '../src/units';
 import { parseWorkout } from '../src/workout';
 import { resetDatabase, seedUser } from './helpers';
+
+/**
+ * These rows are read back through `getWorkout`, which only sees inside the
+ * retention window — so the date has to move with real time rather than be
+ * written down.
+ */
+const DAY = shiftDate(today(), 2);
 
 /** The `workouts` table as it was before 0002. */
 const OLD_TABLE = `
@@ -48,7 +56,7 @@ describe('0002, steps into their own column', () => {
     const old = {
       version: 1,
       id: 'a1b2c3d4',
-      date: '2026-09-12',
+      date: DAY,
       name: '8x400m',
       sport: 'running',
       notes: 'Track session',
@@ -81,7 +89,7 @@ describe('0002, steps into their own column', () => {
     await env.DB.exec('DROP TABLE IF EXISTS workouts');
     await env.DB.prepare(OLD_TABLE.replace(/\s+/g, ' ')).run();
 
-    const data = { version: 1, id: 'nonotes1', date: '2026-09-12', name: 'Easy', sport: 'running', steps: [] };
+    const data = { version: 1, id: 'nonotes1', date: DAY, name: 'Easy', sport: 'running', steps: [] };
     await env.DB.prepare(
       `INSERT INTO workouts (user_id, date, id, name, sport, data, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, '', '')`,
@@ -144,7 +152,7 @@ describe('the steps column', () => {
       env,
       userId,
       parseWorkout({
-        date: '2026-09-12',
+        date: DAY,
         steps: [{ goal_s: 600 }, { repeat: 8, steps: [{ goal_meters: 400 }] }, { goal_s: 600 }],
       }),
     );

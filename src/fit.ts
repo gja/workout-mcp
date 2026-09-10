@@ -203,7 +203,6 @@ function serialFor(id: string): number {
   return (hash >>> 0) || 1;
 }
 
-/** Encode a stored workout as a FIT workout file. */
 /**
  * Build an encoder whose scratch buffer fits inside a Worker.
  *

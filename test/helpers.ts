@@ -54,22 +54,31 @@ export async function signIn(provider: 'google' | 'apple' = 'google', code = 'ok
   const started = await SELF.fetch(`${BASE}/auth/${provider}/start`, { redirect: 'manual' });
   const state = new URL(started.headers.get('Location')!).searchParams.get('state')!;
   const params = new URLSearchParams({ code, state });
+  // The browser that started the sign-in is the only one that may finish it,
+  // so the callback has to carry the cookie /start handed out.
+  const cookie = cookieFrom(started, 'workout_login');
 
   // Google redirects back; Apple posts a form.
   return provider === 'google'
-    ? SELF.fetch(`${BASE}/auth/google/callback?${params}`, { redirect: 'manual' })
+    ? SELF.fetch(`${BASE}/auth/google/callback?${params}`, { headers: { Cookie: cookie }, redirect: 'manual' })
     : SELF.fetch(`${BASE}/auth/apple/callback`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: cookie },
         body: params.toString(),
         redirect: 'manual',
       });
 }
 
+/** `name=value` for one cookie a response set, or '' if it set none. */
+export function cookieFrom(response: Response, name: string): string {
+  const header = response.headers.getSetCookie().find((value) => value.startsWith(`${name}=`));
+  return header ? header.split(';')[0] : '';
+}
+
 /** Sign in and return just the cookie to send back. */
 export async function sessionCookieFor(provider: 'google' | 'apple' = 'google'): Promise<string> {
   const response = await signIn(provider);
-  const cookie = response.headers.get('Set-Cookie');
+  const cookie = cookieFrom(response, 'workout_session');
   if (!cookie) throw new Error(`sign-in did not set a session cookie (status ${response.status})`);
-  return cookie.split(';')[0];
+  return cookie;
 }

@@ -2,7 +2,7 @@ import { SELF, env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Decoder, Stream } from '@garmin/fitsdk';
 import { plannedTotals } from '../src/describe';
-import { MAX_WORKOUTS_PER_USER, listWorkouts, prune, putWorkout } from '../src/db';
+import { MAX_WORKOUTS_PER_USER, getWorkout, listWorkouts, prune, putWorkout, readWindow } from '../src/db';
 import { shiftDate, today } from '../src/units';
 import { parseWorkout } from '../src/workout';
 import { resetDatabase, seedUser } from './helpers';
@@ -23,8 +23,16 @@ const call = (path: string, init: RequestInit = {}) =>
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...init.headers },
   });
 
+/**
+ * Fixture dates are relative to today, not written down: a workout only exists
+ * inside the retention window, so a literal date would quietly fall out of it
+ * as real time moved past and take the suite with it.
+ */
+const DAY = shiftDate(today(), 2);
+const NEXT_DAY = shiftDate(today(), 3);
+
 const INTERVALS = {
-  date: '2026-09-12',
+  date: DAY,
   name: '8x400m',
   steps: [
     { name: 'Warmup', goal_s: 600, target_heart_rate: [146, 153] },
@@ -92,11 +100,11 @@ describe('workout CRUD', () => {
       await call('/api/workouts', { method: 'POST', body: JSON.stringify(INTERVALS) })
     ).json()) as Record<string, unknown>;
 
-    expect(created.date).toBe('2026-09-12');
+    expect(created.date).toBe(DAY);
     expect(created.id).toMatch(/^[0-9a-z]{8}$/);
     expect(created.name).toBe('8x400m');
-    expect(created.fit_url).toBe(`${BASE}/export/2026-09-12-${created.id as string}.fit`);
-    expect(created.json_url).toBe(`${BASE}/api/workouts/2026-09-12/${created.id as string}.json`);
+    expect(created.fit_url).toBe(`${BASE}/export/${DAY}-${created.id as string}.fit`);
+    expect(created.json_url).toBe(`${BASE}/api/workouts/${DAY}/${created.id as string}.json`);
 
     // A write says which workout it was, not what the caller just sent.
     expect(created).not.toHaveProperty('steps');
@@ -155,11 +163,11 @@ describe('workout CRUD', () => {
     const { date, id } = await createIntervals();
     await call(`/api/workouts/${date}/${id}.json`, {
       method: 'PUT',
-      body: JSON.stringify({ ...INTERVALS, date: '2026-09-13' }),
+      body: JSON.stringify({ ...INTERVALS, date: NEXT_DAY }),
     });
 
     expect((await call(`/api/workouts/${date}/${id}.json`)).status).toBe(404);
-    expect((await call(`/api/workouts/2026-09-13/${id}.json`)).status).toBe(200);
+    expect((await call(`/api/workouts/${NEXT_DAY}/${id}.json`)).status).toBe(200);
   });
 
   it('deletes a workout', async () => {
@@ -170,7 +178,7 @@ describe('workout CRUD', () => {
 
   it('filters the list by date range', async () => {
     await createIntervals();
-    const empty = (await (await call('/api/workouts.json?from=2026-09-13&to=2026-09-20')).json()) as {
+    const empty = (await (await call(`/api/workouts.json?from=${NEXT_DAY}&to=${shiftDate(today(), 10)}`)).json()) as {
       workouts: unknown[];
     };
     expect(empty.workouts).toHaveLength(0);
@@ -179,7 +187,7 @@ describe('workout CRUD', () => {
   it('explains what is wrong with a bad workout', async () => {
     const response = await call('/api/workouts', {
       method: 'POST',
-      body: JSON.stringify({ date: '2026-09-12', steps: [{ goal_s: 60, goal_meters: 400 }] }),
+      body: JSON.stringify({ date: DAY, steps: [{ goal_s: 60, goal_meters: 400 }] }),
     });
     expect(response.status).toBe(400);
     expect((await response.json()) as { error: string }).toMatchObject({
@@ -246,13 +254,13 @@ describe('an external id', () => {
 
   it('moves the workout when the plan moves it, without leaving a copy', async () => {
     const first = (await (await withKey()).json()) as { id: string; date: string };
-    const moved = (await (await withKey({ date: '2026-09-13' })).json()) as { id: string; date: string };
+    const moved = (await (await withKey({ date: NEXT_DAY })).json()) as { id: string; date: string };
 
     expect(moved.id).toBe(first.id);
-    expect(moved.date).toBe('2026-09-13');
+    expect(moved.date).toBe(NEXT_DAY);
 
     const { workouts } = (await (await call('/api/workouts.json')).json()) as { workouts: { date: string }[] };
-    expect(workouts.map((w) => w.date)).toEqual(['2026-09-13']);
+    expect(workouts.map((w) => w.date)).toEqual([NEXT_DAY]);
   });
 
   it('keeps workouts without a key independent', async () => {
@@ -337,7 +345,7 @@ describe('bad requests', () => {
   });
 
   it('will not replace a workout that is not there', async () => {
-    const response = await call('/api/workouts/2026-09-12/zzzzzzzz.json', {
+    const response = await call(`/api/workouts/${DAY}/zzzzzzzz.json`, {
       method: 'PUT',
       body: JSON.stringify(INTERVALS),
     });
@@ -378,7 +386,7 @@ describe('FIT export', () => {
 
   it('rejects a malformed slug and an unknown workout', async () => {
     expect((await call('/export/not-a-workout.fit')).status).toBe(400);
-    expect((await call('/export/2026-09-12-zzzzzzzz.fit')).status).toBe(404);
+    expect((await call(`/export/${DAY}-zzzzzzzz.fit`)).status).toBe(404);
   });
 
   it('will not export another athlete\'s workout', async () => {
@@ -443,15 +451,46 @@ describe('retention', () => {
     expect(await listWorkouts(env, userId)).toHaveLength(MAX_WORKOUTS_PER_USER);
   });
 
-  it('drops the oldest dates first when the cap bites', async () => {
+  it('refuses a write the cap would drop, rather than losing it quietly', async () => {
     const day = today();
-    // Fill the cap with future dates, then add older ones that should lose.
+    // Fill the cap with future dates, then add an older one that should lose.
     for (let i = 0; i < MAX_WORKOUTS_PER_USER; i++) await put(shiftDate(day, 1 + (i % 13)));
-    await put(shiftDate(day, -7));
+
+    await expect(put(shiftDate(day, -7))).rejects.toThrow(/only 50 workouts are kept/);
 
     const remaining = await listWorkouts(env, userId);
     expect(remaining).toHaveLength(MAX_WORKOUTS_PER_USER);
     expect(remaining.every((workout) => workout.date > day)).toBe(true);
+  });
+
+  it('refuses a date outside the window instead of pruning it on the way in', async () => {
+    const far = shiftDate(today(), 60);
+    await expect(put(far)).rejects.toThrow(/would be dropped straight away/);
+
+    const response = await call('/api/workouts', {
+      method: 'POST',
+      body: JSON.stringify({ ...INTERVALS, date: far }),
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it('reports an external_id that already belongs to another workout', async () => {
+    const first = (await (await call('/api/workouts', {
+      method: 'POST',
+      body: JSON.stringify({ ...INTERVALS, external_id: 'taken' }),
+    })).json()) as { id: string };
+
+    const second = (await (await call('/api/workouts', {
+      method: 'POST',
+      body: JSON.stringify({ ...INTERVALS, external_id: 'free' }),
+    })).json()) as { date: string; id: string };
+
+    const response = await call(`/api/workouts/${second.date}/${second.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...INTERVALS, external_id: 'taken' }),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining(first.id) });
   });
 
   it('leaves one athlete\'s workouts alone when another is pruned', async () => {
@@ -462,5 +501,59 @@ describe('retention', () => {
     await prune(env, userId);
 
     expect(await listWorkouts(env, other.id)).toHaveLength(1);
+  });
+});
+
+describe('the read window', () => {
+  /** A row the sweep has not caught yet, written straight past the API. */
+  const stow = async (date: string, id: string) => {
+    await env.DB.prepare(
+      `INSERT INTO workouts (user_id, date, id, name, sport, steps, created_at, updated_at)
+       VALUES (?1, ?2, ?3, 'Stale', 'running', '[]', ?4, ?4)`,
+    )
+      .bind(userId, date, id, new Date().toISOString())
+      .run();
+  };
+
+  it('allows a day of slack on each side of what is kept', () => {
+    const day = today();
+    expect(readWindow()).toEqual({ from: shiftDate(day, -8), to: shiftDate(day, 15) });
+  });
+
+  it('will not read a workout outside the window, however it is asked for', async () => {
+    const before = shiftDate(today(), -9);
+    const after = shiftDate(today(), 16);
+    await stow(before, 'oldone00');
+    await stow(after, 'newone00');
+
+    // Directly, by date and id.
+    expect(await getWorkout(env, userId, before, 'oldone00')).toBeNull();
+    expect(await getWorkout(env, userId, after, 'newone00')).toBeNull();
+
+    // Through the API, and as a FIT download.
+    expect((await call(`/api/workouts/${before}/oldone00.json`)).status).toBe(404);
+    expect((await call(`/export/${after}-newone00.fit`)).status).toBe(404);
+  });
+
+  it('narrows a from/to that reaches past the window rather than obeying it', async () => {
+    await stow(shiftDate(today(), -9), 'oldone00');
+    await stow(shiftDate(today(), 16), 'newone00');
+    await putWorkout(env, userId, parseWorkout({ date: today(), steps: [{ goal_s: 600 }] }));
+
+    const listed = await listWorkouts(env, userId, '2000-01-01', '2100-01-01');
+    expect(listed.map((workout) => workout.date)).toEqual([today()]);
+
+    const response = await call('/api/workouts.json?from=2000-01-01&to=2100-01-01');
+    const { workouts } = (await response.json()) as { workouts: { date: string }[] };
+    expect(workouts.map((workout) => workout.date)).toEqual([today()]);
+  });
+
+  it('still narrows a from/to that asks for less', async () => {
+    const day = today();
+    await putWorkout(env, userId, parseWorkout({ date: day, steps: [{ goal_s: 600 }] }));
+    await putWorkout(env, userId, parseWorkout({ date: shiftDate(day, 5), steps: [{ goal_s: 600 }] }));
+
+    const listed = await listWorkouts(env, userId, day, day);
+    expect(listed.map((workout) => workout.date)).toEqual([day]);
   });
 });

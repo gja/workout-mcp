@@ -22,9 +22,51 @@ export const isProviderName = (value: string): value is ProviderName =>
   (PROVIDERS as readonly string[]).includes(value);
 
 /** Who signed in, as far as the provider is concerned. */
-export type Identity = { provider: ProviderName; subject: string; email: string | null; returnTo: string | null };
+export type Identity = {
+  provider: ProviderName;
+  subject: string;
+  email: string | null;
+  /**
+   * Whether the provider vouches for the address. An account is keyed by
+   * (provider, subject), so this changes nothing about who someone is — but
+   * `ALLOWED_EMAILS` decides who may sign in *from the email*, and an
+   * unverified one is a claim rather than a fact.
+   */
+  emailVerified: boolean;
+  returnTo: string | null;
+};
 
 const LOGIN_STATE_TTL_MINUTES = 10;
+
+/** Names the in-flight sign-in in the browser that started it. */
+export const LOGIN_COOKIE = 'workout_login';
+
+/**
+ * The in-flight sign-in, named in a cookie as well as in the URL.
+ *
+ * The state row in D1 proves the callback belongs to a sign-in this server
+ * started; it does not prove it belongs to *this browser's* sign-in. Without
+ * that second half an attacker can start a sign-in of their own and walk a
+ * victim through its callback, landing the victim in the attacker's account
+ * with their workouts along with it. Matching the cookie against the state is
+ * what closes that.
+ *
+ * `SameSite=None` because Apple posts its callback cross-site, where nothing
+ * stricter is sent — and browsers only accept `None` alongside `Secure`, so
+ * plain http (localhost, where Apple cannot be used anyway) falls back to
+ * `Lax`, which is enough for Google's top-level redirect.
+ */
+export function loginCookie(state: string | null, secure: boolean): string {
+  const attributes = [
+    `${LOGIN_COOKIE}=${state ?? ''}`,
+    'Path=/auth',
+    'HttpOnly',
+    secure ? 'SameSite=None' : 'SameSite=Lax',
+    state ? `Max-Age=${LOGIN_STATE_TTL_MINUTES * 60}` : 'Max-Age=0',
+  ];
+  if (secure) attributes.push('Secure');
+  return attributes.join('; ');
+}
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -70,17 +112,18 @@ export class LoginError extends Error {}
 /**
  * Build the provider's authorization URL and remember the state.
  *
- * The state and PKCE verifier live in D1 rather than a cookie: Apple posts its
- * callback back cross-site, where a `SameSite=Lax` cookie would not be sent.
- * The state is a single-use random value, which is what makes the callback
- * safe to act on.
+ * The PKCE verifier lives in D1, because Apple posts its callback cross-site
+ * where the caller's own cookies are the only ones that come back. The state
+ * is written to both: to D1, so the callback can be tied to the sign-in it
+ * belongs to, and to the browser as a cookie, so it can be tied to the browser
+ * that started it. `completeLogin` insists on both.
  */
 export async function startLogin(
   env: Env,
   provider: ProviderName,
   origin: string,
   returnTo: string | null = null,
-): Promise<string> {
+): Promise<{ url: string; state: string }> {
   const state = generateState();
   let authorizationUrl: URL;
   let codeVerifier: string | null = null;
@@ -110,7 +153,7 @@ export async function startLogin(
     )
     .run();
 
-  return authorizationUrl.toString();
+  return { url: authorizationUrl.toString(), state };
 }
 
 /**
@@ -147,7 +190,15 @@ async function takeLoginState(
 // Finishing a sign-in
 // ---------------------------------------------------------------------------
 
-type IdTokenClaims = { iss?: string; aud?: string | string[]; sub?: string; exp?: number; email?: string };
+type IdTokenClaims = {
+  iss?: string;
+  aud?: string | string[];
+  sub?: string;
+  exp?: number;
+  email?: string;
+  /** Google sends a boolean, Apple a string. */
+  email_verified?: boolean | string;
+};
 
 /**
  * Read the claims out of an ID token.
@@ -203,12 +254,20 @@ export async function completeLogin(
   provider: ProviderName,
   params: URLSearchParams,
   origin: string,
+  cookieState: string | null,
 ): Promise<Identity> {
   if (params.get('error')) throw new LoginError(`${provider} sign-in was cancelled`);
 
   const code = params.get('code');
   const state = params.get('state');
   if (!code || !state) throw new LoginError('that sign-in response was incomplete');
+
+  // The state has to name a sign-in this browser started, not merely one this
+  // server did — otherwise someone else's completed sign-in can be finished
+  // here and this browser ends up logged into their account.
+  if (!cookieState || cookieState !== state) {
+    throw new LoginError('that sign-in did not start in this browser — please try again');
+  }
 
   const { codeVerifier, returnTo } = await takeLoginState(env, provider, state);
 
@@ -244,6 +303,7 @@ export async function completeLogin(
     provider,
     subject: claims.sub as string,
     email: claims.email ? claims.email.trim().toLowerCase() : null,
+    emailVerified: claims.email_verified === true || claims.email_verified === 'true',
     returnTo,
   };
 }

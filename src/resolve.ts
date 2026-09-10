@@ -146,7 +146,6 @@ function parseDuration(raw: Record<string, unknown>, path: string): Duration {
 }
 
 /** How many zones each metric has, for a single-zone target. */
-/** How many zones each metric has, for a single-zone target. */
 const ZONE_COUNT: Record<ZoneMetric, number> = { heart_rate: 5, pace: 10, power: 7 };
 
 /**
@@ -339,7 +338,6 @@ function inferIntensity(name: string | undefined, insideRepeat: boolean): Intens
   }
   return insideRepeat ? 'interval' : 'active';
 }
-
 
 // ---------------------------------------------------------------------------
 // Steps
