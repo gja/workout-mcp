@@ -1,11 +1,23 @@
 import { SELF, env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { isAllowed } from '../src/auth';
-import { resetDatabase, sessionCookieFor, signIn } from './helpers';
+import { cookieFrom, resetDatabase, sessionCookieFor, signIn } from './helpers';
 
 const BASE = 'https://workouts.example';
 
 beforeEach(resetDatabase);
+
+/** Start a sign-in and hand back the state plus the cookie that goes with it. */
+async function startLogin(query = ''): Promise<{ state: string; cookie: string }> {
+  const started = await SELF.fetch(`${BASE}/auth/google/start${query}`, { redirect: 'manual' });
+  return {
+    state: new URL(started.headers.get('Location')!).searchParams.get('state')!,
+    cookie: cookieFrom(started, 'workout_login'),
+  };
+}
+
+/** The session cookie a response set, or '' — a failed sign-in sets none. */
+const sessionFrom = (response: Response) => cookieFrom(response, 'workout_session');
 
 const post = (path: string, body: unknown, headers: HeadersInit = {}) =>
   SELF.fetch(`${BASE}${path}`, {
@@ -58,10 +70,9 @@ describe('finishing a sign-in', () => {
     const response = await signIn('google');
     expect(response.status).toBe(303);
     expect(response.headers.get('Location')).toBe(`${BASE}/`);
-    expect(response.headers.get('Set-Cookie')).toContain('HttpOnly');
+    expect(response.headers.getSetCookie().join(' ')).toContain('HttpOnly');
 
-    const cookie = response.headers.get('Set-Cookie')!.split(';')[0];
-    const me = await SELF.fetch(`${BASE}/api/me`, { headers: { Cookie: cookie } });
+    const me = await SELF.fetch(`${BASE}/api/me`, { headers: { Cookie: sessionFrom(response) } });
     expect(await me.json()).toMatchObject({ email: 'athlete@example.com' });
   });
 
@@ -69,8 +80,7 @@ describe('finishing a sign-in', () => {
     const response = await signIn('apple');
     expect(response.status).toBe(303);
 
-    const cookie = response.headers.get('Set-Cookie')!.split(';')[0];
-    const me = await SELF.fetch(`${BASE}/api/me`, { headers: { Cookie: cookie } });
+    const me = await SELF.fetch(`${BASE}/api/me`, { headers: { Cookie: sessionFrom(response) } });
     // Apple hands out a private relay address, and that is fine.
     expect(await me.json()).toMatchObject({ email: 'athlete@privaterelay.appleid.com' });
   });
@@ -88,48 +98,75 @@ describe('finishing a sign-in', () => {
   });
 
   it('consumes the state, so a callback cannot be replayed', async () => {
-    const started = await SELF.fetch(`${BASE}/auth/google/start`, { redirect: 'manual' });
-    const state = new URL(started.headers.get('Location')!).searchParams.get('state')!;
+    const { state, cookie } = await startLogin();
     const callback = () =>
-      SELF.fetch(`${BASE}/auth/google/callback?code=ok&state=${state}`, { redirect: 'manual' });
+      SELF.fetch(`${BASE}/auth/google/callback?code=ok&state=${state}`, {
+        headers: { Cookie: cookie },
+        redirect: 'manual',
+      });
 
-    expect((await callback()).headers.get('Set-Cookie')).toBeTruthy();
+    expect(sessionFrom(await callback())).toBeTruthy();
     const replay = await callback();
-    expect(replay.headers.get('Set-Cookie')).toBeNull();
+    expect(sessionFrom(replay)).toBe('');
     expect(replay.headers.get('Location')).toContain('error=');
+  });
+
+  it('refuses a callback for a sign-in this browser did not start', async () => {
+    // The attacker starts a sign-in of their own and walks the victim through
+    // its callback. Without the cookie the victim's browser would come out of
+    // it holding a session for the attacker's account.
+    const { state } = await startLogin();
+
+    const forged = await SELF.fetch(`${BASE}/auth/google/callback?code=ok&state=${state}`, { redirect: 'manual' });
+    expect(sessionFrom(forged)).toBe('');
+    expect(forged.headers.get('Location')).toContain('error=');
+    expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM users').first<{ n: number }>())?.n).toBe(0);
+  });
+
+  it('refuses a callback carrying some other sign-in\'s cookie', async () => {
+    const mine = await startLogin();
+    const theirs = await startLogin();
+
+    const crossed = await SELF.fetch(`${BASE}/auth/google/callback?code=ok&state=${theirs.state}`, {
+      headers: { Cookie: mine.cookie },
+      redirect: 'manual',
+    });
+    expect(sessionFrom(crossed)).toBe('');
+    expect(crossed.headers.get('Location')).toContain('error=');
   });
 
   it('refuses an unknown or expired state', async () => {
     const unknown = await SELF.fetch(`${BASE}/auth/google/callback?code=ok&state=made-up`, { redirect: 'manual' });
     expect(unknown.headers.get('Location')).toContain('error=');
 
-    const started = await SELF.fetch(`${BASE}/auth/google/start`, { redirect: 'manual' });
-    const state = new URL(started.headers.get('Location')!).searchParams.get('state')!;
+    const { state, cookie } = await startLogin();
     await env.DB.prepare('UPDATE login_states SET expires_at = ? WHERE state = ?')
       .bind(new Date(Date.now() - 1000).toISOString(), state)
       .run();
 
-    const expired = await SELF.fetch(`${BASE}/auth/google/callback?code=ok&state=${state}`, { redirect: 'manual' });
-    expect(expired.headers.get('Set-Cookie')).toBeNull();
+    const expired = await SELF.fetch(`${BASE}/auth/google/callback?code=ok&state=${state}`, {
+      headers: { Cookie: cookie },
+      redirect: 'manual',
+    });
+    expect(sessionFrom(expired)).toBe('');
   });
 
   it('will not accept a state issued for the other provider', async () => {
-    const started = await SELF.fetch(`${BASE}/auth/google/start`, { redirect: 'manual' });
-    const state = new URL(started.headers.get('Location')!).searchParams.get('state')!;
+    const { state, cookie } = await startLogin();
 
     const crossed = await SELF.fetch(`${BASE}/auth/apple/callback`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: cookie },
       body: new URLSearchParams({ code: 'ok', state }).toString(),
       redirect: 'manual',
     });
-    expect(crossed.headers.get('Set-Cookie')).toBeNull();
+    expect(sessionFrom(crossed)).toBe('');
   });
 
   it('rejects an ID token that fails its checks', async () => {
     for (const code of ['wrong-issuer', 'wrong-audience', 'expired', 'no-subject', 'no-id-token']) {
       const response = await signIn('google', code);
-      expect(response.headers.get('Set-Cookie'), code).toBeNull();
+      expect(sessionFrom(response), code).toBe('');
       expect(response.headers.get('Location'), code).toContain('error=');
     }
     expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM users').first<{ n: number }>())?.n).toBe(0);
@@ -137,7 +174,7 @@ describe('finishing a sign-in', () => {
 
   it('reports a refusal from the provider', async () => {
     const response = await signIn('google', 'denied');
-    expect(response.headers.get('Set-Cookie')).toBeNull();
+    expect(sessionFrom(response)).toBe('');
   });
 
   it('passes a cancelled sign-in back to the dashboard', async () => {
@@ -148,19 +185,19 @@ describe('finishing a sign-in', () => {
   });
 
   it('returns to where the sign-in started, but only within this site', async () => {
-    const started = await SELF.fetch(`${BASE}/auth/google/start?return_to=${encodeURIComponent('/oauth/authorize?x=1')}`, {
+    const inside = await startLogin(`?return_to=${encodeURIComponent('/oauth/authorize?x=1')}`);
+    const done = await SELF.fetch(`${BASE}/auth/google/callback?code=ok&state=${inside.state}`, {
+      headers: { Cookie: inside.cookie },
       redirect: 'manual',
     });
-    const state = new URL(started.headers.get('Location')!).searchParams.get('state')!;
-    const done = await SELF.fetch(`${BASE}/auth/google/callback?code=ok&state=${state}`, { redirect: 'manual' });
     expect(done.headers.get('Location')).toBe(`${BASE}/oauth/authorize?x=1`);
 
     // An absolute URL elsewhere is dropped rather than followed.
-    const evil = await SELF.fetch(`${BASE}/auth/google/start?return_to=${encodeURIComponent('https://evil.example')}`, {
+    const evil = await startLogin(`?return_to=${encodeURIComponent('https://evil.example')}`);
+    const landed = await SELF.fetch(`${BASE}/auth/google/callback?code=ok&state=${evil.state}`, {
+      headers: { Cookie: evil.cookie },
       redirect: 'manual',
     });
-    const evilState = new URL(evil.headers.get('Location')!).searchParams.get('state')!;
-    const landed = await SELF.fetch(`${BASE}/auth/google/callback?code=ok&state=${evilState}`, { redirect: 'manual' });
     expect(landed.headers.get('Location')).toBe(`${BASE}/`);
   });
 });

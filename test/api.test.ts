@@ -2,7 +2,7 @@ import { SELF, env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Decoder, Stream } from '@garmin/fitsdk';
 import { plannedTotals } from '../src/describe';
-import { MAX_WORKOUTS_PER_USER, listWorkouts, prune, putWorkout } from '../src/db';
+import { MAX_WORKOUTS_PER_USER, getWorkout, listWorkouts, prune, putWorkout, readWindow } from '../src/db';
 import { shiftDate, today } from '../src/units';
 import { parseWorkout } from '../src/workout';
 import { resetDatabase, seedUser } from './helpers';
@@ -443,15 +443,46 @@ describe('retention', () => {
     expect(await listWorkouts(env, userId)).toHaveLength(MAX_WORKOUTS_PER_USER);
   });
 
-  it('drops the oldest dates first when the cap bites', async () => {
+  it('refuses a write the cap would drop, rather than losing it quietly', async () => {
     const day = today();
-    // Fill the cap with future dates, then add older ones that should lose.
+    // Fill the cap with future dates, then add an older one that should lose.
     for (let i = 0; i < MAX_WORKOUTS_PER_USER; i++) await put(shiftDate(day, 1 + (i % 13)));
-    await put(shiftDate(day, -7));
+
+    await expect(put(shiftDate(day, -7))).rejects.toThrow(/only 50 workouts are kept/);
 
     const remaining = await listWorkouts(env, userId);
     expect(remaining).toHaveLength(MAX_WORKOUTS_PER_USER);
     expect(remaining.every((workout) => workout.date > day)).toBe(true);
+  });
+
+  it('refuses a date outside the window instead of pruning it on the way in', async () => {
+    const far = shiftDate(today(), 60);
+    await expect(put(far)).rejects.toThrow(/would be dropped straight away/);
+
+    const response = await call('/api/workouts', {
+      method: 'POST',
+      body: JSON.stringify({ ...INTERVALS, date: far }),
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it('reports an external_id that already belongs to another workout', async () => {
+    const first = (await (await call('/api/workouts', {
+      method: 'POST',
+      body: JSON.stringify({ ...INTERVALS, external_id: 'taken' }),
+    })).json()) as { id: string };
+
+    const second = (await (await call('/api/workouts', {
+      method: 'POST',
+      body: JSON.stringify({ ...INTERVALS, external_id: 'free' }),
+    })).json()) as { date: string; id: string };
+
+    const response = await call(`/api/workouts/${second.date}/${second.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...INTERVALS, external_id: 'taken' }),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining(first.id) });
   });
 
   it('leaves one athlete\'s workouts alone when another is pruned', async () => {
@@ -462,5 +493,59 @@ describe('retention', () => {
     await prune(env, userId);
 
     expect(await listWorkouts(env, other.id)).toHaveLength(1);
+  });
+});
+
+describe('the read window', () => {
+  /** A row the sweep has not caught yet, written straight past the API. */
+  const stow = async (date: string, id: string) => {
+    await env.DB.prepare(
+      `INSERT INTO workouts (user_id, date, id, name, sport, steps, created_at, updated_at)
+       VALUES (?1, ?2, ?3, 'Stale', 'running', '[]', ?4, ?4)`,
+    )
+      .bind(userId, date, id, new Date().toISOString())
+      .run();
+  };
+
+  it('allows a day of slack on each side of what is kept', () => {
+    const day = today();
+    expect(readWindow()).toEqual({ from: shiftDate(day, -8), to: shiftDate(day, 15) });
+  });
+
+  it('will not read a workout outside the window, however it is asked for', async () => {
+    const before = shiftDate(today(), -9);
+    const after = shiftDate(today(), 16);
+    await stow(before, 'oldone00');
+    await stow(after, 'newone00');
+
+    // Directly, by date and id.
+    expect(await getWorkout(env, userId, before, 'oldone00')).toBeNull();
+    expect(await getWorkout(env, userId, after, 'newone00')).toBeNull();
+
+    // Through the API, and as a FIT download.
+    expect((await call(`/api/workouts/${before}/oldone00.json`)).status).toBe(404);
+    expect((await call(`/export/${after}-newone00.fit`)).status).toBe(404);
+  });
+
+  it('narrows a from/to that reaches past the window rather than obeying it', async () => {
+    await stow(shiftDate(today(), -9), 'oldone00');
+    await stow(shiftDate(today(), 16), 'newone00');
+    await putWorkout(env, userId, parseWorkout({ date: today(), steps: [{ goal_s: 600 }] }));
+
+    const listed = await listWorkouts(env, userId, '2000-01-01', '2100-01-01');
+    expect(listed.map((workout) => workout.date)).toEqual([today()]);
+
+    const response = await call('/api/workouts.json?from=2000-01-01&to=2100-01-01');
+    const { workouts } = (await response.json()) as { workouts: { date: string }[] };
+    expect(workouts.map((workout) => workout.date)).toEqual([today()]);
+  });
+
+  it('still narrows a from/to that asks for less', async () => {
+    const day = today();
+    await putWorkout(env, userId, parseWorkout({ date: day, steps: [{ goal_s: 600 }] }));
+    await putWorkout(env, userId, parseWorkout({ date: shiftDate(day, 5), steps: [{ goal_s: 600 }] }));
+
+    const listed = await listWorkouts(env, userId, day, day);
+    expect(listed.map((workout) => workout.date)).toEqual([day]);
   });
 });

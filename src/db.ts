@@ -12,12 +12,22 @@
  */
 
 import type { OAuthHelpers } from '@cloudflare/workers-oauth-provider';
-import { shiftDate, today } from './units';
+import { fail, shiftDate, today } from './units';
 import type { PlanStep, Sport, SubSport, Workout, WorkoutInput } from './workout';
 
 export const RETENTION_DAYS_PAST = 7;
 export const RETENTION_DAYS_FUTURE = 14;
 export const MAX_WORKOUTS_PER_USER = 50;
+
+/**
+ * A day of slack on each side of the retention window, for reads only.
+ *
+ * Dates are the athlete's local day but the window is computed in UTC, so at
+ * the edges the two can disagree by a day. Writes take the strict window —
+ * there is no point storing what the sweep will drop — while reads take the
+ * slack, so a workout stored yesterday in Auckland is still legible today.
+ */
+export const READ_SLACK_DAYS = 1;
 
 export type Env = {
   DB: D1Database;
@@ -75,6 +85,22 @@ export function retentionWindow(now: Date = new Date()): { from: string; to: str
   return { from: shiftDate(day, -RETENTION_DAYS_PAST), to: shiftDate(day, RETENTION_DAYS_FUTURE) };
 }
 
+/**
+ * The widest span of dates a read may reach, inclusive.
+ *
+ * Every read goes through this, so no caller — a `from`/`to` on the list, a
+ * date in a URL, a FIT download — can reach a workout outside the window,
+ * whatever it asks for. A row that somehow outlived the sweep is not visible
+ * either; it simply waits to be swept.
+ */
+export function readWindow(now: Date = new Date()): { from: string; to: string } {
+  const day = today(now);
+  return {
+    from: shiftDate(day, -(RETENTION_DAYS_PAST + READ_SLACK_DAYS)),
+    to: shiftDate(day, RETENTION_DAYS_FUTURE + READ_SLACK_DAYS),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Workouts
 // ---------------------------------------------------------------------------
@@ -94,18 +120,30 @@ function parseRow(row: WorkoutRow): Workout {
   return workout;
 }
 
+/** A caller's range, narrowed to what a read is allowed to see. */
+function readRange(from?: string, to?: string): { from: string; to: string } {
+  const window = readWindow();
+  return {
+    from: from && from > window.from ? from : window.from,
+    to: to && to < window.to ? to : window.to,
+  };
+}
+
 export async function listWorkouts(env: Env, userId: string, from?: string, to?: string): Promise<Workout[]> {
-  const window = retentionWindow();
+  const range = readRange(from, to);
   const { results } = await env.DB.prepare(
     `SELECT ${WORKOUT_COLUMNS} FROM workouts
      WHERE user_id = ? AND date >= ? AND date <= ? ORDER BY date, created_at`,
   )
-    .bind(userId, from ?? window.from, to ?? window.to)
+    .bind(userId, range.from, range.to)
     .all<WorkoutRow>();
   return (results ?? []).map(parseRow);
 }
 
 export async function getWorkout(env: Env, userId: string, date: string, id: string): Promise<Workout | null> {
+  const window = readWindow();
+  if (date < window.from || date > window.to) return null;
+
   const row = await env.DB.prepare(
     `SELECT ${WORKOUT_COLUMNS} FROM workouts WHERE user_id = ? AND date = ? AND id = ?`,
   )
@@ -114,7 +152,14 @@ export async function getWorkout(env: Env, userId: string, date: string, id: str
   return row ? parseRow(row) : null;
 }
 
-/** Where an already-stored workout with this caller-supplied key lives. */
+/**
+ * Where an already-stored workout with this caller-supplied key lives.
+ *
+ * Deliberately not narrowed to the read window, unlike the reads above: the
+ * key's unique index is not narrowed either, so a row the sweep has not caught
+ * yet still has to be found — otherwise a re-sync would try to insert a second
+ * row under the same key and break the index.
+ */
 export async function findByExternalId(
   env: Env,
   userId: string,
@@ -126,18 +171,40 @@ export async function findByExternalId(
   return row ?? null;
 }
 
+/**
+ * Refuse a date the retention sweep would drop again immediately, rather than
+ * accepting the write and silently throwing it away.
+ *
+ * Callers that move a workout delete the old row before writing the new one,
+ * so they have to ask this *before* deleting: failing in between would answer
+ * with a 400 and still have lost the workout.
+ */
+export function assertRetainable(date: string): void {
+  const window = retentionWindow();
+  if (date < window.from || date > window.to) {
+    fail('date', `only ${window.from} to ${window.to} is kept, so a workout on ${date} would be dropped straight away`);
+  }
+}
+
 export async function putWorkout(env: Env, userId: string, input: WorkoutInput, id?: string): Promise<Workout> {
   let workoutId = id;
 
+  assertRetainable(input.date);
+
   // A caller that supplies its own key is re-syncing: land on the row that
   // key already names, rather than creating a second copy of the session.
-  if (workoutId === undefined && input.external_id) {
+  if (input.external_id) {
     const existing = await findByExternalId(env, userId, input.external_id);
-    if (existing) {
+    if (existing && workoutId === undefined) {
       workoutId = existing.id;
-      // The workout moved day; the old row has to go before the new one lands.
-      if (existing.date !== input.date) await deleteWorkout(env, userId, existing.date, existing.id);
+    } else if (existing && existing.id !== workoutId) {
+      // The key is unique per athlete, so letting this reach the INSERT would
+      // break the index and surface as a 500 rather than as the caller's
+      // mistake that it is.
+      fail('external_id', `"${input.external_id}" already belongs to workout ${existing.id} on ${existing.date}`);
     }
+    // The workout moved day; the old row has to go before the new one lands.
+    if (existing && existing.date !== input.date) await deleteWorkout(env, userId, existing.date, existing.id);
   }
 
   const workout: Workout = { id: workoutId ?? newId(), ...input, updated_at: new Date().toISOString() };
@@ -163,6 +230,13 @@ export async function putWorkout(env: Env, userId: string, input: WorkoutInput, 
     )
     .run();
   await prune(env, userId);
+
+  // The date is inside the window, but the per-user cap keeps the newest and
+  // this write may have been the oldest. Saying so beats handing back an id
+  // and a download URL for a workout that is already gone.
+  if (!(await getWorkout(env, userId, workout.date, workout.id))) {
+    fail('date', `only ${MAX_WORKOUTS_PER_USER} workouts are kept, newest dates first, and ${workout.date} lost out`);
+  }
   return workout;
 }
 
@@ -184,7 +258,7 @@ export async function prune(env: Env, userId: string, now: Date = new Date()): P
     .run();
   const overflow = await env.DB.prepare(
     `DELETE FROM workouts WHERE user_id = ?1 AND rowid NOT IN (
-       SELECT rowid FROM workouts WHERE user_id = ?1 ORDER BY date DESC, created_at DESC LIMIT ?2
+       SELECT rowid FROM workouts WHERE user_id = ?1 ORDER BY date DESC, created_at DESC, rowid DESC LIMIT ?2
      )`,
   )
     .bind(userId, MAX_WORKOUTS_PER_USER)

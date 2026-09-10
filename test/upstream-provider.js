@@ -53,6 +53,9 @@ export default {
       aud: code.includes('wrong-audience') ? 'some-other-app' : provider.audience,
       sub: code.includes('no-subject') ? undefined : provider.subject,
       email: code.includes('no-email') ? undefined : provider.email,
+      // Both providers send this; Apple as a string. `ALLOWED_EMAILS` is
+      // weighed against it, so the stand-in has to carry it too.
+      email_verified: code.includes('unverified-email') ? false : true,
       exp: code.includes('expired') ? now - 60 : now + 600,
     };
 
