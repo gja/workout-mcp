@@ -24,21 +24,6 @@ import type { Sport, SubSport, Workout } from './workout';
  */
 const MAX_FIT_BYTES = 1024 * 1024;
 
-/**
- * Values written when one end of a range is left open. FIT has no "unbounded"
- * encoding, so we use limits no human will reach.
- */
-const OPEN_ENDED = {
-  speedLow: 0,
-  speedHigh: 25, // m/s — ~90 km/h
-  hrLow: 0,
-  hrHigh: 255, // bpm
-  powerLow: 0,
-  powerHigh: 2000, // watts
-  cadenceLow: 0,
-  cadenceHigh: 254, // rpm
-} as const;
-
 /** `workoutHr`: 0-100 is a percentage of max HR, above 100 is bpm + 100. */
 const encodeHr = (hr: HrValue): number => (hr.unit === 'percent' ? hr.value : hr.value + 100);
 
@@ -60,7 +45,15 @@ function encodeDuration(duration: Duration): DurationFields {
   }
 }
 
-/** A target in FIT's shape, before it is named primary or secondary. */
+/**
+ * A target in FIT's shape, before it is named primary or secondary.
+ *
+ * `low` and `high` are absent when that end of the range was left open. An
+ * absent field means "not set", which is what an open end is; writing a
+ * stand-in value instead invents a bound the athlete never asked for, and
+ * FIT has no value that reads as "no limit" — a 0 floor on a power range is
+ * read as 0% of FTP, not as "no floor".
+ */
 type TargetFields = { type: string; value: number; low?: number; high?: number };
 
 /** FIT target type per zone metric. Pace zones are speed zones. */
@@ -76,29 +69,29 @@ function encodeTarget(target: Target): TargetFields {
       return {
         type: 'heartRate',
         value: 0,
-        low: target.low ? encodeHr(target.low) : OPEN_ENDED.hrLow,
-        high: target.high ? encodeHr(target.high) : encodeHr({ unit: 'bpm', value: OPEN_ENDED.hrHigh }),
+        ...(target.low ? { low: encodeHr(target.low) } : {}),
+        ...(target.high ? { high: encodeHr(target.high) } : {}),
       };
     case 'speed':
       return {
         type: 'speed',
         value: 0,
-        low: encodeSpeed(target.low ?? OPEN_ENDED.speedLow),
-        high: encodeSpeed(target.high ?? OPEN_ENDED.speedHigh),
+        ...(target.low === null ? {} : { low: encodeSpeed(target.low) }),
+        ...(target.high === null ? {} : { high: encodeSpeed(target.high) }),
       };
     case 'power':
       return {
         type: 'power',
         value: 0,
-        low: target.low ? encodePower(target.low) : OPEN_ENDED.powerLow,
-        high: target.high ? encodePower(target.high) : encodePower({ unit: 'watts', value: OPEN_ENDED.powerHigh }),
+        ...(target.low ? { low: encodePower(target.low) } : {}),
+        ...(target.high ? { high: encodePower(target.high) } : {}),
       };
     case 'cadence':
       return {
         type: 'cadence',
         value: 0,
-        low: target.low ?? OPEN_ENDED.cadenceLow,
-        high: target.high ?? OPEN_ENDED.cadenceHigh,
+        ...(target.low === null ? {} : { low: target.low }),
+        ...(target.high === null ? {} : { high: target.high }),
       };
   }
 }
@@ -110,10 +103,10 @@ function targetMesgFields(target: Target, secondary: boolean): Record<string, un
     ? { secondaryTargetType: type, secondaryTargetValue: value }
     : { targetType: type, targetValue: value };
 
-  if (low !== undefined) {
-    fields[secondary ? 'secondaryCustomTargetValueLow' : 'customTargetValueLow'] = low;
-    fields[secondary ? 'secondaryCustomTargetValueHigh' : 'customTargetValueHigh'] = high;
-  }
+  // Each bound is written only if it exists, so an open end leaves the field
+  // out of the step's definition entirely.
+  if (low !== undefined) fields[secondary ? 'secondaryCustomTargetValueLow' : 'customTargetValueLow'] = low;
+  if (high !== undefined) fields[secondary ? 'secondaryCustomTargetValueHigh' : 'customTargetValueHigh'] = high;
   return fields;
 }
 
@@ -145,8 +138,13 @@ export function flattenSteps(steps: ResolvedStep[], out: StepMesg[] = []): StepM
         messageIndex: out.length,
         durationType: 'repeatUntilStepsCmplt',
         durationValue: firstChildIndex,
+        // A repeat has no target of its own, but the field is written anyway:
+        // Garmin's own exports carry it, and an importer that reads
+        // targetType on every step chokes on the one record missing it.
+        targetType: 'open',
         // With durationType = repeatUntilStepsCmplt, targetValue holds the
-        // repeat count (the profile's `repeatSteps` subfield).
+        // repeat count (the profile's `repeatSteps` subfield), which resolves
+        // off durationType and so is unaffected by targetType above.
         targetValue: step.times,
       });
       continue;
