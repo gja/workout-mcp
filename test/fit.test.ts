@@ -137,14 +137,40 @@ describe('targets', () => {
     expect(step.customTargetSpeedHigh as number).toBeCloseTo(1000 / 240, 2);
   });
 
-  it('fills an open end with a bound no athlete reaches', () => {
-    // "faster than 6:30/km": a real floor on speed, and a ceiling nobody hits.
+  /**
+   * An open end leaves the field out entirely. FIT has no value meaning "no
+   * limit" — a 0 power floor reads as 0% of FTP, not as "no floor" — and a
+   * step carrying an invented bound was what Watchletic refused to import.
+   */
+  it('writes no field at all for an open end', () => {
     const faster = roundTrip(build([{ goal_s: 60, target_pace_km: ['6:30', '-'] }])).workoutStepMesgs[0];
     expect(faster.customTargetSpeedLow as number).toBeCloseTo(1000 / 390, 2);
-    expect(faster.customTargetSpeedHigh as number).toBeCloseTo(25, 2);
+    expect(faster.customTargetSpeedHigh).toBeUndefined();
 
     const under = roundTrip(build([{ goal_s: 60, target_heart_rate: ['-', 150] }])).workoutStepMesgs[0];
-    expect(under).toMatchObject({ customTargetHeartRateLow: 0, customTargetHeartRateHigh: 250 });
+    expect(under.customTargetHeartRateLow).toBeUndefined();
+    expect(under.customTargetHeartRateHigh).toBe(250);
+
+    const capped = roundTrip(build([{ goal_s: 60, target_watts: ['-', 120] }])).workoutStepMesgs[0];
+    expect(capped.customTargetPowerLow).toBeUndefined();
+    expect(capped.customTargetPowerHigh).toBe(1120);
+
+    const spun = roundTrip(build([{ goal_s: 60, target_cadence: [85, '-'] }])).workoutStepMesgs[0];
+    expect(spun.customTargetCadenceLow).toBe(85);
+    expect(spun.customTargetCadenceHigh).toBeUndefined();
+  });
+
+  it('still writes both ends when both were given', () => {
+    const step = roundTrip(build([{ goal_s: 60, target_watts: [152, 180] }])).workoutStepMesgs[0];
+    expect(step).toMatchObject({ customTargetPowerLow: 1152, customTargetPowerHigh: 1180 });
+  });
+
+  it('leaves the open end out of a secondary target too', () => {
+    const step = roundTrip(
+      build([{ goal_s: 60, target_watts: [152, 180], target_cadence: ['-', 95] }]),
+    ).workoutStepMesgs[0];
+    expect(step.secondaryCustomTargetCadenceLow).toBeUndefined();
+    expect(step.secondaryCustomTargetCadenceHigh).toBe(95);
   });
 
   it('offsets heart rate by 100 and power by 1000', () => {

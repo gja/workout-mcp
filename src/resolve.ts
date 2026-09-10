@@ -250,11 +250,13 @@ function parseOneTarget(key: string, value: unknown, at: string): Target {
       return { type: 'speed', unit: 'mi', ...paceRangeToSpeed(value, at, METRES_PER_MILE) };
     case 'target_heart_rate': {
       const [low, high] = parseRange(value, at, parseHr);
+      assertSameUnit(low, high, at, value);
       assertOrdered(low?.value, high?.value, at, value);
       return { type: 'heart_rate', low, high };
     }
     case 'target_watts': {
       const [low, high] = parseRange(value, at, parsePower);
+      assertSameUnit(low, high, at, value);
       assertOrdered(low?.value, high?.value, at, value);
       return { type: 'power', low, high };
     }
@@ -305,6 +307,22 @@ function parseTargets(raw: Record<string, unknown>, path: string): { target: Tar
   return parsed.length === 1
     ? { target: parsed[0].target }
     : { target: parsed[0].target, secondary: parsed[1].target };
+}
+
+/**
+ * FIT stores a percentage and an absolute in the same field, telling them
+ * apart by magnitude, so a range cannot have one of each: the pair would be
+ * read as two unrelated numbers rather than as two ends of one band.
+ */
+function assertSameUnit(
+  low: { unit: string } | null,
+  high: { unit: string } | null,
+  path: string,
+  raw: unknown,
+): void {
+  if (low && high && low.unit !== high.unit) {
+    fail(path, `both ends must use the same unit — ${JSON.stringify(raw)} mixes ${low.unit} and ${high.unit}`);
+  }
 }
 
 function assertOrdered(low: number | undefined, high: number | undefined, path: string, raw: unknown): void {

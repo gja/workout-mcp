@@ -111,6 +111,13 @@ describe('targets', () => {
     expect(() => workout([{ goal_s: 60, target_heart_rate: [160, 140] }])).toThrow(/reversed/);
   });
 
+  it('refuses a range with a percentage at one end and an absolute at the other', () => {
+    // FIT tells the two apart by magnitude in one field, so a mixed pair is
+    // read as two unrelated numbers rather than one band.
+    expect(() => workout([{ goal_s: 60, target_heart_rate: ['80%', 150] }])).toThrow(/same unit/);
+    expect(() => workout([{ goal_s: 60, target_watts: [200, '95%'] }])).toThrow(/same unit/);
+  });
+
   it('takes heart rate as bpm or a percentage of max', () => {
     expect(step(workout([{ goal_s: 60, target_heart_rate: [146, 153] }])).target).toEqual({
       type: 'heart_rate',
