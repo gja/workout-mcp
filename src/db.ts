@@ -19,10 +19,17 @@ export const MAX_WORKOUTS_PER_USER = 50;
 export type Env = {
   DB: D1Database;
   ASSETS: Fetcher;
-  ADMIN_TOKEN?: string;
+  /** Shown in the login email and on the dashboard. */
+  APP_NAME?: string;
+  /** Resend API key. Without it, login codes are written to the log instead. */
+  RESEND_API_KEY?: string;
+  /** The From address for login emails, e.g. "Workouts <login@example.com>". */
+  EMAIL_FROM?: string;
+  /** Optional sign-up allowlist: addresses or "@domain", comma separated. */
+  ALLOWED_EMAILS?: string;
 };
 
-export type User = { id: string; name: string | null };
+export type User = { id: string; email: string };
 
 type WorkoutRow = { id: string; date: string; data: string };
 
@@ -34,40 +41,10 @@ export function newId(length = 8): string {
   return Array.from(bytes, (b) => ID_ALPHABET[b % ID_ALPHABET.length]).join('');
 }
 
-export function newToken(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return `wk_${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
-}
-
-export async function hashToken(token: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
-}
-
 /** The window of dates we keep, inclusive. */
 export function retentionWindow(now: Date = new Date()): { from: string; to: string } {
   const day = today(now);
   return { from: shiftDate(day, -RETENTION_DAYS_PAST), to: shiftDate(day, RETENTION_DAYS_FUTURE) };
-}
-
-// ---------------------------------------------------------------------------
-// Users
-// ---------------------------------------------------------------------------
-
-export async function findUserByToken(env: Env, token: string): Promise<User | null> {
-  const row = await env.DB.prepare('SELECT id, name FROM users WHERE token_hash = ?')
-    .bind(await hashToken(token))
-    .first<User>();
-  return row ?? null;
-}
-
-export async function createUser(env: Env, name: string | null): Promise<{ user: User; token: string }> {
-  const token = newToken();
-  const id = newId(12);
-  await env.DB.prepare('INSERT INTO users (id, name, token_hash, created_at) VALUES (?, ?, ?, ?)')
-    .bind(id, name, await hashToken(token), new Date().toISOString())
-    .run();
-  return { user: { id, name }, token };
 }
 
 // ---------------------------------------------------------------------------

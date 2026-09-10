@@ -48,7 +48,7 @@ describe('authentication', () => {
   it('serves health without a token', async () => {
     const response = await SELF.fetch(`${BASE}/api/health`);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true });
+    expect(await response.json()).toMatchObject({ ok: true });
   });
 
   it('refuses the API without a valid token', async () => {
@@ -57,21 +57,12 @@ describe('authentication', () => {
     expect(bad.status).toBe(401);
   });
 
-  it('mints a user with the admin token, and only with it', async () => {
-    const refused = await SELF.fetch(`${BASE}/api/users`, { method: 'POST' });
-    expect(refused.status).toBe(401);
-
-    const response = await SELF.fetch(`${BASE}/api/users`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${env.ADMIN_TOKEN}` },
-      body: JSON.stringify({ name: 'alice' }),
-    });
-    expect(response.status).toBe(201);
-    const created = (await response.json()) as { token: string };
-    expect(created.token).toMatch(/^wk_[0-9a-f]{64}$/);
-
-    const me = await SELF.fetch(`${BASE}/api/me`, { headers: { Authorization: `Bearer ${created.token}` } });
-    expect(await me.json()).toMatchObject({ name: 'alice' });
+  it('points an unauthenticated MCP client at the OAuth metadata', async () => {
+    const response = await SELF.fetch(`${BASE}/api/workouts`);
+    expect(response.status).toBe(401);
+    expect(response.headers.get('WWW-Authenticate')).toBe(
+      `Bearer resource_metadata="${BASE}/.well-known/oauth-protected-resource"`,
+    );
   });
 
   it('keeps one athlete\'s workouts out of another\'s', async () => {

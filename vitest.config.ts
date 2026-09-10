@@ -8,7 +8,9 @@ export default defineConfig({
     cloudflareTest({
       singleWorker: true,
       wrangler: { configPath: './wrangler.jsonc' },
-      miniflare: { d1Databases: ['DB'], bindings: { ADMIN_TOKEN: 'test-admin-token' } },
+      // No email provider is bound, so login codes are written to the log
+      // and the tests read them from there.
+      miniflare: { d1Databases: ['DB'], bindings: { APP_NAME: 'Workouts' } },
     }),
   ],
 });

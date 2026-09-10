@@ -4,8 +4,17 @@
   "main": "src/index.ts",
   "compatibility_date": "2025-09-01",
 
-  // The dashboard. Anything not matched by /mcp, /api or /export is served from here.
+  // The dashboard and the OAuth consent page. Anything not matched by /mcp,
+  // /api, /oauth or /export is served from here.
   "assets": { "directory": "./public", "binding": "ASSETS" },
+
+  "vars": {
+    "APP_NAME": "Workouts"
+    // Set as secrets, not here:
+    //   RESEND_API_KEY  npx wrangler secret put RESEND_API_KEY
+    //   EMAIL_FROM      e.g. "Workouts <login@your-domain.com>"
+    //   ALLOWED_EMAILS  optional sign-up allowlist, e.g. "me@example.com,@myteam.com"
+  },
 
   "d1_databases": [
     {

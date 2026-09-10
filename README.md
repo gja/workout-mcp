@@ -7,7 +7,10 @@ Worker, a D1 database, and a static dashboard.
 - **MCP** at `POST /mcp` — an assistant can write your training week.
 - **REST** at `/api/*` — for a Garmin Connect IQ app, Watchletic, or curl.
 - **FIT** at `/export/2026-09-12-a1b2c3d4.fit` — drop it on a watch.
-- **Dashboard** at `/` — see the plan, download files.
+- **Dashboard** at `/` — see the plan, download files, manage tokens.
+- **Sign-in** by email and a six-digit code. No passwords.
+- **OAuth 2.1** so an MCP client can connect with a button rather than a
+  pasted token.
 
 Only a rolling window is kept: **7 days back, 14 days ahead**, capped at 50
 workouts per user. Anything outside that is pruned on write and by a nightly
@@ -19,31 +22,78 @@ cron trigger.
 npm install
 npx wrangler d1 create workout-mcp        # paste the id into wrangler.jsonc
 npm run db:remote                         # apply schema.sql
-npx wrangler secret put ADMIN_TOKEN       # any long random string
 npm run deploy
 ```
 
-Then mint yourself a user token:
+Then open the dashboard, enter your email, and type in the code. The first
+verified login creates the account.
+
+For that email to arrive you need one more thing — see **Sending the login
+code** below. Locally you do not: `npm run db:local` seeds a local D1, and
+`npm run dev` serves everything at `http://localhost:8787` with the login code
+printed to the terminal instead of emailed.
+
+## Sending the login code
+
+Cloudflare has no outbound transactional email. Email Routing is inbound only,
+and an Email Worker may only send to addresses already verified on your own
+account — fine for forwarding yourself a notification, useless for signing up
+an athlete. So the one-time code goes out through an HTTP email API.
+
+The default is [Resend](https://resend.com): one `fetch` call, and its free
+tier (3,000/month) is far more than a training log needs. Verify your domain
+with them, then:
 
 ```bash
-curl -X POST https://<your-worker>/api/users \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"me"}'
+npx wrangler secret put RESEND_API_KEY
+npx wrangler secret put EMAIL_FROM        # "Workouts <login@your-domain.com>"
 ```
 
-Keep the `wk_...` token it returns — it is stored only as a SHA-256 hash and
-cannot be recovered. Paste it into the dashboard, and use it as a bearer token
-everywhere else.
+Swapping it for Postmark, SES or anything else is one function in
+`src/email.ts`.
 
-For local development, `npm run db:local` seeds a local D1 and `npm run dev`
-serves everything at `http://localhost:8787`.
+**With no key set, the code is written to the log instead of sent.** That is
+what makes local development work without signing up for anything, but it also
+means a deployed Worker without `RESEND_API_KEY` cannot log anyone in who
+cannot read your Worker logs.
+
+Since anyone who can reach the page can ask for a code, set an allowlist if the
+Worker is public:
+
+```bash
+npx wrangler secret put ALLOWED_EMAILS    # "me@example.com,@myteam.com"
+```
+
+Codes are six digits, stored only as a hash, good for 10 minutes and five
+guesses, and one address may only ask for a code once a minute.
 
 ## Connecting an MCP client
 
 The server speaks Streamable HTTP and is stateless — one JSON-RPC request per
 POST, no sessions and no SSE, which is what keeps it inside the Workers free
-plan. Point any MCP client at `/mcp` with a bearer token:
+plan.
+
+**With OAuth**, which is what a client that can open a browser will do on its
+own: point it at `https://<your-worker>/mcp` and it discovers the rest. The
+client registers itself, sends you to a consent page, you sign in with your
+email code and approve, and it gets a token. Nothing to copy.
+
+The flow is OAuth 2.1 with mandatory PKCE and exact-match redirect URIs:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `/.well-known/oauth-protected-resource` | RFC 9728 — names the authorization server |
+| `/.well-known/oauth-authorization-server` | RFC 8414 — endpoint metadata |
+| `POST /oauth/register` | RFC 7591 — dynamic client registration |
+| `GET /oauth/authorize` | Consent page |
+| `POST /oauth/token` | Code exchange and refresh |
+
+Access tokens last 30 days; refresh tokens rotate on every use. Connected apps
+are listed on the dashboard and can be revoked there, which kills the refresh
+token too.
+
+**With a static token**, for a client that only takes a header — mint one on
+the dashboard under *Tokens*:
 
 ```json
 {
@@ -148,12 +198,19 @@ duration`.
 
 ## HTTP API
 
-All routes need `Authorization: Bearer wk_...`.
+Authenticate with `Authorization: Bearer <token>` or, from a browser, the
+session cookie set at login.
 
 | Route | Does |
 | --- | --- |
 | `GET /api/health` | Liveness, no auth |
-| `GET /api/me` | Who the token belongs to |
+| `POST /api/auth/request-code` | `{email}` — send a login code |
+| `POST /api/auth/verify` | `{email, code}` — sign in, sets the session cookie |
+| `POST /api/auth/logout` | End the session |
+| `GET /api/me` | Who you are |
+| `GET /api/tokens` | List tokens and connected apps |
+| `POST /api/tokens` | `{name}` — mint an API token, returned once |
+| `DELETE /api/tokens/:prefix` | Revoke one |
 | `GET /api/workouts.json?from=&to=` | List within the retention window |
 | `POST /api/workouts` | Create; returns the id and URLs |
 | `GET /api/workouts/:date/:id.json` | Read one |
@@ -161,7 +218,6 @@ All routes need `Authorization: Bearer wk_...`.
 | `DELETE /api/workouts/:date/:id.json` | Delete one |
 | `GET /export/:date-:id.fit` | The FIT file |
 | `POST /api/tools/:name` | Any MCP tool, over REST |
-| `POST /api/users` | Mint a user; needs `ADMIN_TOKEN` |
 
 A date may hold several workouts; each gets its own short id.
 
@@ -180,10 +236,19 @@ src/workout.ts    the loose-JSON -> strict-model normalizer, and its errors
 src/fit.ts        FIT encoding, including flattening nested repeats
 src/describe.ts   human-readable rendering, shared by MCP and the dashboard
 src/db.ts         D1 queries and retention
+src/auth.ts       login codes, sessions and bearer tokens
+src/email.ts      sending the login code
+src/oauth.ts      OAuth 2.1 for MCP clients
 src/tools.ts      the tool surface shared by MCP and REST
 src/mcp.ts        JSON-RPC over Streamable HTTP
 src/index.ts      routing and auth
 ```
+
+Every credential — hand-made API tokens and both halves of an OAuth grant —
+lives in one `tokens` table, so there is a single lookup path in auth and one
+place to revoke. Nothing is stored in the clear: sessions, login codes,
+tokens and authorization codes are all SHA-256 hashes, and the dashboard shows
+only a prefix.
 
 Two things are worth knowing if you touch `fit.ts`:
 
@@ -210,8 +275,15 @@ npm run typecheck
 
 Everything here fits the Cloudflare free plan: Workers (100k requests/day),
 D1 (5 GB, 5M row reads/day), static assets and cron triggers. Encoding a
-30-step workout is well under the free plan's 10 ms CPU limit. The only thing
-you pay for is the domain, and Cloudflare Registrar sells those at cost.
+30-step workout is well under the free plan's 10 ms CPU limit. Resend's free
+tier covers the login emails. The only thing you pay for is the domain, and
+Cloudflare Registrar sells those at cost.
+
+Auth is self-contained rather than delegated to Auth0, Clerk, WorkOS or
+Stytch. Those all have workable free tiers, and the MCP-focused ones will host
+the OAuth server for you — but each adds an account every self-hoster of this
+repo would also have to create. The only genuinely hard part to self-host is
+*sending* the email, which is the one thing here that is outsourced.
 
 ## Licence
 

@@ -1,12 +1,17 @@
 /**
  * HTTP entry point: MCP at /mcp, a REST API at /api, FIT downloads at /export,
- * and the dashboard served from the static assets binding.
+ * the OAuth endpoints MCP clients use to sign in, and the dashboard served
+ * from the static assets binding.
  *
- * Every request authenticates with a bearer token. Tokens are per-user and
- * carry no scopes — this is a single-purpose service for one athlete's plan.
+ * Two ways to authenticate, both resolving to the same user:
+ *
+ *   - a session cookie, for the dashboard and the OAuth consent page;
+ *   - a bearer token, for MCP clients, the watch app and curl.
  */
 
+import * as auth from './auth';
 import * as db from './db';
+import * as oauth from './oauth';
 import type { Env, User } from './db';
 import { encodeWorkoutFit, fitFilename } from './fit';
 import { handleMcp } from './mcp';
@@ -21,10 +26,12 @@ const CORS_HEADERS = {
   'Access-Control-Max-Age': '86400',
 };
 
-const json = (body: unknown, status = 200): Response =>
-  Response.json(body, { status, headers: CORS_HEADERS });
+const json = (body: unknown, status = 200, headers: Record<string, string> = {}): Response =>
+  Response.json(body, { status, headers: { ...CORS_HEADERS, ...headers } });
 
 const error = (message: string, status: number): Response => json({ error: message }, status);
+
+const appName = (env: Env): string => env.APP_NAME ?? 'Workouts';
 
 /**
  * The bearer token, from the Authorization header or — for FIT downloads only —
@@ -46,11 +53,74 @@ function splitDateId(slug: string): { date: string; id: string } | null {
   return { date, id };
 }
 
+// ---------------------------------------------------------------------------
+// Login
+// ---------------------------------------------------------------------------
+
+/** The email/one-time-code endpoints. None of these need a credential. */
+async function handleAuth(request: Request, url: URL, env: Env): Promise<Response | null> {
+  const secure = url.protocol === 'https:';
+
+  if (url.pathname === '/api/auth/request-code' && request.method === 'POST') {
+    const body = (await request.json().catch(() => ({}))) as { email?: unknown };
+    const result = await auth.requestLoginCode(env, body.email, appName(env));
+    if (result.ok) return json({ sent: true, expires_in: auth.CODE_TTL_MINUTES * 60 });
+    return json(
+      { error: result.error },
+      result.status,
+      result.retryAfter ? { 'Retry-After': String(result.retryAfter) } : {},
+    );
+  }
+
+  if (url.pathname === '/api/auth/verify' && request.method === 'POST') {
+    const body = (await request.json().catch(() => ({}))) as { email?: unknown; code?: unknown };
+    const result = await auth.verifyLoginCode(env, body.email, body.code);
+    if (!result.ok) return json({ error: result.error }, result.status);
+
+    const session = await auth.createSession(env, result.user.id);
+    return json(result.user, 200, { 'Set-Cookie': auth.sessionCookie(session, secure) });
+  }
+
+  if (url.pathname === '/api/auth/logout' && request.method === 'POST') {
+    await auth.endSession(env, request);
+    return json({ ok: true }, 200, { 'Set-Cookie': auth.sessionCookie(null, secure) });
+  }
+
+  return null;
+}
+
+/** Token management, which only a signed-in browser may do. */
+async function handleTokens(request: Request, url: URL, env: Env, user: User): Promise<Response> {
+  if (url.pathname === '/api/tokens') {
+    if (request.method === 'GET') return json({ tokens: await auth.listTokens(env, user.id) });
+    if (request.method === 'POST') {
+      const body = (await request.json().catch(() => ({}))) as { name?: unknown };
+      const name = typeof body.name === 'string' ? body.name.trim().slice(0, 60) : null;
+      const issued = await auth.issueToken(env, user.id, 'api', { name: name || 'API token' });
+      // The only time the full token is ever returned.
+      return json({ ...issued, note: 'Copy this now — it is stored only as a hash.' }, 201);
+    }
+    return error('method not allowed', 405);
+  }
+
+  const single = url.pathname.match(/^\/api\/tokens\/([A-Za-z0-9_]+)$/);
+  if (single && request.method === 'DELETE') {
+    return (await auth.revokeToken(env, user.id, single[1]))
+      ? json({ revoked: true })
+      : error('no such token', 404);
+  }
+  return error('not found', 404);
+}
+
+// ---------------------------------------------------------------------------
+// Workouts
+// ---------------------------------------------------------------------------
+
 async function handleApi(request: Request, url: URL, env: Env, user: User, baseUrl: string): Promise<Response> {
   const path = url.pathname;
   const method = request.method;
 
-  if (path === '/api/me') return json({ id: user.id, name: user.name });
+  if (path === '/api/me') return json(user);
 
   // /api/workouts.json — the collection.
   if (path === '/api/workouts' || path === '/api/workouts.json') {
@@ -124,49 +194,73 @@ async function handleExport(url: URL, env: Env, user: User): Promise<Response> {
   });
 }
 
-/** Mint a user and token. Guarded by ADMIN_TOKEN, which is set as a secret. */
-async function handleCreateUser(request: Request, env: Env): Promise<Response> {
-  if (!env.ADMIN_TOKEN) return error('user creation is disabled: set the ADMIN_TOKEN secret', 403);
-  const header = request.headers.get('Authorization');
-  if (header !== `Bearer ${env.ADMIN_TOKEN}`) return error('unauthorized', 401);
-
-  const body = (await request.json().catch(() => ({}))) as { name?: string };
-  const { user, token } = await db.createUser(env, body.name ?? null);
-  return json({ id: user.id, name: user.name, token, note: 'Store this token now — it is not recoverable.' }, 201);
-}
+// ---------------------------------------------------------------------------
+// Routing
+// ---------------------------------------------------------------------------
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    const baseUrl = url.origin;
+    const origin = url.origin;
 
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS });
-    if (url.pathname === '/api/health') return json({ ok: true });
-    if (url.pathname === '/api/users' && request.method === 'POST') return handleCreateUser(request, env);
-
-    const needsAuth = url.pathname === '/mcp' || url.pathname.startsWith('/api/') || url.pathname.startsWith('/export/');
-    if (!needsAuth) return env.ASSETS.fetch(request);
-
-    const token = readToken(request, url);
-    if (!token) {
-      // The WWW-Authenticate header is how an MCP client discovers it needs a token.
-      return Response.json(
-        { error: 'missing bearer token' },
-        { status: 401, headers: { ...CORS_HEADERS, 'WWW-Authenticate': 'Bearer' } },
-      );
-    }
-    const user = await db.findUserByToken(env, token);
-    if (!user) return error('invalid token', 401);
+    if (url.pathname === '/api/health') return json({ ok: true, name: appName(env) });
 
     try {
+      // --- Discovery, unauthenticated by definition.
+      if (url.pathname.startsWith('/.well-known/oauth-protected-resource')) {
+        return oauth.protectedResourceMetadata(origin);
+      }
+      if (url.pathname === '/.well-known/oauth-authorization-server') {
+        return oauth.authorizationServerMetadata(origin);
+      }
+      if (url.pathname === '/oauth/register' && request.method === 'POST') {
+        return await oauth.registerClient(request, env);
+      }
+      if (url.pathname === '/oauth/token' && request.method === 'POST') {
+        return await oauth.token(request, env);
+      }
+      if (url.pathname === '/oauth/authorize' && request.method === 'GET') {
+        return await oauth.authorize(request, url, env);
+      }
+      if (url.pathname === '/oauth/client' && request.method === 'GET') {
+        return await oauth.describeClient(env, url.searchParams.get('client_id'));
+      }
+
+      // --- Login.
+      const authResponse = await handleAuth(request, url, env);
+      if (authResponse) return authResponse;
+
+      // --- Everything past here needs a user.
+      const needsUser =
+        url.pathname === '/mcp' ||
+        url.pathname === '/oauth/authorize' ||
+        url.pathname.startsWith('/api/') ||
+        url.pathname.startsWith('/export/');
+      if (!needsUser) return env.ASSETS.fetch(request);
+
+      const token = readToken(request, url);
+      const user = token ? (await auth.findTokenOwner(env, token))?.user ?? null : await auth.readSession(env, request);
+
+      if (!user) {
+        // RFC 9728: point an MCP client at the metadata that starts the flow.
+        const headers: Record<string, string> = {
+          ...CORS_HEADERS,
+          'WWW-Authenticate': `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
+        };
+        return Response.json({ error: token ? 'invalid or expired token' : 'not signed in' }, { status: 401, headers });
+      }
+
       if (url.pathname === '/mcp') {
         if (request.method !== 'POST') return error('MCP requires POST', 405);
-        const response = await handleMcp(request, env, user, baseUrl);
+        const response = await handleMcp(request, env, user, origin);
         for (const [key, value] of Object.entries(CORS_HEADERS)) response.headers.set(key, value);
         return response;
       }
+      if (url.pathname === '/oauth/authorize') return await oauth.grantAuthorization(request, env, user);
+      if (url.pathname.startsWith('/api/tokens')) return await handleTokens(request, url, env, user);
       if (url.pathname.startsWith('/export/')) return await handleExport(url, env, user);
-      return await handleApi(request, url, env, user, baseUrl);
+      return await handleApi(request, url, env, user, origin);
     } catch (err) {
       if (isCallerError(err)) return error(err.message, 400);
       if (err instanceof SyntaxError) return error('invalid JSON body', 400);
@@ -175,10 +269,11 @@ export default {
     }
   },
 
-  /** Nightly retention sweep, so abandoned accounts do not grow without bound. */
+  /** Nightly sweep: retention, plus expired sessions, codes and tokens. */
   async scheduled(_event: ScheduledController, env: Env): Promise<void> {
-    const removed = await db.pruneAll(env);
-    console.log(`retention sweep removed ${removed} workouts`);
+    const workouts = await db.pruneAll(env);
+    const credentials = await auth.pruneExpired(env);
+    console.log(`nightly sweep removed ${workouts} workouts and ${credentials} expired credentials`);
   },
 };
 
