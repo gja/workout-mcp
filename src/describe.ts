@@ -31,7 +31,7 @@ function range(low: string | null, high: string | null): string {
   return low ? `above ${low}` : `below ${high}`;
 }
 
-function describeTarget(target: Target): string | null {
+export function describeTarget(target: Target): string | null {
   switch (target.type) {
     case 'open':
       return null;

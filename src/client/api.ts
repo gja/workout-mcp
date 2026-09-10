@@ -74,6 +74,61 @@ export const approveAuthorization = (query: string): Promise<{ redirect: string 
 
 export const signOut = (): Promise<unknown> => request('/api/auth/logout', { method: 'POST' });
 
+// --- Garmin ---------------------------------------------------------------
+
+export type GarminStatus = {
+  /** Whether this deployment has Garmin credentials at all. */
+  configured: boolean;
+  connected: boolean;
+  garmin_user_id?: string | null;
+  connected_at?: string;
+  last_sync_at?: string | null;
+  /** What went wrong last time, if anything did. */
+  last_sync_error?: string | null;
+  auto_sync?: boolean;
+  synced_workouts?: number;
+};
+
+export type GarminSyncAction =
+  | 'created'
+  | 'updated'
+  | 'rescheduled'
+  | 'unchanged'
+  | 'removed'
+  | 'untracked'
+  | 'skipped'
+  | 'failed';
+
+export type GarminSyncEntry = {
+  date: string;
+  id: string;
+  name?: string;
+  action: GarminSyncAction;
+  /** What the Training API could not carry, e.g. a dropped secondary target. */
+  notes?: string[];
+  error?: string;
+};
+
+export type GarminSyncReport = {
+  dry_run: boolean;
+  /** The call budget ran out; syncing again finishes the job. */
+  truncated: boolean;
+  counts: Record<GarminSyncAction, number>;
+  workouts: GarminSyncEntry[];
+  error?: string;
+};
+
+export const getGarminStatus = (): Promise<GarminStatus> => request('/api/garmin/status');
+
+export const syncGarmin = (options: { dry_run?: boolean; force?: boolean } = {}): Promise<GarminSyncReport> =>
+  request('/api/garmin/sync', { method: 'POST', body: options });
+
+export const setGarminAutoSync = (autoSync: boolean): Promise<GarminStatus> =>
+  request('/api/garmin/settings', { method: 'PUT', body: { auto_sync: autoSync } });
+
+export const disconnectGarmin = (): Promise<{ disconnected: boolean; note: string }> =>
+  request('/api/garmin/disconnect', { method: 'POST' });
+
 /**
  * Fetch the FIT file and hand it to the browser as a blob, so the session
  * credential never lands in a URL or a history entry.

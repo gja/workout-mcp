@@ -20,6 +20,8 @@ import * as auth from './auth';
 import * as db from './db';
 import * as identity from './identity';
 import type { Env, User } from './db';
+import * as garminStore from './garmin/store';
+import { syncEveryone } from './garmin/sync';
 import { handleMcp } from './mcp';
 import { ToolError } from './tools';
 import { WorkoutError } from './workout';
@@ -72,16 +74,38 @@ const provider = new OAuthProvider<Env>({
 export default {
   fetch: (request: Request, env: Env, ctx: ExecutionContext) => provider.fetch(request, env, ctx),
 
-  /** Nightly sweep: workout retention, expired logins, and stale OAuth data. */
+  /**
+   * Nightly sweep: workout retention, expired credentials, stale OAuth data,
+   * and then the push to Garmin.
+   *
+   * The order matters. Retention runs first so the Garmin sync sees the window
+   * as it will be for the rest of the day — otherwise a workout pruned minutes
+   * later would be pushed to the calendar and taken off it again tomorrow.
+   */
   async scheduled(_event: ScheduledController, env: Env): Promise<void> {
     const workouts = await db.pruneAll(env);
     const credentials = await auth.pruneExpired(env);
     const abandoned = await identity.pruneLoginStates(env);
+    const staleConnects = await garminStore.pruneConnectStates(env);
     const purged = await provider.purgeExpiredData(env);
     console.log(
       `nightly sweep removed ${workouts} workouts, ${credentials} expired sessions, ` +
-        `${abandoned} abandoned sign-ins, and ${purged.grantsPurged ?? 0} stale grants`,
+        `${abandoned + staleConnects} abandoned flows, and ${purged.grantsPurged ?? 0} stale grants`,
     );
+
+    // Last, and in its own try: this one talks to a third party, and a Garmin
+    // outage must not cost the retention sweep above, which has already run.
+    try {
+      const garmin = await syncEveryone(env);
+      if (garmin.users > 0) {
+        console.log(
+          `nightly garmin sync covered ${garmin.users} athlete(s): ` +
+            `${garmin.pushed} calendar change(s), ${garmin.failed} failure(s)`,
+        );
+      }
+    } catch (error) {
+      console.error('nightly garmin sync failed', error);
+    }
   },
 } satisfies ExportedHandler<Env>;
 

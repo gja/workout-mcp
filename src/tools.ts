@@ -9,6 +9,10 @@ import { encodeWorkoutFit, fitDownloadName } from './fit';
 import { describeWorkout, plannedTotals } from './describe';
 import * as db from './db';
 import type { Env, User } from './db';
+import { GarminAuthError, isConfigured as garminConfigured } from './garmin/oauth';
+import { disconnectAccount } from './garmin/routes';
+import * as garminStore from './garmin/store';
+import { status as garminStatus, syncAll } from './garmin/sync';
 import { WorkoutError, parseWorkout } from './workout';
 import type { Workout } from './workout';
 import { parseDate } from './units';
@@ -205,6 +209,77 @@ export const TOOLS = [
       required: ['date', 'id'],
     },
   },
+  {
+    name: 'garmin_status',
+    annotations: { title: 'Check the Garmin connection', readOnlyHint: true, openWorldHint: false },
+    description:
+      'Whether a Garmin Connect account is linked, when it last synced, and how many workouts are ' +
+      'tracked on it. When nothing is linked, returns the URL the athlete should open in a browser ' +
+      "to link one: connecting needs Garmin's own consent screen, so it cannot be done from here.",
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'sync_garmin',
+    annotations: {
+      title: 'Sync workouts to the Garmin calendar',
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    description:
+      'Push every planned workout in the retention window to the linked Garmin Connect calendar, ' +
+      'where a watch will pick them up. Only what has actually changed is sent, so calling this ' +
+      'twice in a row is free the second time. Workouts deleted here are removed from the calendar; ' +
+      'ones that have aged out of the window are left on it, since they are training already done.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        dry_run: {
+          type: 'boolean',
+          description: 'Report what would be sent without sending anything. Nothing on Garmin changes.',
+        },
+        force: {
+          type: 'boolean',
+          description: 'Re-send every workout, even those Garmin already has unchanged. Rarely needed.',
+        },
+        include_payloads: {
+          type: 'boolean',
+          description: 'On a dry run, include the full Garmin JSON for each workout. Verbose, so off by default.',
+        },
+      },
+    },
+  },
+  {
+    name: 'set_garmin_auto_sync',
+    annotations: {
+      title: 'Turn nightly Garmin sync on or off',
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    description: 'Whether the nightly sweep pushes to Garmin on its own. Syncing on request works either way.',
+    inputSchema: {
+      type: 'object',
+      properties: { enabled: { type: 'boolean', description: 'True to sync nightly, false to sync only on request.' } },
+      required: ['enabled'],
+    },
+  },
+  {
+    name: 'disconnect_garmin',
+    annotations: {
+      title: 'Unlink the Garmin account',
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+    description:
+      'Unlink the Garmin Connect account and stop pushing to it. Workouts already on the calendar are ' +
+      'left there: this stops future syncing rather than undoing past ones.',
+    inputSchema: { type: 'object', properties: {} },
+  },
 ] as const;
 
 export type ToolName = (typeof TOOLS)[number]['name'];
@@ -257,7 +332,23 @@ export function presentBrief(workout: Workout, baseUrl?: string) {
   return { ...rest, ...(baseUrl ? urls(workout, baseUrl) : {}) };
 }
 
-export async function callTool(name: string, rawArgs: unknown, env: Env, user: User): Promise<unknown> {
+/**
+ * `origin` is the deployment's own base URL, and only the Garmin tools use it.
+ *
+ * The workout tools deliberately return no URLs, for the reason `urls` above
+ * explains — a link to bytes behind the caller's credential is no use to
+ * anyone it is handed to. The Garmin connect link is the opposite case: it is
+ * a page the athlete is *meant* to open in their own browser, and an
+ * assistant that cannot hand it over has nothing useful to say about
+ * connecting an account.
+ */
+export async function callTool(
+  name: string,
+  rawArgs: unknown,
+  env: Env,
+  user: User,
+  origin?: string,
+): Promise<unknown> {
   const args = asObject(rawArgs);
 
   switch (name) {
@@ -328,6 +419,47 @@ export async function callTool(name: string, rawArgs: unknown, env: Env, user: U
       };
     }
 
+    case 'garmin_status': {
+      const status = await garminStatus(env, user.id);
+      if (!status.configured) {
+        return { ...status, note: 'This server has no Garmin credentials configured, so syncing is unavailable.' };
+      }
+      if (!status.connected) {
+        return {
+          ...status,
+          ...(origin ? { connect_url: `${origin}/garmin/connect` } : {}),
+          note:
+            'No Garmin account is linked. Linking one needs Garmin\'s consent screen in a browser, ' +
+            'so send the athlete to connect_url; there is nothing to paste back.',
+        };
+      }
+      return status;
+    }
+
+    case 'sync_garmin': {
+      const dryRun = args.dry_run === true;
+      const report = await syncAll(env, user.id, { dryRun, force: args.force === true });
+
+      // The payloads are large and mostly uninteresting, and a window of
+      // fifty workouts would swamp the answer. Kept behind a flag, and only
+      // meaningful on a dry run, which is the only mode that collects them.
+      if (args.include_payloads === true) return report;
+      return { ...report, workouts: report.workouts.map(({ payload: _payload, ...rest }) => rest) };
+    }
+
+    case 'set_garmin_auto_sync': {
+      if (typeof args.enabled !== 'boolean') throw new ToolError('enabled must be true or false');
+      if (!(await garminStore.getConnection(env, user.id))) {
+        throw new GarminAuthError('no Garmin account is connected, so there is nothing to schedule');
+      }
+      await garminStore.setAutoSync(env, user.id, args.enabled);
+      return garminStatus(env, user.id);
+    }
+
+    case 'disconnect_garmin':
+      if (!garminConfigured(env)) throw new ToolError('Garmin sync is not configured on this server');
+      return disconnectAccount(env, user.id);
+
     default:
       throw new ToolError(`unknown tool "${name}"`);
   }
@@ -339,6 +471,12 @@ export function base64Encode(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-/** Caller-visible errors get a 400; everything else is ours. */
+/**
+ * Caller-visible errors get a 400; everything else is ours.
+ *
+ * `GarminAuthError` is in here so a tool call that needs a connection the
+ * athlete has not made comes back as a readable message the model can act on
+ * — "send them to connect_url" — rather than as an internal error.
+ */
 export const isCallerError = (error: unknown): error is Error =>
-  error instanceof ToolError || error instanceof WorkoutError;
+  error instanceof ToolError || error instanceof WorkoutError || error instanceof GarminAuthError;

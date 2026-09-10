@@ -14,23 +14,14 @@ import * as identity from './identity';
 import * as db from './db';
 import type { Env, User } from './db';
 import { encodeWorkoutFit, fitFilename } from './fit';
+import { CORS_HEADERS, error, json } from './http';
+import { handleGarminApi, handleGarminBrowser } from './garmin/routes';
+import { GarminAuthError } from './garmin/oauth';
 import { callTool, isCallerError, present, presentBrief } from './tools';
 import { parseWorkout } from './workout';
 import { parseDate } from './units';
 
 export const SCOPE = 'workouts';
-
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Authorization, Content-Type, MCP-Protocol-Version',
-  'Access-Control-Max-Age': '86400',
-};
-
-const json = (body: unknown, status = 200, headers: Record<string, string> = {}): Response =>
-  Response.json(body, { status, headers: { ...CORS_HEADERS, ...headers } });
-
-const error = (message: string, status: number): Response => json({ error: message }, status);
 
 export const appName = (env: Env): string => env.APP_NAME ?? 'Workouts';
 
@@ -318,7 +309,7 @@ async function handleApi(request: Request, url: URL, env: Env, user: User, baseU
   const tool = path.match(/^\/api\/tools\/([a-z_]+)$/);
   if (tool) {
     if (method !== 'POST') return error('method not allowed', 405);
-    return json(await callTool(tool[1], await request.json(), env, user));
+    return json(await callTool(tool[1], await request.json(), env, user, baseUrl));
   }
 
   return error('not found', 404);
@@ -367,12 +358,28 @@ export const app = {
       if (signInResponse) return signInResponse;
 
       const needsUser =
-        url.pathname === '/oauth/authorize' || url.pathname.startsWith('/api/') || url.pathname.startsWith('/export/');
+        url.pathname === '/oauth/authorize' ||
+        url.pathname.startsWith('/api/') ||
+        url.pathname.startsWith('/export/') ||
+        // Connecting Garmin happens while already signed in, so both halves of
+        // that flow — the hop out and the callback — need to know who to
+        // attach the account to. Garmin's callback is a top-level redirect, so
+        // the `SameSite=Lax` session cookie does come back with it.
+        url.pathname.startsWith('/garmin/');
       if (!needsUser) return env.ASSETS.fetch(request);
 
       const token = readToken(request, url);
       const user = token ? await auth.findTokenOwner(env, token) : await auth.readSession(env, request);
       if (!user) {
+        // The Garmin flow is a browser journey, so being signed out on the way
+        // back has to send the athlete somewhere they can read, and somewhere
+        // they can sign in again from.
+        if (url.pathname.startsWith('/garmin/')) {
+          return Response.redirect(
+            `${url.origin}/?error=${encodeURIComponent('please sign in before connecting a Garmin account')}`,
+            302,
+          );
+        }
         return Response.json(
           { error: token ? 'invalid or expired token' : 'not signed in' },
           {
@@ -389,9 +396,19 @@ export const app = {
       if (url.pathname === '/oauth/authorize') return await grantConsent(request, env, user);
       if (url.pathname.startsWith('/api/tokens')) return await handleTokens(request, url, env, user);
       if (url.pathname.startsWith('/api/connections')) return await handleConnections(request, url, env, user);
+      if (url.pathname.startsWith('/api/garmin')) return await handleGarminApi(request, url, env, user);
+      if (url.pathname.startsWith('/garmin/')) {
+        const garmin = await handleGarminBrowser(request, url, env, user);
+        if (garmin) return garmin;
+        return error('not found', 404);
+      }
       if (url.pathname.startsWith('/export/')) return await handleExport(url, env, user);
       return await handleApi(request, url, env, user, url.origin);
     } catch (err) {
+      // Checked before the generic caller error below, which it is also one
+      // of: not connected, or a connection that has lapsed, is the athlete's
+      // to fix by connecting again, and 409 says that where 400 would not.
+      if (err instanceof GarminAuthError) return error(err.message, 409);
       if (isCallerError(err)) return error(err.message, 400);
       if (err instanceof SyntaxError) return error('invalid JSON body', 400);
       console.error('unhandled error', err);

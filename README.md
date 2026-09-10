@@ -1,13 +1,16 @@
 # workout-mcp
 
-Plan structured workouts over MCP or a plain REST API, then export them as
-Garmin **FIT** workout files. Runs entirely on Cloudflare's free tier: a single
+Plan structured workouts over MCP or a plain REST API, then get them onto a
+watch — as Garmin **FIT** files, or by syncing them straight to the athlete's
+**Garmin Connect** calendar. Runs entirely on Cloudflare's free tier: a single
 Worker, a D1 database, and a static dashboard.
 
 - **MCP** at `POST /mcp` — an assistant can write your training week.
 - **REST** at `/api/*` — for a Garmin Connect IQ app, Watchletic, or curl.
 - **FIT** at `/export/2026-09-12-a1b2c3d4.fit` — drop it on a watch.
-- **Dashboard** at `/` — see the plan, download files, manage tokens.
+- **Garmin Connect sync** — link a Garmin account and the plan lands on the
+  athlete's calendar, where the watch picks it up on its own.
+- **Dashboard** at `/` — see the plan, download files, sync, manage tokens.
 - **Sign-in** with Google or Apple. No passwords, and no email to send.
 - **OAuth 2.1** via `@cloudflare/workers-oauth-provider`, so an MCP client can
   connect with a button rather than a pasted token.
@@ -184,24 +187,212 @@ arrive at the MCP handler identically:
 ```
 
 Tools: `list_workouts`, `get_workout`, `create_workout`, `update_workout`,
-`delete_workout`, `export_workout_fit`. Each one is also reachable over REST at
-`POST /api/tools/<name>` with the same arguments, so a non-MCP client gets the
-identical behaviour.
+`delete_workout`, `export_workout_fit`, and — once Garmin is configured —
+`garmin_status`, `sync_garmin`, `set_garmin_auto_sync`, `disconnect_garmin`.
+Each one is also reachable over REST at `POST /api/tools/<name>` with the same
+arguments, so a non-MCP client gets the identical behaviour.
 
-No tool result carries a URL. A workout is identified by its date and id, and
+No workout tool result carries a URL. A workout is identified by its date and id, and
 `export_workout_fit` returns the whole file base64-encoded along with the name
 to save it under — `2026-09-12-8x400m.fit`. An assistant handed a download link
 tends to pass the link on instead of calling the tool, and the link is no use
 to whoever receives it: the bytes sit behind the caller's own credential. The
 dashboard's own routes below still return links, because a browser can follow
-them.
+them. `garmin_status` is the one exception, and for the opposite reason: its
+link is a consent page the athlete is meant to open themselves.
+
+
 
 Every tool is annotated with whether it only reads. `list_workouts`,
-`get_workout` and `export_workout_fit` carry `readOnlyHint`, which is what
-lets a client group them apart from the writes and allow them without asking
-each time; `update_workout` and `delete_workout` carry `destructiveHint`. The
-hints only shape how a client presents a tool — the server checks everything
-regardless.
+`get_workout`, `export_workout_fit` and `garmin_status` carry `readOnlyHint`,
+which is what lets a client group them apart from the writes and allow them
+without asking each time; `update_workout`, `delete_workout` and
+`disconnect_garmin` carry `destructiveHint`. The hints only shape how a client
+presents a tool — the server checks everything regardless.
+
+## Syncing to Garmin Connect
+
+A FIT file you drop on a watch is one way to get a session onto it. The other
+is the athlete's own Garmin Connect calendar: put a workout on a date there and
+the watch picks it up on its next sync, with no cable and no file.
+
+That is what this does. Connect a Garmin account once from the dashboard, and
+every planned workout in the retention window is pushed to the calendar — on
+request, or nightly on its own.
+
+```
+Connect once   dashboard → Garmin's consent screen → back, with tokens stored
+Then           "Sync now", the sync_garmin tool, or the nightly cron
+```
+
+### Setting it up
+
+Syncing needs a [Garmin Connect Developer Program](https://developer.garmin.com/gc-developer-program/overview/)
+app with the **Training API** enabled. That is a partner application Garmin
+approves by hand rather than a self-service signup, and it is the one part of
+this repo you cannot stand up on your own in an afternoon. Everything else
+works without it; the Garmin panel simply does not appear until the two
+secrets below are set.
+
+```bash
+npx wrangler secret put GARMIN_CLIENT_ID
+npx wrangler secret put GARMIN_CLIENT_SECRET
+npx wrangler secret put GARMIN_ENCRYPTION_KEY   # optional, see below
+npm run db:remote                               # migration 0004
+```
+
+Register `https://<your-worker>/garmin/callback` as the app's redirect URI, exactly.
+Garmin matches it literally, so a local install needs
+`http://localhost:8787/garmin/callback` registered as well.
+
+`GARMIN_ENCRYPTION_KEY` is optional and worth setting. Garmin's tokens have to
+be stored recoverably — unlike every other credential here, we hand the real
+value back to Garmin on each call — so they are encrypted at rest with
+AES-GCM rather than hashed. The key is derived from `GARMIN_ENCRYPTION_KEY`
+when it is set and from `GARMIN_CLIENT_SECRET` otherwise, which means that
+without it, rotating the client secret makes the stored tokens unreadable and
+everyone has to reconnect. The stored row names the key it was sealed with, so
+that case is reported as "connect again" rather than failing somewhere deeper.
+
+### Connecting
+
+`GET /garmin/connect` starts an OAuth 2.0 authorization-code flow with PKCE —
+Garmin's own, unrelated to the OAuth this app *serves* to MCP clients. This app
+is the client here, as it is with Google:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET https://connect.garmin.com/oauth2Confirm` | Garmin's consent screen |
+| `POST https://diauth.garmin.com/di-oauth2-service/oauth/token` | Code exchange and refresh |
+| `GET https://apis.garmin.com/wellness-api/rest/user/id` | Garmin's id for the athlete |
+| `DELETE https://apis.garmin.com/wellness-api/rest/user/registration` | Deregistration, on disconnect |
+
+The in-flight state and the PKCE verifier live in D1, single use with a
+ten-minute life, and the state row names the athlete who started the flow — a
+callback finished under a different account is refused rather than attaching a
+Garmin account to the wrong workouts. Access tokens last a day and are
+refreshed five minutes before they lapse, because a sync is several calls and
+one expiring halfway through would leave the run half-applied. Garmin rotates
+the refresh token on every use, so the new pair replaces the old one.
+
+Disconnecting tells Garmin as well as forgetting our own row. **Workouts
+already on the calendar stay there** — disconnecting is "stop sending", not
+"undo the training plan".
+
+### What a sync does
+
+One of our workouts becomes two things on Garmin's side, and the distinction is
+the whole model: a **workout** is the session, and lives in the athlete's
+library; a **schedule** attaches it to a day, and *that* is the calendar entry
+a watch reads. So moving a session to another day replaces the schedule while
+keeping the workout.
+
+A sync is a diff, not a re-upload. `garmin_workouts` records what each of ours
+became — the Garmin workout id, the calendar entry id, and a fingerprint of the
+payload last sent — and a run does the smallest thing that reconciles the two
+sides:
+
+| Locally | On Garmin |
+| --- | --- |
+| new | create the workout, then schedule it |
+| changed | update the workout in place, calendar entry untouched |
+| moved to another day | update it, then replace the calendar entry |
+| unchanged | nothing at all, and no Garmin call |
+| deleted | remove the calendar entry, then the workout |
+| aged out of the window | **left alone**, and no longer tracked |
+| deleted on Garmin's side | drop the stale link and put the session back |
+
+Which makes syncing safe to repeat: the same plan synced twice costs nothing
+and changes nothing the second time.
+
+That last row is the one worth stating outright. A workout can leave this
+server two ways — the athlete deleted it, or it fell off the back of a 7-day
+retention window — and those want opposite treatment. A deleted session should
+disappear from the calendar. A session that merely aged out is *training the
+athlete has done*, and deleting that from their Garmin history because our
+retention happens to be short would be indefensible. So a link whose date is
+still inside the window with no workout behind it was deleted, and is removed;
+one whose date has fallen outside it stays on Garmin and merely stops being
+tracked here.
+
+The link is keyed by our workout id alone rather than by *(date, id)* as
+`workouts` is. The id survives a workout being moved, and that is exactly the
+case that has to update the existing Garmin workout rather than leave a
+duplicate behind on the old date.
+
+If a workout is created on Garmin but the scheduling call then fails, the link
+is written anyway with a null calendar entry. The next run reads that as
+"created, still needs a date" and makes the one call it should, instead of
+creating a second copy of a workout that is already up.
+
+That last row matters more than it looks: without it, an athlete who tidied a
+synced session out of the Connect app would have every later sync fail on an id
+that names nothing, for good, until they disconnected and started over.
+
+A run is capped at 30 Garmin calls, because a Worker gets a bounded number of
+outbound subrequests per invocation — 50 on the free plan this fits inside —
+and a workout costs up to four. A run that hits the cap says so
+(`truncated: true`) and the next one picks up where it stopped; nothing is
+lost, because the diff is computed from stored state rather than from a cursor.
+The nightly sweep covers five athletes per night, oldest sync first.
+
+### What does not survive the trip
+
+The Training API cannot express everything a FIT file can, and the mapping in
+`src/garmin/payload.ts` reports each loss rather than swallowing it. Every
+sync result carries the notes per workout, and the dashboard shows them.
+
+- **A step has one `description`**, where FIT has both a name and a note. The
+  name, the note, and anything else below are folded into it in that order.
+- **One target per step.** FIT stores a primary and a secondary — "400m at
+  4:00/km and 180 spm" — so the secondary becomes prose in the description.
+- **Both ends of a range are required.** An open end becomes the metric's own
+  extreme, which says the same thing without inventing a bound: "above
+  140 bpm" is sent as 140–255, the same limits `target_heart_rate` already
+  accepts.
+- **Sub-sports are mapped only where a Garmin name is unambiguous.** Getting
+  one wrong is a small loss; sending an enum Garmin does not know fails the
+  whole workout, which is a large one. Anything unmapped is left off.
+
+### Verifying the payload against your own docs
+
+The Training API's request schema is documented behind the developer portal's
+login, which is not something a repo can vendor. The mapping here follows that
+schema as publicly described, and the code is arranged so that correcting a
+field name is a one-line change if your portal docs differ:
+
+- every enum is a flat `Record` at the top of `src/garmin/payload.ts` — sports,
+  sub-sports, intensities, zone target types, the open-range fills;
+- `buildWorkout` is pure, with no clock, network or connection in it, so
+  `sync_garmin` with `dry_run` and `include_payloads` hands back the exact JSON
+  it would have posted, without posting it;
+- `GarminApiError` carries Garmin's own status and response body, and the sync
+  report repeats it verbatim per workout — so a refused payload tells you which
+  field to fix rather than failing mysteriously.
+
+The fields most worth checking first, being the ones a schema is most likely to
+spell differently: `segments[].steps[].targetValueType` for percentage targets
+(`PERCENT_MAX_HEART_RATE`, `PERCENT_FTP`), and `targetType: "PACE"` with its
+values in metres per second.
+
+### The surface
+
+| Route | Does |
+| --- | --- |
+| `GET /garmin/connect` | Start the flow; redirects to Garmin |
+| `GET /garmin/callback` | Finish it; back to the dashboard |
+| `GET /api/garmin/status` | Connected? last synced? how many tracked? |
+| `POST /api/garmin/sync` | `{dry_run?, force?}` — push, and report what changed |
+| `PUT /api/garmin/settings` | `{auto_sync}` — nightly sync on or off |
+| `POST /api/garmin/disconnect` | Unlink, and tell Garmin |
+
+Tools: `garmin_status`, `sync_garmin`, `set_garmin_auto_sync`,
+`disconnect_garmin`.
+
+`garmin_status` is the one tool that returns a URL, and deliberately: linking
+an account needs Garmin's consent screen in a browser, so an assistant that
+cannot hand the athlete a link has nothing useful to say about connecting one.
+It is a page they are meant to open, not bytes behind a credential.
 
 ## Writing a workout
 
@@ -407,6 +598,12 @@ session cookie set at login.
 | `PUT /api/workouts/:date/:id.json` | Replace one; change `date` to move it |
 | `DELETE /api/workouts/:date/:id.json` | Delete one |
 | `GET /export/:date-:id.fit` | The FIT file |
+| `GET /garmin/connect` | Start linking a Garmin account |
+| `GET /garmin/callback` | Finish it |
+| `GET /api/garmin/status` | The Garmin connection and its last sync |
+| `POST /api/garmin/sync` | `{dry_run?, force?}` — push to the Garmin calendar |
+| `PUT /api/garmin/settings` | `{auto_sync}` — nightly sync on or off |
+| `POST /api/garmin/disconnect` | Unlink the Garmin account |
 | `POST /api/tools/:name` | Any MCP tool, over REST |
 
 A date may hold several workouts; each gets its own short id.
@@ -417,6 +614,10 @@ URLs and server logs — prefer the header where you can, as the dashboard does.
 
 CORS is open (`Access-Control-Allow-Origin: *`), which is safe here because
 authentication is a bearer token rather than a cookie.
+
+A Garmin call with no account linked, or one whose connection has lapsed, is a
+**409** rather than a 400 or a 500: it is the athlete's to fix by connecting
+again, and nothing about the request was wrong.
 
 ## How it is built
 
@@ -429,11 +630,26 @@ src/describe.ts   human-readable rendering, shared by MCP and the dashboard
 src/db.ts         D1 queries and retention
 src/identity.ts   signing in with Google or Apple
 src/auth.ts       sessions, accounts and API tokens
+src/http.ts       the JSON and CORS conventions every handler shares
 src/tools.ts      the tool surface shared by MCP and REST
 src/mcp.ts        JSON-RPC over Streamable HTTP
 src/app.ts        the OAuth provider's defaultHandler: login, consent, REST, assets
 src/index.ts      the provider itself, and the protected /mcp handler
+
+src/garmin/oauth.ts    Garmin's OAuth2 PKCE flow: consent, code exchange, refresh
+src/garmin/crypto.ts   sealing the stored tokens, and payload fingerprints
+src/garmin/store.ts    D1 for connections, in-flight flows and workout links
+src/garmin/payload.ts  plan -> the Training API's workout JSON (pure, and lossy)
+src/garmin/api.ts      the Training API itself: workouts, and calendar entries
+src/garmin/sync.ts     the diff, and what to do about each side of it
+src/garmin/routes.ts   /garmin/* and /api/garmin/*
 ```
+
+`src/garmin/` mirrors the shape of the FIT side rather than inventing a new
+one: `payload.ts` is to `fit.ts` what a calendar entry is to a file — the same
+`resolveSteps` output, encoded for a different destination. That is what keeps
+the session a watch imports and the session on the calendar describing the same
+workout.
 
 `src/index.ts` constructs the `OAuthProvider`, which wraps everything: it
 claims the OAuth endpoints and `/mcp`, and passes every other request to
@@ -443,6 +659,12 @@ Nothing is stored in the clear. Session ids and API tokens are SHA-256 hashes
 in D1; OAuth grants and their tokens are the library's problem, in KV. The
 dashboard only ever shows a token prefix, and the full value is returned
 exactly once, when it is minted.
+
+Garmin's tokens are the one credential that cannot be hashed, because the real
+value has to go back to Garmin on every call. Those are encrypted at rest with
+AES-GCM under a key derived from a configured secret, with a random nonce per
+row, and the row records which key sealed it — so a rotated secret is reported
+as "connect again" rather than failing somewhere deeper.
 
 An ID token coming back from Google or Apple is not signature-checked, and
 does not need to be: it arrives over TLS from the provider's own token
@@ -465,12 +687,20 @@ Two things are worth knowing if you touch `fit.ts`:
 Tests run inside `workerd` via `@cloudflare/vitest-pool-workers`, so the FIT
 encoder and the D1 queries are exercised on the same runtime that serves
 production traffic. FIT files are asserted by decoding them again with the
-SDK's own decoder. Google and Apple are stood in for by an auxiliary Worker
-that Miniflare routes all outbound traffic to, so the real `arctic` path runs
-— Apple's signed client secret included — without touching the network.
+SDK's own decoder. Google, Apple and Garmin are stood in for by an auxiliary
+Worker that Miniflare routes all outbound traffic to, so the real `arctic` path
+runs — Apple's signed client secret included — without touching the network.
+
+That stand-in is also bound into the tests as a service, so a Garmin test can
+ask what Garmin was actually sent rather than inferring it from the sync
+report: it records every call, holds the workouts and calendar entries it was
+given, and takes knobs for refusing a payload, expiring a token or failing a
+schedule. Which is what lets "a moved workout leaves no duplicate behind" be
+asserted as one calendar entry on the new date rather than as two API calls in
+some order.
 
 ```bash
-npm test        # 133 tests
+npm test        # 238 tests
 npm run typecheck
 ```
 
@@ -483,6 +713,7 @@ npm run typecheck
 | `auth.test.ts` | Google and Apple sign-in, state handling, ID-token checks, sessions, API tokens |
 | `oauth.test.ts` | Discovery, registration, consent, the PKCE code exchange, refresh, connected apps |
 | `mcp.test.ts` | The JSON-RPC protocol and every tool |
+| `garmin.test.ts` | Token sealing, the PKCE flow, the payload mapping and its lossy edges, every branch of the sync diff, token refresh, and partial failure |
 
 ## Cost
 
@@ -492,6 +723,11 @@ D1 (5 GB, 5M row reads/day), KV, static assets and cron triggers. Encoding a
 is free. The only things you pay for are the domain — Cloudflare Registrar
 sells those at cost — and, if you want the Apple button, an Apple Developer
 membership.
+
+The Garmin sync is the one part that is not self-service: the Training API is a
+partner integration Garmin approves by hand, and the panel stays hidden until
+its credentials are set. Nothing else depends on it — FIT export is the path
+that needs no approval from anyone.
 
 There is no auth vendor in the stack. Auth0, Clerk, WorkOS and Stytch all have
 workable free tiers, and the MCP-focused ones will host the whole

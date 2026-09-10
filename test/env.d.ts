@@ -5,7 +5,15 @@
 type AppEnv = import('../src/db').Env;
 
 declare namespace Cloudflare {
-  interface Env extends AppEnv {}
+  /**
+   * `GARMIN_STUB` exists only under test: it is the stand-in provider bound as
+   * a service, so a test can read back what Garmin was sent. It is
+   * deliberately not on the app's own `Env` — nothing in `src` may reach for
+   * it.
+   */
+  interface Env extends AppEnv {
+    GARMIN_STUB: Fetcher;
+  }
 }
 
 declare module '*.sql?raw' {

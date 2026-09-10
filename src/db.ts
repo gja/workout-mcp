@@ -52,6 +52,20 @@ export type Env = {
 
   /** Optional sign-up allowlist: addresses or "@domain", comma separated. */
   ALLOWED_EMAILS?: string;
+
+  /**
+   * Pushing workouts to Garmin Connect. Both are needed for the integration
+   * to appear at all; they come from a Garmin Connect Developer Program app
+   * with the Training API enabled.
+   */
+  GARMIN_CLIENT_ID?: string;
+  GARMIN_CLIENT_SECRET?: string;
+  /**
+   * Optional. Encrypts the stored Garmin tokens; the client secret is used
+   * when this is unset. Setting it means the client secret can be rotated
+   * without every athlete having to reconnect.
+   */
+  GARMIN_ENCRYPTION_KEY?: string;
 };
 
 export type User = { id: string; email: string | null };

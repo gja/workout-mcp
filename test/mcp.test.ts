@@ -58,8 +58,8 @@ describe('protocol', () => {
     const readOnly = tools.filter((tool) => tool.annotations?.readOnlyHint).map((tool) => tool.name);
     const destructive = tools.filter((tool) => tool.annotations?.destructiveHint).map((tool) => tool.name);
 
-    expect(readOnly.sort()).toEqual(['export_workout_fit', 'get_workout', 'list_workouts']);
-    expect(destructive.sort()).toEqual(['delete_workout', 'update_workout']);
+    expect(readOnly.sort()).toEqual(['export_workout_fit', 'garmin_status', 'get_workout', 'list_workouts']);
+    expect(destructive.sort()).toEqual(['delete_workout', 'disconnect_garmin', 'update_workout']);
     // Every tool says which it is, rather than leaving a client to guess.
     for (const tool of tools) expect(tool.annotations?.readOnlyHint).toBeTypeOf('boolean');
   });

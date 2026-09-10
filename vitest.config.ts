@@ -21,9 +21,17 @@ export default defineConfig({
           APPLE_TEAM_ID: 'TEAM123456',
           APPLE_KEY_ID: 'KEY1234567',
           APPLE_PRIVATE_KEY: await generateTestApplePrivateKey(),
+          GARMIN_CLIENT_ID: 'test-garmin-client',
+          GARMIN_CLIENT_SECRET: 'test-garmin-secret',
+          // Set explicitly so the token sealing is exercised on its own key
+          // rather than on the client secret's fallback.
+          GARMIN_ENCRYPTION_KEY: 'test-garmin-encryption-key',
         },
+        // The same stand-in, reachable from a test as well as from the Worker,
+        // so a test can ask what Garmin was actually sent.
+        serviceBindings: { GARMIN_STUB: 'upstream-provider' },
         // Every outbound fetch goes to the stand-in provider instead of the
-        // internet, so the real arctic code path still runs.
+        // internet, so the real arctic and Garmin code paths still run.
         outboundService: { name: 'upstream-provider' },
         workers: [
           {

@@ -20,7 +20,17 @@ const statementsOf = (sql: string): string[] =>
 
 /** Fresh tables for each test file, built by replaying every migration. */
 export async function resetDatabase(): Promise<void> {
-  const tables = ['workouts', 'workouts_rebuilt', 'tokens', 'sessions', 'login_states', 'users'];
+  const tables = [
+    'garmin_workouts',
+    'garmin_connect_states',
+    'garmin_connections',
+    'workouts',
+    'workouts_rebuilt',
+    'tokens',
+    'sessions',
+    'login_states',
+    'users',
+  ];
   for (const table of tables) await env.DB.exec(`DROP TABLE IF EXISTS ${table}`);
 
   for (const path of Object.keys(MIGRATIONS).sort()) {

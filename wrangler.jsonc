@@ -23,6 +23,13 @@
 		//   APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY
 		// Optional allowlist, e.g. "me@example.com,@myteam.com":
 		//   ALLOWED_EMAILS
+		// Syncing to the Garmin Connect calendar needs a Garmin Connect
+		// Developer Program app with the Training API enabled. Both together,
+		// or the Garmin panel does not appear at all:
+		//   GARMIN_CLIENT_ID, GARMIN_CLIENT_SECRET
+		// Optional, and recommended: encrypts the stored Garmin tokens, so the
+		// client secret can be rotated without everyone reconnecting.
+		//   GARMIN_ENCRYPTION_KEY
 	},
 	// The OAuth provider stores clients, grants and tokens here.
 	"kv_namespaces": [
@@ -39,7 +46,7 @@
 			"database_id": "8c2f9ce3-5892-44ec-883f-7149426219c6"
 		}
 	],
-	// Nightly retention sweep (03:00 UTC).
+	// Nightly retention sweep, then the push to Garmin (03:00 UTC).
 	"triggers": {
 		"crons": [
 			"0 3 * * *"

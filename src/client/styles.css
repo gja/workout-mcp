@@ -202,3 +202,8 @@ pre.snippet {
 }
 
 code { background: var(--line); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+
+/* A checkbox sits inline in a `.note` paragraph (the nightly-sync toggle), so
+   it needs to stop stretching the way the text inputs above do. */
+input[type='checkbox'] { flex: 0 0 auto; margin: 0 2px 0 0; accent-color: var(--accent); }
+label { cursor: pointer; }

@@ -6,6 +6,7 @@ import { Calendar } from './components/Calendar';
 import { SignIn } from './components/SignIn';
 import { WorkoutCard } from './components/WorkoutCard';
 import { ConnectToClaude } from './components/ConnectToClaude';
+import { GarminSync } from './components/GarminSync';
 import './styles.css';
 
 function Dashboard({ me }: { me: Me }) {
@@ -56,6 +57,8 @@ function Dashboard({ me }: { me: Me }) {
         </div>
       )}
 
+      <GarminSync />
+
       <ConnectToClaude />
     </>
   );
@@ -73,7 +76,10 @@ function App() {
   return (
     <main>
       <h1>Workouts</h1>
-      <p className="sub">Planned sessions in the window the server keeps. Download any of them as a Garmin FIT file.</p>
+      <p className="sub">
+        Planned sessions in the window the server keeps. Download any of them as a Garmin FIT file, or sync the lot to
+        your Garmin Connect calendar.
+      </p>
       {me ? <Dashboard me={me} /> : <SignIn intro="Sign in to see your planned workouts." />}
     </main>
   );
