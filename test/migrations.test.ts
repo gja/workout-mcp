@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import migration0002 from '../migrations/0002_workout_steps_column.sql?raw';
 import migration0003 from '../migrations/0003_sub_sport_and_external_id.sql?raw';
 import { getWorkout, putWorkout } from '../src/db';
-import { normalizeWorkout } from '../src/workout';
+import { parseWorkout } from '../src/workout';
 import { resetDatabase, seedUser } from './helpers';
 
 /** The `workouts` table as it was before 0002. */
@@ -138,23 +138,24 @@ describe('the steps column', () => {
     await expect(write.run()).rejects.toThrow(/CHECK constraint failed|SQLITE_CONSTRAINT/);
   });
 
-  it('is queryable as JSON, so the steps can be reached from SQL', async () => {
+  it('holds the steps in the shape the caller wrote, queryable from SQL', async () => {
     const { id: userId } = await seedUser();
     await putWorkout(
       env,
       userId,
-      normalizeWorkout({
+      parseWorkout({
         date: '2026-09-12',
         steps: [{ goal_s: 600 }, { repeat: 8, steps: [{ goal_meters: 400 }] }, { goal_s: 600 }],
       }),
     );
 
     const row = await env.DB.prepare(
-      "SELECT json_array_length(steps) AS top_level, json_extract(steps, '$[1].times') AS reps FROM workouts WHERE user_id = ?",
+      "SELECT json_array_length(steps) AS top_level, json_extract(steps, '$[1].repeat') AS reps, json_extract(steps, '$[0].goal_s') AS warmup FROM workouts WHERE user_id = ?",
     )
       .bind(userId)
-      .first<{ top_level: number; reps: number }>();
+      .first<{ top_level: number; reps: number; warmup: number }>();
 
-    expect(row).toEqual({ top_level: 3, reps: 8 });
+    // The caller's own field names, not an internal encoding of them.
+    expect(row).toEqual({ top_level: 3, reps: 8, warmup: 600 });
   });
 });

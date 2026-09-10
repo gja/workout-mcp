@@ -4,7 +4,7 @@ import { Decoder, Stream } from '@garmin/fitsdk';
 import { plannedTotals } from '../src/describe';
 import { MAX_WORKOUTS_PER_USER, listWorkouts, prune, putWorkout } from '../src/db';
 import { shiftDate, today } from '../src/units';
-import { normalizeWorkout } from '../src/workout';
+import { parseWorkout } from '../src/workout';
 import { resetDatabase, seedUser } from './helpers';
 
 const BASE = 'https://workouts.example';
@@ -87,17 +87,42 @@ describe('dashboard', () => {
 });
 
 describe('workout CRUD', () => {
-  it('creates a workout and hands back its id and URLs', async () => {
+  it('creates a workout and hands back its id and URLs, not its steps', async () => {
     const created = (await (
       await call('/api/workouts', { method: 'POST', body: JSON.stringify(INTERVALS) })
-    ).json()) as Record<string, string>;
+    ).json()) as Record<string, unknown>;
 
     expect(created.date).toBe('2026-09-12');
     expect(created.id).toMatch(/^[0-9a-z]{8}$/);
-    expect(created.fit_url).toBe(`${BASE}/export/2026-09-12-${created.id}.fit`);
-    expect(created.json_url).toBe(`${BASE}/api/workouts/2026-09-12/${created.id}.json`);
-    expect(created.summary).toContain('Fast: 400 m @ 4:00-4:15/km');
-    expect(created.summary).toContain('Float: 1:30 @ slower than 6:30/km');
+    expect(created.name).toBe('8x400m');
+    expect(created.fit_url).toBe(`${BASE}/export/2026-09-12-${created.id as string}.fit`);
+    expect(created.json_url).toBe(`${BASE}/api/workouts/2026-09-12/${created.id as string}.json`);
+
+    // A write says which workout it was, not what the caller just sent.
+    expect(created).not.toHaveProperty('steps');
+    expect(created).not.toHaveProperty('summary');
+    expect(created).not.toHaveProperty('planned');
+  });
+
+  it('stores the steps exactly as they were written', async () => {
+    const { date, id } = await createIntervals();
+    const read = (await (await call(`/api/workouts/${date}/${id}.json`)).json()) as { steps: unknown[] };
+
+    // No `kind`, no `duration: { type }`, no speeds in metres per second —
+    // the caller's own fields come back.
+    expect(read.steps).toEqual(INTERVALS.steps);
+  });
+
+  it('keeps a workout readable after a round trip through the database', async () => {
+    const { date, id } = await createIntervals();
+    const read = (await (await call(`/api/workouts/${date}/${id}.json`)).json()) as {
+      summary: string;
+      planned: { seconds: number };
+    };
+
+    expect(read.summary).toContain('Fast: 400 m @ 4:00-4:15/km');
+    expect(read.summary).toContain('Float: 1:30 @ slower than 6:30/km');
+    expect(read.planned.seconds).toBe(600 + 8 * 90 + 600);
   });
 
   it('reads a workout back by date and id', async () => {
@@ -166,7 +191,7 @@ describe('workout CRUD', () => {
 describe('planned totals', () => {
   it('resolves repeats and reports what cannot be counted', () => {
     const totals = plannedTotals(
-      normalizeWorkout({
+      parseWorkout({
         date: '2026-09-12',
         steps: [
           { name: 'Warmup', goal_s: 600 },
@@ -182,7 +207,7 @@ describe('planned totals', () => {
 
   it('multiplies through nested repeats', () => {
     const totals = plannedTotals(
-      normalizeWorkout({
+      parseWorkout({
         date: '2026-09-12',
         steps: [{ repeat: 3, steps: [{ repeat: 4, steps: [{ goal_s: 30 }] }] }],
       }).steps,
@@ -190,13 +215,14 @@ describe('planned totals', () => {
     expect(totals).toMatchObject({ seconds: 3 * 4 * 30, steps: 12, open_steps: 0 });
   });
 
-  it('rides along on every workout the API returns', async () => {
-    const created = (await (
-      await call('/api/workouts', { method: 'POST', body: JSON.stringify(INTERVALS) })
-    ).json()) as { planned: { seconds: number; meters: number; open_steps: number } };
+  it('rides along on every workout a read returns', async () => {
+    const { date, id } = await createIntervals();
+    const read = (await (await call(`/api/workouts/${date}/${id}.json`)).json()) as {
+      planned: { seconds: number; meters: number; open_steps: number };
+    };
 
     // 600s warmup + 8x90s float, 8x400m, and a 600s cooldown.
-    expect(created.planned).toEqual({ seconds: 600 + 8 * 90 + 600, meters: 3200, steps: 18, open_steps: 0 });
+    expect(read.planned).toEqual({ seconds: 600 + 8 * 90 + 600, meters: 3200, steps: 18, open_steps: 0 });
   });
 });
 
@@ -385,7 +411,7 @@ describe('FIT export', () => {
 });
 
 describe('retention', () => {
-  const put = (date: string) => putWorkout(env, userId, normalizeWorkout({ date, steps: [{ goal_s: 600 }] }));
+  const put = (date: string) => putWorkout(env, userId, parseWorkout({ date, steps: [{ goal_s: 600 }] }));
 
   it('drops workouts outside the window on write', async () => {
     const now = new Date('2026-09-10T00:00:00Z');
@@ -430,7 +456,7 @@ describe('retention', () => {
 
   it('leaves one athlete\'s workouts alone when another is pruned', async () => {
     const other = await seedUser('other@example.com');
-    await putWorkout(env, other.id, normalizeWorkout({ date: today(), steps: [{ goal_s: 600 }] }));
+    await putWorkout(env, other.id, parseWorkout({ date: today(), steps: [{ goal_s: 600 }] }));
 
     await put(today());
     await prune(env, userId);

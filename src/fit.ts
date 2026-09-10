@@ -14,7 +14,9 @@
  */
 
 import { Encoder, Profile } from '@garmin/fitsdk';
-import type { Duration, HrValue, PowerValue, Sport, Step, SubSport, Target, Workout } from './workout';
+import { resolveSteps } from './resolve';
+import type { Duration, HrValue, PowerValue, ResolvedStep, Target } from './resolve';
+import type { Sport, SubSport, Workout } from './workout';
 
 /**
  * The most the encoder's scratch buffer may reserve. A workout file is a few
@@ -134,7 +136,7 @@ const write = (encoder: Encoder, mesgNum: number, mesg: Record<string, unknown>)
  * A repeat becomes a trailing step pointing back at its first child, which is
  * why children are emitted first and the repeat is pushed afterwards.
  */
-export function flattenSteps(steps: Step[], out: StepMesg[] = []): StepMesg[] {
+export function flattenSteps(steps: ResolvedStep[], out: StepMesg[] = []): StepMesg[] {
   for (const step of steps) {
     if (step.kind === 'repeat') {
       const firstChildIndex = out.length;
@@ -239,7 +241,7 @@ function createEncoder(): Encoder {
 }
 
 export function encodeWorkoutFit(workout: Workout, now: Date = new Date()): Uint8Array {
-  const steps = flattenSteps(workout.steps);
+  const steps = flattenSteps(resolveSteps(workout.steps));
   const encoder = createEncoder();
 
   write(encoder, Profile.MesgNum.FILE_ID, {

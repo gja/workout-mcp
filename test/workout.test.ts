@@ -1,28 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import { METRES_PER_MILE } from '../src/units';
-import { WorkoutError, countSteps, normalizeWorkout } from '../src/workout';
+import { resolveSteps } from '../src/resolve';
+import { WorkoutError, countSteps, parseWorkout } from '../src/workout';
 
-const workout = (steps: unknown[]) => normalizeWorkout({ date: '2026-09-12', name: 'Test', steps });
+const workout = (steps: unknown[]) => parseWorkout({ date: '2026-09-12', name: 'Test', steps });
 
-/** Narrow a normalized step to the execution variant for assertions. */
+/**
+ * Resolve a plan and narrow to the effort variant. Steps are stored as the
+ * caller wrote them, so the FIT-shaped model only exists once resolved.
+ */
 const step = (result: ReturnType<typeof workout>, index = 0) => {
-  const s = result.steps[index];
+  const s = resolveSteps(result.steps)[index];
   if (s.kind !== 'step') throw new Error('expected an execution step');
   return s;
 };
 
 describe('workout basics', () => {
   it('defaults name, sport and intensity', () => {
-    const result = normalizeWorkout({ date: '2026-09-12', steps: [{ goal_s: 600 }] });
+    const result = parseWorkout({ date: '2026-09-12', steps: [{ goal_s: 600 }] });
     expect(result.sport).toBe('running');
     expect(result.name).toBe('Running 2026-09-12');
     expect(step(result).intensity).toBe('active');
   });
 
   it('rejects bad dates, unknown fields and empty step lists', () => {
-    expect(() => normalizeWorkout({ date: '2026-02-31', steps: [{ goal_s: 60 }] })).toThrow(/not a real date/);
-    expect(() => normalizeWorkout({ date: '2026-09-12', steps: [] })).toThrow(/at least one step/);
-    expect(() => normalizeWorkout({ date: '2026-09-12', sport: 'quidditch', steps: [{ goal_s: 60 }] })).toThrow(
+    expect(() => parseWorkout({ date: '2026-02-31', steps: [{ goal_s: 60 }] })).toThrow(/not a real date/);
+    expect(() => parseWorkout({ date: '2026-09-12', steps: [] })).toThrow(/at least one step/);
+    expect(() => parseWorkout({ date: '2026-09-12', sport: 'quidditch', steps: [{ goal_s: 60 }] })).toThrow(
       /unknown sport/,
     );
     expect(() => workout([{ goal_secs: 60 }])).toThrow(/unknown field goal_secs/);
@@ -277,9 +281,8 @@ describe('repeats', () => {
 
   it('nests the repeated steps', () => {
     const repeat = intervals.steps[1];
-    expect(repeat.kind).toBe('repeat');
-    if (repeat.kind !== 'repeat') return;
-    expect(repeat.times).toBe(8);
+    if (!('repeat' in repeat)) throw new Error('expected a repeat');
+    expect(repeat.repeat).toBe(8);
     expect(repeat.steps).toHaveLength(2);
   });
 
@@ -288,9 +291,9 @@ describe('repeats', () => {
     expect(countSteps(intervals.steps)).toBe(5);
   });
 
-  it('accepts the verbose form too', () => {
+  it('accepts the verbose form, and stores the one spelling', () => {
     const result = workout([{ type: 'repeat', times: 3, steps: [{ goal_s: 60 }] }]);
-    expect(result.steps[0]).toMatchObject({ kind: 'repeat', times: 3 });
+    expect(result.steps[0]).toEqual({ repeat: 3, steps: [{ goal_s: 60 }] });
   });
 
   it('needs steps to repeat, and will not nest forever', () => {
@@ -302,22 +305,22 @@ describe('repeats', () => {
 
 describe('workout fields', () => {
   it('takes a sub-sport from the known list', () => {
-    expect(normalizeWorkout({ date: '2026-09-12', sub_sport: 'treadmill', steps: [{ goal_s: 60 }] })).toMatchObject({
+    expect(parseWorkout({ date: '2026-09-12', sub_sport: 'treadmill', steps: [{ goal_s: 60 }] })).toMatchObject({
       sub_sport: 'treadmill',
     });
-    expect(() => normalizeWorkout({ date: '2026-09-12', sub_sport: 'moonwalking', steps: [{ goal_s: 60 }] })).toThrow(
+    expect(() => parseWorkout({ date: '2026-09-12', sub_sport: 'moonwalking', steps: [{ goal_s: 60 }] })).toThrow(
       /unknown sub_sport/,
     );
   });
 
   it('takes an external id', () => {
     expect(
-      normalizeWorkout({ date: '2026-09-12', external_id: 'watchletic-8891', steps: [{ goal_s: 60 }] }),
+      parseWorkout({ date: '2026-09-12', external_id: 'watchletic-8891', steps: [{ goal_s: 60 }] }),
     ).toMatchObject({ external_id: 'watchletic-8891' });
   });
 
   it('leaves both out when they are not given', () => {
-    const plain = normalizeWorkout({ date: '2026-09-12', steps: [{ goal_s: 60 }] });
+    const plain = parseWorkout({ date: '2026-09-12', steps: [{ goal_s: 60 }] });
     expect(plain).not.toHaveProperty('sub_sport');
     expect(plain).not.toHaveProperty('external_id');
   });
@@ -337,7 +340,7 @@ describe('intensity inference', () => {
 
   it('assumes steps inside a repeat are intervals', () => {
     const result = workout([{ repeat: 4, steps: [{ goal_meters: 400 }] }]);
-    const repeat = result.steps[0];
+    const repeat = resolveSteps(result.steps)[0];
     if (repeat.kind !== 'repeat' || repeat.steps[0].kind !== 'step') throw new Error('expected a nested step');
     expect(repeat.steps[0].intensity).toBe('interval');
   });

@@ -14,8 +14,8 @@ import * as identity from './identity';
 import * as db from './db';
 import type { Env, User } from './db';
 import { encodeWorkoutFit, fitFilename } from './fit';
-import { callTool, isCallerError, present } from './tools';
-import { normalizeWorkout } from './workout';
+import { callTool, isCallerError, present, presentBrief } from './tools';
+import { parseWorkout } from './workout';
 import { parseDate } from './units';
 
 export const SCOPE = 'workouts';
@@ -257,8 +257,8 @@ async function handleApi(request: Request, url: URL, env: Env, user: User, baseU
       return json({ workouts: workouts.map((w) => present(w, baseUrl)) });
     }
     if (method === 'POST') {
-      const workout = await db.putWorkout(env, user.id, normalizeWorkout(await request.json()));
-      return json(present(workout, baseUrl), 201);
+      const workout = await db.putWorkout(env, user.id, parseWorkout(await request.json()));
+      return json(presentBrief(workout, baseUrl), 201);
     }
     return error('method not allowed', 405);
   }
@@ -274,9 +274,9 @@ async function handleApi(request: Request, url: URL, env: Env, user: User, baseU
     }
     if (method === 'PUT') {
       if (!(await db.getWorkout(env, user.id, date, id))) return error(`no workout ${id} on ${date}`, 404);
-      const input = normalizeWorkout(await request.json());
+      const input = parseWorkout(await request.json());
       if (input.date !== date) await db.deleteWorkout(env, user.id, date, id);
-      return json(present(await db.putWorkout(env, user.id, input, id), baseUrl));
+      return json(presentBrief(await db.putWorkout(env, user.id, input, id), baseUrl));
     }
     if (method === 'DELETE') {
       const deleted = await db.deleteWorkout(env, user.id, date, id);

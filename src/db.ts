@@ -13,7 +13,7 @@
 
 import type { OAuthHelpers } from '@cloudflare/workers-oauth-provider';
 import { shiftDate, today } from './units';
-import type { Sport, Step, SubSport, Workout, WorkoutInput } from './workout';
+import type { PlanStep, Sport, SubSport, Workout, WorkoutInput } from './workout';
 
 export const RETENTION_DAYS_PAST = 7;
 export const RETENTION_DAYS_FUTURE = 14;
@@ -81,12 +81,11 @@ export function retentionWindow(now: Date = new Date()): { from: string; to: str
 
 function parseRow(row: WorkoutRow): Workout {
   const workout: Workout = {
-    version: 1,
     id: row.id,
     date: row.date,
     name: row.name,
     sport: row.sport as Sport,
-    steps: JSON.parse(row.steps) as Step[],
+    steps: JSON.parse(row.steps) as PlanStep[],
     updated_at: row.updated_at,
   };
   if (row.sub_sport) workout.sub_sport = row.sub_sport as SubSport;
@@ -141,7 +140,7 @@ export async function putWorkout(env: Env, userId: string, input: WorkoutInput, 
     }
   }
 
-  const workout: Workout = { version: 1, id: workoutId ?? newId(), ...input, updated_at: new Date().toISOString() };
+  const workout: Workout = { id: workoutId ?? newId(), ...input, updated_at: new Date().toISOString() };
   await env.DB.prepare(
     `INSERT INTO workouts (user_id, date, id, name, sport, sub_sport, notes, external_id, steps, created_at, updated_at)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)
