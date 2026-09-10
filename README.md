@@ -175,10 +175,6 @@ steps.
 | --- | --- |
 | `goal_s` | Seconds, or `"mm:ss"` / `"hh:mm:ss"` |
 | `goal_meters`, `goal_km`, `goal_miles`, `goal_yards` | Distance |
-| `goal_calories` | Calories burned |
-| `goal_reps` | Repetitions, for strength work |
-| `until_hr_above`, `until_hr_below` | Run until heart rate crosses a threshold |
-| `until_watts_above`, `until_watts_below` | Same, for power |
 
 A step with **no** duration runs until the lap button is pressed — which is
 what you usually want for a cooldown.
@@ -191,8 +187,9 @@ what you usually want for a cooldown.
 | `target_heart_rate` | bpm, or `"85%"` of max HR |
 | `target_watts` | watts, or `"95%"` of FTP |
 | `target_cadence` | rpm |
-| `target_zone` | heart-rate zone 1-5 |
-| `target_hr_zone`, `target_pace_zone`, `target_power_zone`, `target_cadence_zone` | an explicit zone |
+| `target_hr_zone` | zone 1-5, or a range of boundaries |
+| `target_power_zone` | zone 1-7, or a range of boundaries |
+| `target_pace_zone` | zone 1-10, single only |
 
 ### Ranges
 
@@ -216,6 +213,37 @@ Pace reads the same way — first entry is the floor on effort — but because a
 
 A two-sided pace band is unambiguous whichever way round you write it, so
 `["4:15", "4:00"]` means the same thing.
+
+### Zones
+
+A single zone is stored as a zone, and the watch resolves it against whatever
+you have configured:
+
+```jsonc
+"target_hr_zone": 2        // whatever your watch calls zone 2
+```
+
+FIT has no way to say "zones 2 to 3", so a **range** is converted to a
+percentage band instead. The endpoints are boundaries on a continuous scale,
+which makes fractional zones work but means the numbers read differently from
+how a coach says them:
+
+```jsonc
+"target_hr_zone": ["2", "3"]     // exactly zone 2 — 60-70% of max HR
+"target_hr_zone": ["2", "4"]     // all of zones 2 and 3 — 60-80%
+"target_hr_zone": ["2.5", "3"]   // the top half of zone 2 — 65-70%
+"target_hr_zone": ["3", "-"]     // zone 3 and above
+```
+
+The conversion needs a zone model, since your watch's own boundaries are not
+something this server knows. Heart rate uses Garmin's default five zones as a
+share of max HR (50/60/70/80/90/100); power uses the standard seven-zone model
+as a share of FTP (1/55/75/90/105/120/150/200). If your zones differ, give
+explicit numbers with `target_heart_rate` or `target_watts` instead.
+
+`target_pace_zone` takes a single zone only: FIT has no percentage speed
+target, so there is nothing sensible to convert a range into. Use
+`target_pace_km` with explicit paces for a band.
 
 ### The rest
 

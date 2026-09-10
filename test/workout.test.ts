@@ -61,15 +61,10 @@ describe('durations', () => {
     expect(step(workout([{ name: 'Cooldown' }])).duration).toEqual({ type: 'open' });
   });
 
-  it('supports heart-rate and power gates', () => {
-    expect(step(workout([{ until_hr_below: 120 }])).duration).toEqual({
-      type: 'hr_below',
-      hr: { unit: 'bpm', value: 120 },
-    });
-    expect(step(workout([{ until_watts_above: '95%' }])).duration).toEqual({
-      type: 'power_above',
-      power: { unit: 'percent', value: 95 },
-    });
+  it('knows only time and distance — the gym durations are gone', () => {
+    for (const key of ['goal_calories', 'goal_reps', 'until_hr_below', 'until_watts_above']) {
+      expect(() => workout([{ [key]: 100 }]), key).toThrow(/unknown field/);
+    }
   });
 });
 
@@ -144,8 +139,8 @@ describe('targets', () => {
     });
   });
 
-  it('takes zones, defaulting to heart rate', () => {
-    expect(step(workout([{ goal_s: 60, target_zone: 3 }])).target).toEqual({
+  it('takes a single zone per metric, left for the watch to resolve', () => {
+    expect(step(workout([{ goal_s: 60, target_hr_zone: 3 }])).target).toEqual({
       type: 'zone',
       metric: 'heart_rate',
       zone: 3,
@@ -155,7 +150,7 @@ describe('targets', () => {
       metric: 'power',
       zone: 4,
     });
-    expect(step(workout([{ goal_s: 60, target_zone: { type: 'pace', zone: 7 } }])).target).toEqual({
+    expect(step(workout([{ goal_s: 60, target_pace_zone: 7 }])).target).toEqual({
       type: 'zone',
       metric: 'pace',
       zone: 7,
@@ -163,8 +158,65 @@ describe('targets', () => {
     expect(() => workout([{ goal_s: 60, target_hr_zone: 9 }])).toThrow(/between 1 and 5/);
   });
 
+  it('no longer has the ambiguous target_zone or a cadence zone', () => {
+    expect(() => workout([{ goal_s: 60, target_zone: 3 }])).toThrow(/unknown field target_zone/);
+    expect(() => workout([{ goal_s: 60, target_cadence_zone: 3 }])).toThrow(/unknown field/);
+  });
+
   it('leaves a step open when no target is given', () => {
     expect(step(workout([{ goal_s: 60 }])).target).toEqual({ type: 'open' });
+  });
+});
+
+describe('zone ranges', () => {
+  it('reads the endpoints as boundaries on a continuous scale', () => {
+    // Garmin's default zones put the bottom of zone 2 at 60% of max HR and
+    // the bottom of zone 3 at 70%, so ["2", "3"] is exactly zone 2.
+    expect(step(workout([{ goal_s: 60, target_hr_zone: ['2', '3'] }])).target).toEqual({
+      type: 'heart_rate',
+      low: { unit: 'percent', value: 60 },
+      high: { unit: 'percent', value: 70 },
+    });
+
+    // All of zones 2 and 3 therefore spans boundaries 2 to 4.
+    expect(step(workout([{ goal_s: 60, target_hr_zone: [2, 4] }])).target).toEqual({
+      type: 'heart_rate',
+      low: { unit: 'percent', value: 60 },
+      high: { unit: 'percent', value: 80 },
+    });
+  });
+
+  it('interpolates a fractional boundary within its zone', () => {
+    expect(step(workout([{ goal_s: 60, target_hr_zone: ['2.5', '3.0'] }])).target).toEqual({
+      type: 'heart_rate',
+      low: { unit: 'percent', value: 65 },
+      high: { unit: 'percent', value: 70 },
+    });
+  });
+
+  it('converts a power zone range against FTP', () => {
+    expect(step(workout([{ goal_s: 60, target_power_zone: [4, 5] }])).target).toEqual({
+      type: 'power',
+      low: { unit: 'percent', value: 90 },
+      high: { unit: 'percent', value: 105 },
+    });
+  });
+
+  it('leaves one end open when asked to', () => {
+    expect(step(workout([{ goal_s: 60, target_hr_zone: ['3', '-'] }])).target).toEqual({
+      type: 'heart_rate',
+      low: { unit: 'percent', value: 70 },
+      high: null,
+    });
+  });
+
+  it('rejects a pace zone range, which FIT cannot express', () => {
+    expect(() => workout([{ goal_s: 60, target_pace_zone: [2, 3] }])).toThrow(/no percentage speed target/);
+  });
+
+  it('rejects a boundary outside the model, or a reversed range', () => {
+    expect(() => workout([{ goal_s: 60, target_hr_zone: [1, 7] }])).toThrow(/between 1 and 6/);
+    expect(() => workout([{ goal_s: 60, target_hr_zone: [4, 2] }])).toThrow(/reversed/);
   });
 });
 

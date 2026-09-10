@@ -12,7 +12,10 @@ export class WorkoutError extends Error {
   }
 }
 
-export const fail = (path: string, message: string): never => {
+// The explicit annotation on the binding, rather than only on the arrow, is
+// what lets TypeScript treat a `fail(...)` call as unreachable-after and
+// narrow the types that follow it.
+export const fail: (path: string, message: string) => never = (path, message) => {
   throw new WorkoutError(path, message);
 };
 

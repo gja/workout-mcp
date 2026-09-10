@@ -20,18 +20,6 @@ function describeDuration(duration: Duration): string {
       return duration.meters >= 1000
         ? `${Number((duration.meters / 1000).toFixed(2))} km`
         : `${Math.round(duration.meters)} m`;
-    case 'calories':
-      return `${duration.calories} kcal`;
-    case 'reps':
-      return `${duration.reps} reps`;
-    case 'hr_above':
-      return `until HR above ${hr(duration.hr)}`;
-    case 'hr_below':
-      return `until HR below ${hr(duration.hr)}`;
-    case 'power_above':
-      return `until power above ${power(duration.power)}`;
-    case 'power_below':
-      return `until power below ${power(duration.power)}`;
   }
 }
 

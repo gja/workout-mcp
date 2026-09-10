@@ -58,26 +58,6 @@ describe('durations', () => {
     expect(roundTrip(build([{ name: 'Cooldown' }])).workoutStepMesgs[0]).toMatchObject({ durationType: 'open' });
   });
 
-  it('encodes heart-rate gates with the +100 bpm offset', () => {
-    const steps = roundTrip(build([{ until_hr_below: 120 }, { until_hr_above: '85%' }])).workoutStepMesgs;
-    expect(steps[0]).toMatchObject({ durationType: 'hrLessThan', durationHr: 220 });
-    // 0-100 is a percentage of max HR, so it is written unchanged.
-    expect(steps[1]).toMatchObject({ durationType: 'hrGreaterThan', durationHr: 85 });
-  });
-
-  it('encodes power gates with the +1000 watt offset', () => {
-    const steps = roundTrip(build([{ until_watts_above: 250 }, { until_watts_below: '60%' }])).workoutStepMesgs;
-    expect(steps[0]).toMatchObject({ durationType: 'powerGreaterThan', durationPower: 1250 });
-    // 0-1000 is a percentage of FTP, so it is written unchanged.
-    expect(steps[1]).toMatchObject({ durationType: 'powerLessThan', durationPower: 60 });
-  });
-
-  it('carries calories and repetitions through unscaled', () => {
-    const steps = roundTrip(build([{ goal_calories: 400 }, { goal_reps: 12 }])).workoutStepMesgs;
-    expect(steps[0]).toMatchObject({ durationType: 'calories', durationCalories: 400 });
-    expect(steps[1]).toMatchObject({ durationType: 'reps', durationReps: 12 });
-  });
-
   it('converts every distance unit into metres in the file', () => {
     const steps = roundTrip(
       build([{ goal_meters: 400 }, { goal_km: 5 }, { goal_miles: 1 }, { goal_yards: 100 }]),
@@ -125,7 +105,7 @@ describe('targets', () => {
   });
 
   it('writes zones as the target value, not a custom range', () => {
-    const step = roundTrip(build([{ goal_s: 60, target_zone: 3 }])).workoutStepMesgs[0];
+    const step = roundTrip(build([{ goal_s: 60, target_hr_zone: 3 }])).workoutStepMesgs[0];
     expect(step).toMatchObject({ targetType: 'heartRate', targetHrZone: 3 });
     expect(step.customTargetValueLow).toBeUndefined();
   });
@@ -136,14 +116,32 @@ describe('targets', () => {
         { goal_s: 60, target_hr_zone: 2 },
         { goal_s: 60, target_pace_zone: 6 },
         { goal_s: 60, target_power_zone: 4 },
-        { goal_s: 60, target_cadence_zone: 3 },
       ]),
     ).workoutStepMesgs;
     expect(steps[0]).toMatchObject({ targetType: 'heartRate', targetHrZone: 2 });
     // A pace zone is a speed zone as far as FIT is concerned.
     expect(steps[1]).toMatchObject({ targetType: 'speed', targetSpeedZone: 6 });
     expect(steps[2]).toMatchObject({ targetType: 'power', targetPowerZone: 4 });
-    expect(steps[3]).toMatchObject({ targetType: 'cadence', targetCadenceZone: 3 });
+  });
+
+  it('writes a zone range as a percentage band, not a zone', () => {
+    const steps = roundTrip(
+      build([
+        { goal_s: 60, target_hr_zone: [2, 4] },
+        { goal_s: 60, target_power_zone: [4, 5] },
+      ]),
+    ).workoutStepMesgs;
+
+    // 0-100 in workoutHr is a percentage of max HR, written unchanged, and
+    // the zone number itself is no longer part of the step.
+    expect(steps[0]).toMatchObject({
+      targetType: 'heartRate',
+      targetHrZone: 0,
+      customTargetHeartRateLow: 60,
+      customTargetHeartRateHigh: 80,
+    });
+    // 0-1000 in workoutPower is a percentage of FTP.
+    expect(steps[1]).toMatchObject({ targetType: 'power', customTargetPowerLow: 90, customTargetPowerHigh: 105 });
   });
 
   it('writes a cadence range in plain rpm', () => {
