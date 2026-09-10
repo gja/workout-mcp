@@ -181,6 +181,13 @@ Tools: `list_workouts`, `get_workout`, `create_workout`, `update_workout`,
 `POST /api/tools/<name>` with the same arguments, so a non-MCP client gets the
 identical behaviour.
 
+Every tool is annotated with whether it only reads. `list_workouts`,
+`get_workout` and `export_workout_fit` carry `readOnlyHint`, which is what
+lets a client group them apart from the writes and allow them without asking
+each time; `update_workout` and `delete_workout` carry `destructiveHint`. The
+hints only shape how a client presents a tool — the server checks everything
+regardless.
+
 ## Writing a workout
 
 A workout is a date, a name, a sport and a list of steps. A step either **does
@@ -317,7 +324,11 @@ and it **updates that workout in place** — same id, moved if the date changed
 per-user cap. Keys are scoped to one athlete, so two people may use the same
 one.
 
-Every response also carries `planned`, computed from the steps with repeats
+A write — create or update — answers with which workout it was and where to
+find it: id, date, name, sport and the two URLs. It does not echo the steps
+back at the caller who just sent them. Reads return the whole thing.
+
+Every read also carries `planned`, computed from the steps with repeats
 resolved:
 
 ```jsonc
@@ -326,6 +337,25 @@ resolved:
 
 `open_steps` counts steps that run until a lap press. When it is above zero
 the totals are a floor rather than the whole session.
+
+### What gets stored
+
+Steps are kept in exactly the shape you send them, and reads give them back
+that way — `goal_s`, `target_pace_km`, an optional `intensity`. What you POST
+is what you GET.
+
+FIT's own model, with one duration per step and speeds in metres per second,
+is derived in `src/resolve.ts` when a file is generated. It is an encoding
+detail, so it stays out of the database and out of responses. The steps column
+is queryable as ordinary JSON with the field names you wrote:
+
+```sql
+SELECT json_extract(steps, '$[1].repeat') FROM workouts WHERE user_id = ?;
+```
+
+The only thing normalized on the way in is spelling: `goal_time` is stored as
+`goal_s`, and `{"type":"repeat","times":3}` as `{"repeat":3}`, so one thing
+does not round-trip two ways.
 
 ### The rest
 
@@ -377,7 +407,8 @@ authentication is a bearer token rather than a cookie.
 
 ```
 src/units.ts      parsing primitives: durations, paces, open-ended ranges
-src/workout.ts    the loose-JSON -> strict-model normalizer, and its errors
+src/workout.ts    the plan: what a caller writes, what gets stored
+src/resolve.ts    plan -> the model FIT needs, and the validator that proves it
 src/fit.ts        FIT encoding, including flattening nested repeats
 src/describe.ts   human-readable rendering, shared by MCP and the dashboard
 src/db.ts         D1 queries and retention

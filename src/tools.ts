@@ -9,7 +9,7 @@ import { encodeWorkoutFit, fitFilename } from './fit';
 import { describeWorkout, plannedTotals } from './describe';
 import * as db from './db';
 import type { Env, User } from './db';
-import { WorkoutError, normalizeWorkout } from './workout';
+import { WorkoutError, parseWorkout } from './workout';
 import type { Workout } from './workout';
 import { parseDate } from './units';
 
@@ -125,9 +125,16 @@ const WORKOUT_PROPERTIES = {
   steps: STEP_SCHEMA,
 } as const;
 
+/**
+ * `readOnlyHint` is what lets a client group the reads apart from the writes
+ * and allow them without asking each time; `destructiveHint` marks the two
+ * that can lose work. The hints are advisory, so the server still checks
+ * everything itself — they only shape how a client presents a tool.
+ */
 export const TOOLS = [
   {
     name: 'list_workouts',
+    annotations: { title: 'List planned workouts', readOnlyHint: true, openWorldHint: false },
     description:
       'List planned workouts within the retention window (7 days back, 14 days ahead). ' +
       'Returns each workout with its date, id and download URL.',
@@ -141,6 +148,7 @@ export const TOOLS = [
   },
   {
     name: 'get_workout',
+    annotations: { title: 'Read a planned workout', readOnlyHint: true, openWorldHint: false },
     description: 'Fetch one planned workout by date and id. If a date has exactly one workout, the id may be omitted.',
     inputSchema: {
       type: 'object',
@@ -153,6 +161,7 @@ export const TOOLS = [
   },
   {
     name: 'create_workout',
+    annotations: { title: 'Create a planned workout', readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     description:
       'Create a planned workout on a date and return its id and FIT download URL. ' +
       'A date may hold several workouts; each gets its own id.',
@@ -160,6 +169,7 @@ export const TOOLS = [
   },
   {
     name: 'update_workout',
+    annotations: { title: 'Replace a planned workout', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     description: 'Replace an existing workout in full. The id is kept; the date may be changed to move the workout.',
     inputSchema: {
       type: 'object',
@@ -173,6 +183,7 @@ export const TOOLS = [
   },
   {
     name: 'delete_workout',
+    annotations: { title: 'Delete a planned workout', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     description: 'Delete a planned workout by date and id.',
     inputSchema: {
       type: 'object',
@@ -182,6 +193,7 @@ export const TOOLS = [
   },
   {
     name: 'export_workout_fit',
+    annotations: { title: 'Export a workout as FIT', readOnlyHint: true, openWorldHint: false },
     description:
       'Encode a planned workout as a Garmin FIT workout file. Returns the file base64-encoded ' +
       'plus a URL that serves the same bytes to any client holding the API token.',
@@ -207,15 +219,31 @@ const requireString = (args: Record<string, unknown>, key: string): string => {
   return value;
 };
 
-/** The public shape of a workout: the stored fields plus derived URLs and prose. */
+const urls = (workout: Workout, baseUrl: string) => ({
+  fit_url: `${baseUrl}/export/${workout.date}-${workout.id}.fit`,
+  json_url: `${baseUrl}/api/workouts/${workout.date}/${workout.id}.json`,
+});
+
+/**
+ * A workout in full: the stored fields — steps included, in the shape they
+ * were written — plus the derived summary, totals and links.
+ */
 export function present(workout: Workout, baseUrl: string) {
   return {
     ...workout,
     summary: describeWorkout(workout),
     planned: plannedTotals(workout.steps),
-    fit_url: `${baseUrl}/export/${workout.date}-${workout.id}.fit`,
-    json_url: `${baseUrl}/api/workouts/${workout.date}/${workout.id}.json`,
+    ...urls(workout, baseUrl),
   };
+}
+
+/**
+ * What a write returns: which workout it was and where to find it. Echoing
+ * the steps back at the caller who just sent them is noise.
+ */
+export function presentBrief(workout: Workout, baseUrl: string) {
+  const { steps: _steps, ...rest } = workout;
+  return { ...rest, ...urls(workout, baseUrl) };
 }
 
 export async function callTool(
@@ -254,8 +282,8 @@ export async function callTool(
     }
 
     case 'create_workout': {
-      const workout = await db.putWorkout(env, user.id, normalizeWorkout(args));
-      return present(workout, baseUrl);
+      const workout = await db.putWorkout(env, user.id, parseWorkout(args));
+      return presentBrief(workout, baseUrl);
     }
 
     case 'update_workout': {
@@ -265,10 +293,10 @@ export async function callTool(
       if (!existing) throw new ToolError(`no workout ${id} on ${currentDate}`);
 
       const { id: _id, current_date: _currentDate, ...rest } = args;
-      const input = normalizeWorkout(rest);
+      const input = parseWorkout(rest);
       // A moved workout keeps its id, so the old row has to go first.
       if (input.date !== currentDate) await db.deleteWorkout(env, user.id, currentDate, id);
-      return present(await db.putWorkout(env, user.id, input, id), baseUrl);
+      return presentBrief(await db.putWorkout(env, user.id, input, id), baseUrl);
     }
 
     case 'delete_workout': {

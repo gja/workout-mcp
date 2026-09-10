@@ -1,14 +1,14 @@
 import { Decoder, Stream } from '@garmin/fitsdk';
 import { describe, expect, it } from 'vitest';
 import { encodeWorkoutFit, fitFilename, flattenSteps } from '../src/fit';
-import { normalizeWorkout } from '../src/workout';
+import { resolveSteps } from '../src/resolve';
+import { parseWorkout } from '../src/workout';
 import type { Workout } from '../src/workout';
 
 const build = (steps: unknown[], overrides: Partial<Workout> = {}): Workout => ({
-  version: 1,
   id: 'a1b2c3d4',
   updated_at: '2026-09-10T00:00:00.000Z',
-  ...normalizeWorkout({ date: '2026-09-12', name: 'Session', steps }),
+  ...parseWorkout({ date: '2026-09-12', name: 'Session', steps }),
   ...overrides,
 });
 
@@ -326,7 +326,7 @@ describe('repeats', () => {
     const nested = build([
       { repeat: 2, steps: [{ name: 'A', goal_s: 30 }, { repeat: 3, steps: [{ name: 'B', goal_s: 10 }] }] },
     ]);
-    const flat = flattenSteps(nested.steps);
+    const flat = flattenSteps(resolveSteps(nested.steps));
     expect(flat.map((s) => s.wktStepName ?? s.durationType)).toEqual([
       'A',
       'B',

@@ -5,7 +5,9 @@
  */
 
 import { METRES_PER_MILE, formatDuration, speedToPace } from './units';
-import type { Duration, HrValue, PowerValue, Step, Target, Workout } from './workout';
+import { resolveSteps } from './resolve';
+import type { Duration, HrValue, PowerValue, ResolvedStep, Target } from './resolve';
+import type { PlanStep, Workout } from './workout';
 
 const hr = (v: HrValue): string => (v.unit === 'percent' ? `${v.value}% max HR` : `${v.value} bpm`);
 const power = (v: PowerValue): string => (v.unit === 'percent' ? `${v.value}% FTP` : `${v.value} W`);
@@ -55,7 +57,7 @@ function describeTarget(target: Target): string | null {
 }
 
 /** One line per step, indented inside repeats. */
-export function describeSteps(steps: Step[], indent = ''): string[] {
+export function describeSteps(steps: ResolvedStep[], indent = ''): string[] {
   const lines: string[] = [];
   for (const step of steps) {
     if (step.kind === 'repeat') {
@@ -75,7 +77,7 @@ export function describeSteps(steps: Step[], indent = ''): string[] {
 
 export function describeWorkout(workout: Workout): string {
   const sport = workout.sub_sport ? `${workout.sport}, ${workout.sub_sport.replace('_', ' ')}` : workout.sport;
-  return [`${workout.date} — ${workout.name} (${sport})`, ...describeSteps(workout.steps, '  ')].join('\n');
+  return [`${workout.date} — ${workout.name} (${sport})`, ...describeSteps(resolveSteps(workout.steps), '  ')].join('\n');
 }
 
 /**
@@ -87,10 +89,10 @@ export function describeWorkout(workout: Workout): string {
  */
 export type PlannedTotals = { seconds: number; meters: number; steps: number; open_steps: number };
 
-export function plannedTotals(steps: Step[]): PlannedTotals {
+export function plannedTotals(steps: PlanStep[]): PlannedTotals {
   const totals: PlannedTotals = { seconds: 0, meters: 0, steps: 0, open_steps: 0 };
 
-  const walk = (list: Step[], multiplier: number): void => {
+  const walk = (list: ResolvedStep[], multiplier: number): void => {
     for (const step of list) {
       if (step.kind === 'repeat') {
         walk(step.steps, multiplier * step.times);
@@ -103,7 +105,7 @@ export function plannedTotals(steps: Step[]): PlannedTotals {
     }
   };
 
-  walk(steps, 1);
+  walk(resolveSteps(steps), 1);
   totals.meters = Math.round(totals.meters);
   return totals;
 }

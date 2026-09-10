@@ -50,6 +50,19 @@ describe('protocol', () => {
     for (const tool of tools) expect(tool.inputSchema).toMatchObject({ type: 'object' });
   });
 
+  it('marks which tools only read, so a client can allow those without asking', async () => {
+    const { tools } = (await rpc('tools/list')).result as {
+      tools: { name: string; annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean } }[];
+    };
+    const readOnly = tools.filter((tool) => tool.annotations?.readOnlyHint).map((tool) => tool.name);
+    const destructive = tools.filter((tool) => tool.annotations?.destructiveHint).map((tool) => tool.name);
+
+    expect(readOnly.sort()).toEqual(['export_workout_fit', 'get_workout', 'list_workouts']);
+    expect(destructive.sort()).toEqual(['delete_workout', 'update_workout']);
+    // Every tool says which it is, rather than leaving a client to guess.
+    for (const tool of tools) expect(tool.annotations?.readOnlyHint).toBeTypeOf('boolean');
+  });
+
   it('answers a ping and rejects an unknown method', async () => {
     expect((await rpc('ping')).result).toEqual({});
     expect((await rpc('what/ever')).error).toMatchObject({ code: -32601 });
