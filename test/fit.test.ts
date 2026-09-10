@@ -287,6 +287,15 @@ describe('repeats', () => {
     expect(repeat).toMatchObject({ durationStep: 1, repeatSteps: 8 });
   });
 
+  it('gives the repeat a target type, which every step is expected to have', () => {
+    // The repeat has no target of its own, but a step without the field is
+    // the one record an importer reading it unconditionally will fail on.
+    const repeat = roundTrip(intervals).workoutStepMesgs[3];
+    expect(repeat.targetType).toBe('open');
+    // And it still reads as a repeat count, which resolves off durationType.
+    expect(repeat.repeatSteps).toBe(8);
+  });
+
   it('counts the repeat step in numValidSteps', () => {
     expect(roundTrip(intervals).workoutMesgs[0]).toMatchObject({ numValidSteps: 5 });
   });

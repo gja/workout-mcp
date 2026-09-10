@@ -145,8 +145,13 @@ export function flattenSteps(steps: ResolvedStep[], out: StepMesg[] = []): StepM
         messageIndex: out.length,
         durationType: 'repeatUntilStepsCmplt',
         durationValue: firstChildIndex,
+        // A repeat has no target of its own, but the field is written anyway:
+        // Garmin's own exports carry it, and an importer that reads
+        // targetType on every step chokes on the one record missing it.
+        targetType: 'open',
         // With durationType = repeatUntilStepsCmplt, targetValue holds the
-        // repeat count (the profile's `repeatSteps` subfield).
+        // repeat count (the profile's `repeatSteps` subfield), which resolves
+        // off durationType and so is unaffected by targetType above.
         targetValue: step.times,
       });
       continue;
