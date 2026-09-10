@@ -35,7 +35,7 @@ const mcpHandler = {
     if (!props?.userId) return Response.json({ error: 'no authenticated user' }, { status: 401 });
 
     const user: User = { id: props.userId, email: props.email };
-    const response = await handleMcp(request, env, user, new URL(request.url).origin);
+    const response = await handleMcp(request, env, user);
     response.headers.set('Access-Control-Allow-Origin', '*');
     return response;
   },

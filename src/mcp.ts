@@ -26,7 +26,7 @@ const INTERNAL_ERROR = -32603;
 
 const SERVER_INFO = { name: 'workout-mcp', version: '0.1.0' };
 
-async function handleRequest(request: JsonRpcRequest, env: Env, user: User, baseUrl: string): Promise<unknown> {
+async function handleRequest(request: JsonRpcRequest, env: Env, user: User): Promise<unknown> {
   switch (request.method) {
     case 'initialize':
       return {
@@ -44,7 +44,7 @@ async function handleRequest(request: JsonRpcRequest, env: Env, user: User, base
     case 'tools/call': {
       const params = (request.params ?? {}) as { name?: string; arguments?: unknown };
       if (!params.name) throw new ToolError('tools/call requires a tool name');
-      const result = await callTool(params.name, params.arguments, env, user, baseUrl);
+      const result = await callTool(params.name, params.arguments, env, user);
       return {
         content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
         structuredContent: result,
@@ -71,12 +71,12 @@ function toToolErrorResult(error: Error) {
   return { content: [{ type: 'text', text: error.message }], isError: true };
 }
 
-async function dispatch(request: JsonRpcRequest, env: Env, user: User, baseUrl: string): Promise<JsonRpcResponse | null> {
+async function dispatch(request: JsonRpcRequest, env: Env, user: User): Promise<JsonRpcResponse | null> {
   const id = request.id ?? null;
   const isNotification = request.id === undefined || request.id === null;
 
   try {
-    const result = await handleRequest(request, env, user, baseUrl);
+    const result = await handleRequest(request, env, user);
     return isNotification ? null : { jsonrpc: '2.0', id, result };
   } catch (error) {
     if (isNotification) return null;
@@ -94,7 +94,7 @@ async function dispatch(request: JsonRpcRequest, env: Env, user: User, baseUrl: 
   }
 }
 
-export async function handleMcp(request: Request, env: Env, user: User, baseUrl: string): Promise<Response> {
+export async function handleMcp(request: Request, env: Env, user: User): Promise<Response> {
   let body: unknown;
   try {
     body = await request.json();
@@ -108,7 +108,7 @@ export async function handleMcp(request: Request, env: Env, user: User, baseUrl:
   // A client may batch requests into an array; notifications drop out of the
   // response, and an all-notification batch gets a bare 202.
   const batch = Array.isArray(body) ? (body as JsonRpcRequest[]) : [body as JsonRpcRequest];
-  const responses = (await Promise.all(batch.map((r) => dispatch(r, env, user, baseUrl)))).filter(
+  const responses = (await Promise.all(batch.map((r) => dispatch(r, env, user)))).filter(
     (r): r is JsonRpcResponse => r !== null,
   );
 

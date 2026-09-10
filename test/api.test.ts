@@ -300,11 +300,16 @@ describe('the tools, over plain REST', () => {
   it('agrees with the REST route it mirrors', async () => {
     const { date, id } = await createIntervals();
 
-    const viaRest = await (await call(`/api/workouts/${date}/${id}.json`)).json();
+    const viaRest = (await (await call(`/api/workouts/${date}/${id}.json`)).json()) as Record<string, unknown>;
     const viaTool = await (
       await call('/api/tools/get_workout', { method: 'POST', body: JSON.stringify({ date, id }) })
     ).json();
-    expect(viaTool).toEqual(viaRest);
+
+    // The tool surface is the same workout without the links: those are for
+    // the dashboard, which can actually follow them.
+    const { fit_url: _fit, json_url: _json, ...withoutLinks } = viaRest;
+    expect(viaRest.fit_url).toBeTruthy();
+    expect(viaTool).toEqual(withoutLinks);
   });
 
   it('exports FIT bytes that match the download', async () => {
@@ -316,7 +321,7 @@ describe('the tools, over plain REST', () => {
     const downloaded = new Uint8Array(await (await call(`/export/${date}-${id}.fit`)).arrayBuffer());
     const inline = Uint8Array.from(atob(exported.base64), (character) => character.charCodeAt(0));
 
-    expect(exported.filename).toBe(`${date}-${id}.fit`);
+    expect(exported.filename).toBe(`${date}-8x400m.fit`);
     // The two routes encode the same workout, so only the creation timestamp
     // in the file header can differ.
     expect(inline.length).toBe(downloaded.length);

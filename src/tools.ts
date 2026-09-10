@@ -5,7 +5,7 @@
  * workout, so it carries the examples rather than leaving them to prose.
  */
 
-import { encodeWorkoutFit, fitFilename } from './fit';
+import { encodeWorkoutFit, fitDownloadName } from './fit';
 import { describeWorkout, plannedTotals } from './describe';
 import * as db from './db';
 import type { Env, User } from './db';
@@ -137,7 +137,7 @@ export const TOOLS = [
     annotations: { title: 'List planned workouts', readOnlyHint: true, openWorldHint: false },
     description:
       'List planned workouts within the retention window (7 days back, 14 days ahead). ' +
-      'Returns each workout with its date, id and download URL. ' +
+      'Returns each workout with its date and id; pass those to export_workout_fit for the file. ' +
       'A wider from/to is narrowed to the window rather than honoured.',
     inputSchema: {
       type: 'object',
@@ -164,7 +164,7 @@ export const TOOLS = [
     name: 'create_workout',
     annotations: { title: 'Create a planned workout', readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     description:
-      'Create a planned workout on a date and return its id and FIT download URL. ' +
+      'Create a planned workout on a date and return its id. ' +
       'A date may hold several workouts; each gets its own id.',
     inputSchema: { type: 'object', properties: WORKOUT_PROPERTIES, required: ['date', 'steps'] },
   },
@@ -196,8 +196,9 @@ export const TOOLS = [
     name: 'export_workout_fit',
     annotations: { title: 'Export a workout as FIT', readOnlyHint: true, openWorldHint: false },
     description:
-      'Encode a planned workout as a Garmin FIT workout file. Returns the file base64-encoded ' +
-      'plus a URL that serves the same bytes to any client holding the API token.',
+      'Encode a planned workout as a Garmin FIT workout file. Returns the whole file base64-encoded ' +
+      'in the response, along with the name to save it under: decode those bytes to produce the ' +
+      '.fit file. There is no URL to link to.',
     inputSchema: {
       type: 'object',
       properties: { date: WORKOUT_PROPERTIES.date, id: { type: 'string' } },
@@ -220,6 +221,15 @@ const requireString = (args: Record<string, unknown>, key: string): string => {
   return value;
 };
 
+/**
+ * Links, for the dashboard alone.
+ *
+ * The tools deliberately return none: an assistant handed a fit_url links to
+ * it instead of calling export_workout_fit, and the link is useless to whoever
+ * it is handed to — the bytes are behind the caller's own credential. Callers
+ * that can follow a link — the browser dashboard — get one by passing a base
+ * URL; MCP does not, so the date and id are the whole handle.
+ */
 const urls = (workout: Workout, baseUrl: string) => ({
   fit_url: `${baseUrl}/export/${workout.date}-${workout.id}.fit`,
   json_url: `${baseUrl}/api/workouts/${workout.date}/${workout.id}.json`,
@@ -227,33 +237,27 @@ const urls = (workout: Workout, baseUrl: string) => ({
 
 /**
  * A workout in full: the stored fields — steps included, in the shape they
- * were written — plus the derived summary, totals and links.
+ * were written — plus the derived summary and totals.
  */
-export function present(workout: Workout, baseUrl: string) {
+export function present(workout: Workout, baseUrl?: string) {
   return {
     ...workout,
     summary: describeWorkout(workout),
     planned: plannedTotals(workout.steps),
-    ...urls(workout, baseUrl),
+    ...(baseUrl ? urls(workout, baseUrl) : {}),
   };
 }
 
 /**
- * What a write returns: which workout it was and where to find it. Echoing
- * the steps back at the caller who just sent them is noise.
+ * What a write returns: which workout it was, by date and id. Echoing the
+ * steps back at the caller who just sent them is noise.
  */
-export function presentBrief(workout: Workout, baseUrl: string) {
+export function presentBrief(workout: Workout, baseUrl?: string) {
   const { steps: _steps, ...rest } = workout;
-  return { ...rest, ...urls(workout, baseUrl) };
+  return { ...rest, ...(baseUrl ? urls(workout, baseUrl) : {}) };
 }
 
-export async function callTool(
-  name: string,
-  rawArgs: unknown,
-  env: Env,
-  user: User,
-  baseUrl: string,
-): Promise<unknown> {
+export async function callTool(name: string, rawArgs: unknown, env: Env, user: User): Promise<unknown> {
   const args = asObject(rawArgs);
 
   switch (name) {
@@ -261,7 +265,7 @@ export async function callTool(
       const from = args.from === undefined ? undefined : parseDate(args.from, 'from');
       const to = args.to === undefined ? undefined : parseDate(args.to, 'to');
       const workouts = await db.listWorkouts(env, user.id, from, to);
-      return { workouts: workouts.map((w) => present(w, baseUrl)) };
+      return { workouts: workouts.map((w) => present(w)) };
     }
 
     case 'get_workout': {
@@ -269,22 +273,22 @@ export async function callTool(
       if (typeof args.id === 'string' && args.id !== '') {
         const workout = await db.getWorkout(env, user.id, date, args.id);
         if (!workout) throw new ToolError(`no workout ${args.id} on ${date}`);
-        return present(workout, baseUrl);
+        return present(workout);
       }
       const onDate = await db.listWorkouts(env, user.id, date, date);
       if (onDate.length === 0) throw new ToolError(`no workouts on ${date}`);
       if (onDate.length > 1) {
         return {
           message: `${onDate.length} workouts on ${date}; pass an id to pick one`,
-          workouts: onDate.map((w) => present(w, baseUrl)),
+          workouts: onDate.map((w) => present(w)),
         };
       }
-      return present(onDate[0], baseUrl);
+      return present(onDate[0]);
     }
 
     case 'create_workout': {
       const workout = await db.putWorkout(env, user.id, parseWorkout(args));
-      return presentBrief(workout, baseUrl);
+      return presentBrief(workout);
     }
 
     case 'update_workout': {
@@ -300,7 +304,7 @@ export async function callTool(
       // the workout with it.
       db.assertRetainable(input.date);
       if (input.date !== currentDate) await db.deleteWorkout(env, user.id, currentDate, id);
-      return presentBrief(await db.putWorkout(env, user.id, input, id), baseUrl);
+      return presentBrief(await db.putWorkout(env, user.id, input, id));
     }
 
     case 'delete_workout': {
@@ -317,11 +321,10 @@ export async function callTool(
       if (!workout) throw new ToolError(`no workout ${id} on ${date}`);
       const bytes = encodeWorkoutFit(workout);
       return {
-        filename: fitFilename(workout),
+        filename: fitDownloadName(workout),
         content_type: 'application/vnd.ant.fit',
         bytes: bytes.length,
         base64: base64Encode(bytes),
-        fit_url: `${baseUrl}/export/${workout.date}-${workout.id}.fit`,
       };
     }
 

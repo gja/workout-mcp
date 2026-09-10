@@ -133,7 +133,7 @@ describe('tools', () => {
     expect(result.message).toContain('pass an id');
   });
 
-  it('exports FIT bytes inline as well as by URL', async () => {
+  it('exports FIT bytes inline, named after the workout', async () => {
     const created = await callTool('create_workout', intervals);
     const exported = (await callTool('export_workout_fit', { date: created.date, id: created.id })) as {
       filename: string;
@@ -141,10 +141,30 @@ describe('tools', () => {
       bytes: number;
     };
 
-    expect(exported.filename).toBe(`${DAY}-${created.id}.fit`);
+    expect(exported.filename).toBe(`${DAY}-8x400m.fit`);
     expect(exported.bytes).toBeGreaterThan(0);
     // ".FIT" is the type signature at bytes 8-11 of every FIT file header.
     expect(atob(exported.base64).slice(8, 12)).toBe('.FIT');
+  });
+
+  /*
+   * A model handed a fit_url links to it rather than calling the tool, and the
+   * link is no use to whoever it is handed to: the bytes sit behind the
+   * caller's own credential. So no tool result mentions a URL at all.
+   */
+  it('never hands the model a URL to fetch or link', async () => {
+    const created = await callTool('create_workout', intervals);
+    const results = [
+      created,
+      await callTool('get_workout', { date: DAY, id: created.id }),
+      await callTool('list_workouts', {}),
+      await callTool('update_workout', { id: created.id, current_date: DAY, ...intervals }),
+      await callTool('export_workout_fit', { date: DAY, id: created.id }),
+    ];
+
+    for (const result of results) {
+      expect(JSON.stringify(result)).not.toMatch(/_url|https?:/);
+    }
   });
 
   it('reports a bad workout as a tool error the model can act on', async () => {

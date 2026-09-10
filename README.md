@@ -188,6 +188,14 @@ Tools: `list_workouts`, `get_workout`, `create_workout`, `update_workout`,
 `POST /api/tools/<name>` with the same arguments, so a non-MCP client gets the
 identical behaviour.
 
+No tool result carries a URL. A workout is identified by its date and id, and
+`export_workout_fit` returns the whole file base64-encoded along with the name
+to save it under — `2026-09-12-8x400m.fit`. An assistant handed a download link
+tends to pass the link on instead of calling the tool, and the link is no use
+to whoever receives it: the bytes sit behind the caller's own credential. The
+dashboard's own routes below still return links, because a browser can follow
+them.
+
 Every tool is annotated with whether it only reads. `list_workouts`,
 `get_workout` and `export_workout_fit` carry `readOnlyHint`, which is what
 lets a client group them apart from the writes and allow them without asking
