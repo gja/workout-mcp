@@ -1,4 +1,6 @@
--- Run with: npx wrangler d1 execute workout-mcp --remote --file=./schema.sql
+-- The schema as first deployed. Every statement is IF NOT EXISTS, so applying
+-- this to a database created from the old schema.sql is a no-op and the
+-- migration history picks up cleanly from there.
 
 -- An athlete. Identity is a Google or Apple account: the account is keyed by
 -- (provider, subject), and the email is kept for display only. Apple's private
