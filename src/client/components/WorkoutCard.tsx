@@ -2,10 +2,7 @@ import { useState } from 'react';
 import { deleteWorkout, downloadFit, type Workout } from '../api';
 import { formatSport, plannedSummary, stepLines } from '../format';
 
-/**
- * One workout in full. Used both in the calendar's detail panel and in the
- * list below it, so the two can never drift apart.
- */
+/** One workout in full, as shown in the calendar's detail panel. */
 export function WorkoutCard({ workout, onChanged }: { workout: Workout; onChanged: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
