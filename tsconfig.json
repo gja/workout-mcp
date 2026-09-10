@@ -1,7 +1,8 @@
 {
   "compilerOptions": {
     "target": "es2022",
-    "lib": ["es2022"],
+    // es2024 for the resizable ArrayBuffer the FIT encoder allocates.
+    "lib": ["es2024"],
     "module": "esnext",
     "moduleResolution": "bundler",
     "types": ["@cloudflare/workers-types"],
