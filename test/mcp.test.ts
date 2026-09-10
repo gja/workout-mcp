@@ -68,8 +68,8 @@ describe('protocol', () => {
     const response = await SELF.fetch(`${BASE}/mcp`, { method: 'POST', body: '{}' });
     expect(response.status).toBe(401);
     // RFC 9728: the challenge tells the client where the OAuth flow starts.
-    expect(response.headers.get('WWW-Authenticate')).toBe(
-      `Bearer resource_metadata="${BASE}/.well-known/oauth-protected-resource"`,
+    expect(response.headers.get('WWW-Authenticate')).toContain(
+      `resource_metadata="${BASE}/.well-known/oauth-protected-resource/mcp"`,
     );
   });
 });

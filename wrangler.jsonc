@@ -16,6 +16,15 @@
     //   ALLOWED_EMAILS  optional sign-up allowlist, e.g. "me@example.com,@myteam.com"
   },
 
+  // The OAuth provider stores clients, grants and tokens here.
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      // Replace with the id printed by: npx wrangler kv namespace create OAUTH_KV
+      "id": "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+    }
+  ],
+
   "d1_databases": [
     {
       "binding": "DB",

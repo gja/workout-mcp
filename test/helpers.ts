@@ -6,7 +6,7 @@ import { newId } from '../src/db';
 
 /** Fresh, empty tables for each test file. */
 export async function resetDatabase(): Promise<void> {
-  const tables = ['workouts', 'tokens', 'sessions', 'login_codes', 'oauth_codes', 'oauth_clients', 'users'];
+  const tables = ['workouts', 'tokens', 'sessions', 'login_codes', 'users'];
   for (const table of tables) await env.DB.exec(`DROP TABLE IF EXISTS ${table}`);
   // Strip `--` comments first: a chunk of pure comment is not a statement.
   const statements = schema
@@ -23,7 +23,7 @@ export async function seedUser(email = 'test@example.com'): Promise<{ id: string
   await env.DB.prepare('INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)')
     .bind(id, email, new Date().toISOString())
     .run();
-  const { token } = await issueToken(env, id, 'api', { name: 'test' });
+  const { token } = await issueToken(env, id, 'test');
   return { id, email, token };
 }
 

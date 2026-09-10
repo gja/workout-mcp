@@ -9,6 +9,7 @@
  * hard per-user cap — so the free tier is never the binding constraint.
  */
 
+import type { OAuthHelpers } from '@cloudflare/workers-oauth-provider';
 import { shiftDate, today } from './units';
 import type { Workout, WorkoutInput } from './workout';
 
@@ -19,6 +20,10 @@ export const MAX_WORKOUTS_PER_USER = 50;
 export type Env = {
   DB: D1Database;
   ASSETS: Fetcher;
+  /** Where the OAuth provider keeps clients, grants and their tokens. */
+  OAUTH_KV: KVNamespace;
+  /** Injected by the OAuth provider on every request it passes through. */
+  OAUTH_PROVIDER: OAuthHelpers;
   /** Shown in the login email and on the dashboard. */
   APP_NAME?: string;
   /** Resend API key. Without it, login codes are written to the log instead. */

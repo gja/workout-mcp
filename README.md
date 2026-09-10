@@ -9,8 +9,8 @@ Worker, a D1 database, and a static dashboard.
 - **FIT** at `/export/2026-09-12-a1b2c3d4.fit` — drop it on a watch.
 - **Dashboard** at `/` — see the plan, download files, manage tokens.
 - **Sign-in** by email and a six-digit code. No passwords.
-- **OAuth 2.1** so an MCP client can connect with a button rather than a
-  pasted token.
+- **OAuth 2.1** via `@cloudflare/workers-oauth-provider`, so an MCP client can
+  connect with a button rather than a pasted token.
 
 Only a rolling window is kept: **7 days back, 14 days ahead**, capped at 50
 workouts per user. Anything outside that is pruned on write and by a nightly
@@ -20,8 +20,9 @@ cron trigger.
 
 ```bash
 npm install
-npx wrangler d1 create workout-mcp        # paste the id into wrangler.jsonc
-npm run db:remote                         # apply schema.sql
+npx wrangler d1 create workout-mcp          # paste the id into wrangler.jsonc
+npx wrangler kv namespace create OAUTH_KV   # paste that id in too
+npm run db:remote                           # apply schema.sql
 npm run deploy
 ```
 
@@ -78,22 +79,33 @@ own: point it at `https://<your-worker>/mcp` and it discovers the rest. The
 client registers itself, sends you to a consent page, you sign in with your
 email code and approve, and it gets a token. Nothing to copy.
 
-The flow is OAuth 2.1 with mandatory PKCE and exact-match redirect URIs:
+That half is [`@cloudflare/workers-oauth-provider`](https://github.com/cloudflare/workers-oauth-provider),
+Cloudflare's OAuth 2.1 library for exactly this case. It wraps the Worker and
+owns the parts nobody should hand-roll:
 
-| Endpoint | Purpose |
-| --- | --- |
-| `/.well-known/oauth-protected-resource` | RFC 9728 — names the authorization server |
-| `/.well-known/oauth-authorization-server` | RFC 8414 — endpoint metadata |
-| `POST /oauth/register` | RFC 7591 — dynamic client registration |
-| `GET /oauth/authorize` | Consent page |
-| `POST /oauth/token` | Code exchange and refresh |
+| Endpoint | Owned by | Purpose |
+| --- | --- | --- |
+| `/.well-known/oauth-protected-resource/mcp` | the library | RFC 9728 — names the authorization server |
+| `/.well-known/oauth-authorization-server` | the library | RFC 8414 — endpoint metadata |
+| `POST /oauth/register` | the library | RFC 7591 — dynamic client registration |
+| `POST /oauth/token` | the library | Code exchange, refresh, revocation |
+| `GET /oauth/authorize` | us | The consent page — only we know how to sign someone in |
 
-Access tokens last 30 days; refresh tokens rotate on every use. Connected apps
-are listed on the dashboard and can be revoked there, which kills the refresh
-token too.
+The library validates the bearer token on `/mcp` before our code runs and
+hands the handler the athlete's identity. Grants live in `OAUTH_KV`, which is
+why the Worker needs that namespace. Connected apps are listed on the
+dashboard and can be disconnected there, which invalidates the access and
+refresh tokens together.
+
+`resourceMetadata` is deliberately left unconfigured, so the provider derives
+the resource and issuer from the incoming request. The same build works on
+`localhost:8787` and on your domain with nothing to change.
 
 **With a static token**, for a client that only takes a header — mint one on
-the dashboard under *Tokens*:
+the dashboard under *Tokens*. These are not OAuth tokens, so the provider
+would normally reject them; the Worker registers a `resolveExternalToken`
+callback that resolves a `wk_` token to the same identity, and both kinds
+arrive at the MCP handler identically:
 
 ```json
 {
@@ -208,9 +220,11 @@ session cookie set at login.
 | `POST /api/auth/verify` | `{email, code}` — sign in, sets the session cookie |
 | `POST /api/auth/logout` | End the session |
 | `GET /api/me` | Who you are |
-| `GET /api/tokens` | List tokens and connected apps |
+| `GET /api/tokens` | List API tokens |
 | `POST /api/tokens` | `{name}` — mint an API token, returned once |
 | `DELETE /api/tokens/:prefix` | Revoke one |
+| `GET /api/connections` | List OAuth grants (connected MCP clients) |
+| `DELETE /api/connections/:id` | Disconnect one |
 | `GET /api/workouts.json?from=&to=` | List within the retention window |
 | `POST /api/workouts` | Create; returns the id and URLs |
 | `GET /api/workouts/:date/:id.json` | Read one |
@@ -236,19 +250,22 @@ src/workout.ts    the loose-JSON -> strict-model normalizer, and its errors
 src/fit.ts        FIT encoding, including flattening nested repeats
 src/describe.ts   human-readable rendering, shared by MCP and the dashboard
 src/db.ts         D1 queries and retention
-src/auth.ts       login codes, sessions and bearer tokens
+src/auth.ts       login codes, sessions and API tokens
 src/email.ts      sending the login code
-src/oauth.ts      OAuth 2.1 for MCP clients
 src/tools.ts      the tool surface shared by MCP and REST
 src/mcp.ts        JSON-RPC over Streamable HTTP
-src/index.ts      routing and auth
+src/app.ts        the OAuth provider's defaultHandler: login, consent, REST, assets
+src/index.ts      the provider itself, and the protected /mcp handler
 ```
 
-Every credential — hand-made API tokens and both halves of an OAuth grant —
-lives in one `tokens` table, so there is a single lookup path in auth and one
-place to revoke. Nothing is stored in the clear: sessions, login codes,
-tokens and authorization codes are all SHA-256 hashes, and the dashboard shows
-only a prefix.
+`src/index.ts` constructs the `OAuthProvider`, which wraps everything: it
+claims the OAuth endpoints and `/mcp`, and passes every other request to
+`src/app.ts`.
+
+Nothing is stored in the clear. Sessions, login codes and API tokens are
+SHA-256 hashes in D1; OAuth grants and their tokens are the library's problem,
+in KV. The dashboard only ever shows a token prefix, and the full value is
+returned exactly once, when it is minted.
 
 Two things are worth knowing if you touch `fit.ts`:
 
@@ -274,16 +291,17 @@ npm run typecheck
 ## Cost
 
 Everything here fits the Cloudflare free plan: Workers (100k requests/day),
-D1 (5 GB, 5M row reads/day), static assets and cron triggers. Encoding a
+D1 (5 GB, 5M row reads/day), KV, static assets and cron triggers. Encoding a
 30-step workout is well under the free plan's 10 ms CPU limit. Resend's free
 tier covers the login emails. The only thing you pay for is the domain, and
 Cloudflare Registrar sells those at cost.
 
-Auth is self-contained rather than delegated to Auth0, Clerk, WorkOS or
+Identity is self-contained rather than delegated to Auth0, Clerk, WorkOS or
 Stytch. Those all have workable free tiers, and the MCP-focused ones will host
-the OAuth server for you — but each adds an account every self-hoster of this
-repo would also have to create. The only genuinely hard part to self-host is
-*sending* the email, which is the one thing here that is outsourced.
+the whole authorization server — but each adds an account every self-hoster of
+this repo would also have to create. The OAuth protocol work is Cloudflare's
+library rather than ours, and the only genuinely hard part left to self-host
+is *sending* the email, which is the one thing outsourced.
 
 ## Licence
 

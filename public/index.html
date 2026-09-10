@@ -82,9 +82,33 @@
 
       // -- Tokens ------------------------------------------------------------
 
+      function renderConnections(connections, reload) {
+        if (connections.length === 0) return [];
+        const rows = connections.map((connection) => {
+          const revoke = el('button', { className: 'link danger', textContent: 'Disconnect' });
+          revoke.onclick = async () => {
+            if (!confirm(`Disconnect ${connection.client_name}? It will have to sign in again.`)) return;
+            await fetch(`/api/connections/${connection.id}`, { method: 'DELETE' });
+            reload();
+          };
+          return el('article', { className: 'card' }, [
+            el('header', {}, [
+              el('h3', { textContent: connection.client_name }),
+              el('span', { className: 'id', textContent: new Date(connection.created_at).toLocaleDateString() }),
+            ]),
+            el('div', { className: 'actions' }, [revoke]),
+          ]);
+        });
+        return [
+          el('h2', { textContent: 'Connected apps' }),
+          el('p', { className: 'note', textContent: 'MCP clients that signed in with OAuth.' }),
+          ...rows,
+        ];
+      }
+
       function renderTokens(tokens, reload) {
         const rows = tokens.map((token) => {
-          const label = token.kind === 'access' ? `${token.name ?? 'Connected app'} (OAuth)` : token.name ?? 'API token';
+          const label = token.name ?? 'API token';
           const revoke = el('button', { className: 'link danger', textContent: 'Revoke' });
           revoke.onclick = async () => {
             if (!confirm(`Revoke ${label}? Anything using it stops working.`)) return;
@@ -137,7 +161,11 @@
 
       async function showDashboard(user) {
         const reload = async ({ keep } = {}) => {
-          const [{ workouts }, { tokens }] = await Promise.all([api('/api/workouts.json'), api('/api/tokens')]);
+          const [{ workouts }, { tokens }, { connections }] = await Promise.all([
+            api('/api/workouts.json'),
+            api('/api/tokens'),
+            api('/api/connections'),
+          ]);
 
           const signOut = el('button', { className: 'link', textContent: 'Sign out' });
           signOut.onclick = async () => {
@@ -148,6 +176,7 @@
           body.replaceChildren(
             el('div', { className: 'row' }, [el('span', { className: 'note', textContent: user.email }), signOut]),
             ...renderWorkouts(workouts, reload),
+            ...renderConnections(connections, reload),
             ...renderTokens(tokens, reload),
           );
           // Keep a just-issued token visible across the reload.

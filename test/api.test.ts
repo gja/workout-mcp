@@ -60,8 +60,8 @@ describe('authentication', () => {
   it('points an unauthenticated MCP client at the OAuth metadata', async () => {
     const response = await SELF.fetch(`${BASE}/api/workouts`);
     expect(response.status).toBe(401);
-    expect(response.headers.get('WWW-Authenticate')).toBe(
-      `Bearer resource_metadata="${BASE}/.well-known/oauth-protected-resource"`,
+    expect(response.headers.get('WWW-Authenticate')).toContain(
+      `resource_metadata="${BASE}/.well-known/oauth-protected-resource/mcp"`,
     );
   });
 

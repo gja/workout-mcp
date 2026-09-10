@@ -1,12 +1,14 @@
 /**
  * Identity: email plus a one-time code, no passwords.
  *
- * Three kinds of credential come out of it, all checked against one `tokens`
- * table so there is a single lookup path:
+ * Two credentials come out of it:
  *
- *   - a browser session cookie, for the dashboard;
- *   - an API token (`wk_...`), pasted into a watch app or an MCP client config;
- *   - an OAuth access token (`wko_...`), issued by the flow in `oauth.ts`.
+ *   - a browser session cookie, for the dashboard and the consent page;
+ *   - an API token (`wk_...`), pasted into a watch app or an MCP client that
+ *     only takes a static header.
+ *
+ * OAuth access and refresh tokens are not here — `@cloudflare/workers-oauth-provider`
+ * issues and stores those. `src/index.ts` teaches it to accept `wk_` tokens too.
  */
 
 import type { Env, User } from './db';
@@ -18,7 +20,6 @@ export const CODE_TTL_MINUTES = 10;
 /** How long before a second code may be requested for the same address. */
 export const CODE_COOLDOWN_SECONDS = 60;
 export const MAX_CODE_ATTEMPTS = 5;
-export const ACCESS_TOKEN_TTL_DAYS = 30;
 
 const SESSION_COOKIE = 'workout_session';
 
@@ -216,101 +217,70 @@ export function sessionCookie(id: string | null, secure: boolean): string {
 // Bearer tokens
 // ---------------------------------------------------------------------------
 
-export type TokenKind = 'api' | 'access' | 'refresh';
+const API_TOKEN_PREFIX = 'wk_';
 
-const TOKEN_PREFIX: Record<TokenKind, string> = { api: 'wk_', access: 'wko_', refresh: 'wkr_' };
+export type IssuedToken = { token: string; prefix: string };
 
-export type IssuedToken = { token: string; prefix: string; expires_at: string | null };
-
-export async function issueToken(
-  env: Env,
-  userId: string,
-  kind: TokenKind,
-  options: { name?: string | null; clientId?: string | null; ttlDays?: number } = {},
-): Promise<IssuedToken> {
-  const token = `${TOKEN_PREFIX[kind]}${randomHex(32)}`;
-  const prefix = token.slice(0, TOKEN_PREFIX[kind].length + 6);
-  const expiresAt = options.ttlDays ? iso(inDays(options.ttlDays)) : null;
+export async function issueToken(env: Env, userId: string, name?: string | null): Promise<IssuedToken> {
+  const token = `${API_TOKEN_PREFIX}${randomHex(32)}`;
+  const prefix = token.slice(0, API_TOKEN_PREFIX.length + 6);
 
   await env.DB.prepare(
-    `INSERT INTO tokens (token_hash, user_id, kind, name, prefix, client_id, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    'INSERT INTO tokens (token_hash, user_id, name, prefix, created_at) VALUES (?, ?, ?, ?, ?)',
   )
-    .bind(await sha256(token), userId, kind, options.name ?? null, prefix, options.clientId ?? null, expiresAt, iso(new Date()))
+    .bind(await sha256(token), userId, name ?? null, prefix, iso(new Date()))
     .run();
 
-  return { token, prefix, expires_at: expiresAt };
+  return { token, prefix };
 }
 
-export type TokenOwner = { user: User; kind: TokenKind; clientId: string | null };
+/** Is this one of ours, rather than an OAuth access token? */
+export const isApiToken = (token: string): boolean => token.startsWith(API_TOKEN_PREFIX);
 
-/** Resolve a bearer token to its owner, or null if unknown or expired. */
-export async function findTokenOwner(env: Env, token: string): Promise<TokenOwner | null> {
+/** Resolve an API token to its owner, or null if unknown. */
+export async function findTokenOwner(env: Env, token: string): Promise<User | null> {
   const hash = await sha256(token);
   const row = await env.DB.prepare(
-    `SELECT users.id AS id, users.email AS email, tokens.kind AS kind,
-            tokens.client_id AS client_id, tokens.expires_at AS expires_at
+    `SELECT users.id AS id, users.email AS email
      FROM tokens JOIN users ON users.id = tokens.user_id WHERE tokens.token_hash = ?`,
   )
     .bind(hash)
-    .first<User & { kind: TokenKind; client_id: string | null; expires_at: string | null }>();
-
+    .first<User>();
   if (!row) return null;
-  if (row.expires_at && Date.parse(row.expires_at) < Date.now()) {
-    await env.DB.prepare('DELETE FROM tokens WHERE token_hash = ?').bind(hash).run();
-    return null;
-  }
 
-  // Best-effort, and not awaited on the hot path by callers that do not care.
   await env.DB.prepare('UPDATE tokens SET last_used_at = ? WHERE token_hash = ?').bind(iso(new Date()), hash).run();
-  return { user: { id: row.id, email: row.email }, kind: row.kind, clientId: row.client_id };
+  return { id: row.id, email: row.email };
 }
 
 export type TokenSummary = {
   prefix: string;
   name: string | null;
-  kind: TokenKind;
-  client_id: string | null;
   created_at: string;
   last_used_at: string | null;
-  expires_at: string | null;
 };
 
-/** Everything the athlete has issued, so it can be listed and revoked. */
 export async function listTokens(env: Env, userId: string): Promise<TokenSummary[]> {
   const { results } = await env.DB.prepare(
-    `SELECT prefix, name, kind, client_id, created_at, last_used_at, expires_at
-     FROM tokens WHERE user_id = ? AND kind != 'refresh' ORDER BY created_at DESC`,
+    'SELECT prefix, name, created_at, last_used_at FROM tokens WHERE user_id = ? ORDER BY created_at DESC',
   )
     .bind(userId)
     .all<TokenSummary>();
   return results ?? [];
 }
 
-/** Revoking an OAuth access token takes its refresh token with it. */
 export async function revokeToken(env: Env, userId: string, prefix: string): Promise<boolean> {
-  const row = await env.DB.prepare('SELECT kind, client_id FROM tokens WHERE user_id = ? AND prefix = ?')
+  const result = await env.DB.prepare('DELETE FROM tokens WHERE user_id = ? AND prefix = ?')
     .bind(userId, prefix)
-    .first<{ kind: TokenKind; client_id: string | null }>();
-  if (!row) return false;
-
-  await env.DB.prepare('DELETE FROM tokens WHERE user_id = ? AND prefix = ?').bind(userId, prefix).run();
-  if (row.kind === 'access' && row.client_id) {
-    await env.DB.prepare("DELETE FROM tokens WHERE user_id = ? AND client_id = ? AND kind = 'refresh'")
-      .bind(userId, row.client_id)
-      .run();
-  }
-  return true;
+    .run();
+  return (result.meta.changes ?? 0) > 0;
 }
 
-/** Sweep expired sessions, codes and tokens. Called by the nightly cron. */
+/** Sweep expired sessions and login codes. Called by the nightly cron. */
 export async function pruneExpired(env: Env, now: Date = new Date()): Promise<number> {
   const stamp = iso(now);
   const results = await env.DB.batch([
     env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(stamp),
     env.DB.prepare('DELETE FROM login_codes WHERE expires_at < ?').bind(stamp),
-    env.DB.prepare('DELETE FROM oauth_codes WHERE expires_at < ?').bind(stamp),
-    env.DB.prepare('DELETE FROM tokens WHERE expires_at IS NOT NULL AND expires_at < ?').bind(stamp),
   ]);
   return results.reduce((total, result) => total + (result.meta.changes ?? 0), 0);
 }

@@ -10,7 +10,7 @@ export default defineConfig({
       wrangler: { configPath: './wrangler.jsonc' },
       // No email provider is bound, so login codes are written to the log
       // and the tests read them from there.
-      miniflare: { d1Databases: ['DB'], bindings: { APP_NAME: 'Workouts' } },
+      miniflare: { d1Databases: ['DB'], kvNamespaces: ['OAUTH_KV'], bindings: { APP_NAME: 'Workouts' } },
     }),
   ],
 });
