@@ -22,15 +22,52 @@ cron trigger.
 npm install
 npx wrangler d1 create workout-mcp          # paste the id into wrangler.jsonc
 npx wrangler kv namespace create OAUTH_KV   # paste that id in too
-npm run db:remote                           # apply schema.sql
+npm run db:remote                           # apply the migrations
 npm run deploy
 ```
 
 Then configure at least one sign-in provider — see below — and open the
 dashboard.
 
-`npm run db:local` seeds a local D1 and `npm run dev` serves everything at
+`npm run db:local` migrates a local D1 and `npm run dev` serves everything at
 `http://localhost:8787`.
+
+Both ids belong in `wrangler.jsonc` and are committed: they are resource
+identifiers scoped to your account, not secrets, and Cloudflare's build has to
+read them from the repo. A fork will need its own.
+
+## The database
+
+Schema changes go through [D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/).
+Files live in `migrations/`, numbered and applied in order, and Wrangler
+records what it has run in a `d1_migrations` table, so applying twice is a
+no-op.
+
+```bash
+npm run db:new -- add_something   # scaffold the next numbered file
+npm run db:local                  # apply to the local database
+npm run db:remote                 # apply to the deployed one
+npm run db:list                   # what is pending
+```
+
+The test suite replays every migration before each file, so a migration that
+does not parse fails the build rather than the next deploy, and `0002` — the
+one that carries data — is tested against a row in the old shape.
+
+### On JSON in D1
+
+D1 is SQLite, which has no `JSON` or `JSONB` column type; the storage classes
+are TEXT, INTEGER, REAL, BLOB and NULL. What it does have is the JSON
+functions, and those work fine in D1. So the steps are a TEXT column holding a
+JSON array, with `CHECK (json_valid(steps))` to keep it honest, and they stay
+queryable from SQL:
+
+```sql
+SELECT json_array_length(steps) FROM workouts WHERE user_id = ?;
+```
+
+Everything else about a workout — date, name, sport, notes — is a real column.
+Only the steps have a shape that changes.
 
 ## Signing in
 
@@ -348,6 +385,7 @@ npm run typecheck
 
 | Suite | Covers |
 | --- | --- |
+| `migrations.test.ts` | The data-carrying migration, the `json_valid` check, and querying steps from SQL |
 | `workout.test.ts` | Parsing loose JSON: every duration and target, range semantics, repeats, intensity inference, and the error messages |
 | `fit.test.ts` | FIT encoding, decoded back with the SDK: scaling, offsets, zones, names, intensities, repeat flattening, a full session |
 | `api.test.ts` | The REST API and `/api/tools`, FIT downloads, cross-athlete isolation, bad requests, retention |

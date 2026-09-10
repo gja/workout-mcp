@@ -304,7 +304,8 @@ describe('retention', () => {
   it('drops workouts outside the window on write', async () => {
     const now = new Date('2026-09-10T00:00:00Z');
     await env.DB.prepare(
-      "INSERT INTO workouts (user_id, date, id, name, sport, data, created_at, updated_at) VALUES (?, '2026-08-01', 'old00000', 'Old', 'running', '{}', '', '')",
+      `INSERT INTO workouts (user_id, date, id, name, sport, steps, created_at, updated_at)
+       VALUES (?, '2026-08-01', 'old00000', 'Old', 'running', '[]', '', '')`,
     )
       .bind(userId)
       .run();

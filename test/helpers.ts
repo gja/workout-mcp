@@ -1,19 +1,33 @@
 import { env } from 'cloudflare:test';
-import schema from '../schema.sql?raw';
 import { issueToken } from '../src/auth';
 import { newId } from '../src/db';
 
-/** Fresh, empty tables for each test file. */
-export async function resetDatabase(): Promise<void> {
-  const tables = ['workouts', 'tokens', 'sessions', 'login_states', 'users'];
-  for (const table of tables) await env.DB.exec(`DROP TABLE IF EXISTS ${table}`);
+// The real migrations, in order, so a broken one fails the suite rather than
+// the next deploy.
+const MIGRATIONS = import.meta.glob('../migrations/*.sql', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>;
+
+const statementsOf = (sql: string): string[] =>
   // Strip `--` comments first: a chunk of pure comment is not a statement.
-  const statements = schema
+  sql
     .replace(/--[^\n]*/g, '')
     .split(';')
     .map((statement) => statement.trim())
     .filter(Boolean);
-  for (const statement of statements) await env.DB.prepare(statement).run();
+
+/** Fresh tables for each test file, built by replaying every migration. */
+export async function resetDatabase(): Promise<void> {
+  const tables = ['workouts', 'workouts_rebuilt', 'tokens', 'sessions', 'login_states', 'users'];
+  for (const table of tables) await env.DB.exec(`DROP TABLE IF EXISTS ${table}`);
+
+  for (const path of Object.keys(MIGRATIONS).sort()) {
+    for (const statement of statementsOf(MIGRATIONS[path])) {
+      await env.DB.prepare(statement).run();
+    }
+  }
 }
 
 /** A user with an API token, skipping the sign-in flow. */

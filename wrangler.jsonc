@@ -22,10 +22,10 @@
 	"kv_namespaces": [
 		{
 			"binding": "OAUTH_KV",
-			// Replace with the id printed by: npx wrangler kv namespace create OAUTH_KV
 			"id": "ff5cb050b73a410f9b1482c2d18d1f53"
 		}
 	],
+	// Schema lives in ./migrations, applied with `npm run db:remote`.
 	"d1_databases": [
 		{
 			"binding": "DB",
