@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "workout-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-01",
+
+  // The dashboard. Anything not matched by /mcp, /api or /export is served from here.
+  "assets": { "directory": "./public", "binding": "ASSETS" },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "workout-mcp",
+      // Replace with the id printed by: npx wrangler d1 create workout-mcp
+      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+    }
+  ],
+
+  // Nightly retention sweep (03:00 UTC).
+  "triggers": { "crons": ["0 3 * * *"] },
+
+  "observability": { "enabled": true }
+}

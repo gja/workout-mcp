@@ -1,0 +1,35 @@
+{
+  "name": "workout-mcp",
+  "version": "0.1.0",
+  "description": "Plan workouts over MCP, export them as Garmin FIT files. Cloudflare Workers + D1.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "db:local": "wrangler d1 execute workout-mcp --local --file=./schema.sql",
+    "db:remote": "wrangler d1 execute workout-mcp --remote --file=./schema.sql"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gja/workout-mcp.git"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/gja/workout-mcp/issues"
+  },
+  "homepage": "https://github.com/gja/workout-mcp#readme",
+  "dependencies": {
+    "@garmin/fitsdk": "^21.214.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/workers-types": "^5.20260910.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.5",
+    "wrangler": "^4.130.0"
+  },
+  "private": true,
+  "type": "module"
+}

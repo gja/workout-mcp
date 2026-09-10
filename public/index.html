@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Workouts</title>
+    <style>
+      :root {
+        --bg: #fbfbf9;
+        --card: #ffffff;
+        --ink: #1a1a17;
+        --muted: #6b6b63;
+        --line: #e4e4de;
+        --accent: #1f6feb;
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #16161a;
+          --card: #1e1e23;
+          --ink: #ececec;
+          --muted: #9a9a95;
+          --line: #2e2e35;
+          --accent: #63a2ff;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 24px 16px 64px;
+        background: var(--bg);
+        color: var(--ink);
+        font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      main { max-width: 720px; margin: 0 auto; }
+      h1 { font-size: 20px; margin: 0 0 4px; }
+      .sub { color: var(--muted); margin: 0 0 24px; font-size: 14px; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      input, button {
+        font: inherit;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        padding: 8px 12px;
+        background: var(--card);
+        color: var(--ink);
+      }
+      input { flex: 1 1 280px; min-width: 0; }
+      button { cursor: pointer; }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      button.link { border: none; background: none; color: var(--accent); padding: 4px 0; }
+      .day { margin-top: 28px; }
+      .day > h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 8px; }
+      .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
+      .card header { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+      .card h3 { margin: 0; font-size: 16px; }
+      .id { color: var(--muted); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      pre { margin: 10px 0 0; white-space: pre-wrap; font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+      .actions { display: flex; gap: 14px; margin-top: 10px; }
+      .empty, .error { color: var(--muted); margin-top: 28px; }
+      .error { color: #c0392b; }
+      code { background: var(--line); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Workouts</h1>
+      <p class="sub">Planned sessions from 7 days back to 14 days ahead. Download any of them as a Garmin FIT file.</p>
+
+      <div class="row">
+        <input id="token" type="password" placeholder="API token (wk_...)" autocomplete="off" spellcheck="false" />
+        <button id="save" class="primary">Load</button>
+        <button id="forget">Forget</button>
+      </div>
+
+      <div id="out"></div>
+    </main>
+
+    <script>
+      const out = document.getElementById('out');
+      const tokenInput = document.getElementById('token');
+      const STORAGE_KEY = 'workout-mcp-token';
+
+      // The token only ever lives in this browser; the Worker never sets a cookie.
+      const storedToken = () => {
+        try { return localStorage.getItem(STORAGE_KEY) ?? ''; } catch { return ''; }
+      };
+      const storeToken = (value) => {
+        try { value ? localStorage.setItem(STORAGE_KEY, value) : localStorage.removeItem(STORAGE_KEY); } catch {}
+      };
+
+      const api = (path, init = {}) =>
+        fetch(path, { ...init, headers: { Authorization: `Bearer ${tokenInput.value.trim()}`, ...init.headers } });
+
+      const el = (tag, props = {}, children = []) => {
+        const node = Object.assign(document.createElement(tag), props);
+        for (const child of children) node.append(child);
+        return node;
+      };
+
+      function render(workouts) {
+        out.replaceChildren();
+        if (workouts.length === 0) {
+          out.append(el('p', { className: 'empty', textContent: 'No workouts planned in this window.' }));
+          return;
+        }
+
+        let currentDate = null;
+        let day = null;
+        for (const workout of workouts) {
+          if (workout.date !== currentDate) {
+            currentDate = workout.date;
+            day = el('section', { className: 'day' }, [el('h2', { textContent: formatDate(workout.date) })]);
+            out.append(day);
+          }
+          day.append(card(workout));
+        }
+      }
+
+      function formatDate(date) {
+        const parsed = new Date(`${date}T00:00:00`);
+        const label = parsed.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+        const days = Math.round((parsed - new Date().setHours(0, 0, 0, 0)) / 86400000);
+        const relative = days === 0 ? ' · today' : days === 1 ? ' · tomorrow' : days === -1 ? ' · yesterday' : '';
+        return label + relative;
+      }
+
+      function card(workout) {
+        // The summary comes from the server so the dashboard and MCP agree.
+        const body = workout.summary.split('\n').slice(1).join('\n');
+
+        const download = el('button', { className: 'link', textContent: 'Download .fit' });
+        download.onclick = () => downloadFit(workout);
+
+        const remove = el('button', { className: 'link', textContent: 'Delete' });
+        remove.onclick = async () => {
+          if (!confirm(`Delete "${workout.name}" on ${workout.date}?`)) return;
+          await api(workout.json_url, { method: 'DELETE' });
+          load();
+        };
+
+        return el('article', { className: 'card' }, [
+          el('header', {}, [
+            el('h3', { textContent: workout.name }),
+            el('span', { className: 'id', textContent: workout.id }),
+          ]),
+          el('pre', { textContent: body }),
+          el('div', { className: 'actions' }, [download, remove]),
+        ]);
+      }
+
+      // Fetched with the bearer header, then handed to the browser as a blob,
+      // so the token never ends up in a URL or a history entry.
+      async function downloadFit(workout) {
+        const response = await api(workout.fit_url);
+        if (!response.ok) return showError(`Could not export: ${response.status}`);
+        const url = URL.createObjectURL(await response.blob());
+        const link = el('a', { href: url, download: `${workout.date}-${workout.id}.fit` });
+        link.click();
+        URL.revokeObjectURL(url);
+      }
+
+      const showError = (message) => {
+        out.replaceChildren(el('p', { className: 'error', textContent: message }));
+      };
+
+      async function load() {
+        if (!tokenInput.value.trim()) {
+          out.replaceChildren(el('p', { className: 'empty' }, [
+            'Paste your API token above. Create one with ',
+            el('code', { textContent: 'POST /api/users' }),
+            '.',
+          ]));
+          return;
+        }
+        try {
+          const response = await api('/api/workouts.json');
+          if (response.status === 401) return showError('That token was not accepted.');
+          if (!response.ok) return showError(`Request failed: ${response.status}`);
+          render((await response.json()).workouts);
+        } catch (error) {
+          showError(`Request failed: ${error.message}`);
+        }
+      }
+
+      document.getElementById('save').onclick = () => {
+        storeToken(tokenInput.value.trim());
+        load();
+      };
+      document.getElementById('forget').onclick = () => {
+        storeToken('');
+        tokenInput.value = '';
+        load();
+      };
+      tokenInput.onkeydown = (event) => event.key === 'Enter' && document.getElementById('save').click();
+
+      tokenInput.value = storedToken();
+      load();
+    </script>
+  </body>
+</html>
