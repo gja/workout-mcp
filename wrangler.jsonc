@@ -4,8 +4,28 @@
   "main": "src/index.ts",
   "compatibility_date": "2025-09-01",
 
-  // The dashboard. Anything not matched by /mcp, /api or /export is served from here.
+  // The dashboard and the OAuth consent page. Anything not matched by /mcp,
+  // /api, /oauth or /export is served from here.
   "assets": { "directory": "./public", "binding": "ASSETS" },
+
+  "vars": {
+    "APP_NAME": "Workouts"
+    // Sign-in is configured with secrets, not here. Google alone is enough:
+    //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+    // Apple is optional and needs a paid developer account:
+    //   APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY
+    // Optional allowlist, e.g. "me@example.com,@myteam.com":
+    //   ALLOWED_EMAILS
+  },
+
+  // The OAuth provider stores clients, grants and tokens here.
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      // Replace with the id printed by: npx wrangler kv namespace create OAUTH_KV
+      "id": "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+    }
+  ],
 
   "d1_databases": [
     {

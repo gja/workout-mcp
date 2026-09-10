@@ -24,6 +24,20 @@ const PACE_RANGE_DOC =
   '["-", "8:00"] = slower than 8:00. A two-sided band such as ["4:00", "4:15"] means the same ' +
   'either way round. A single value sets both ends.';
 
+const ZONE_DOC =
+  'Either a single zone, which the watch resolves against its own configuration, ' +
+  'or a two-entry range of zone boundaries on a continuous scale, which is converted ' +
+  'to a percentage band. The endpoints are boundaries, so ["2", "3"] is exactly zone 2 ' +
+  'and all of zones 2 and 3 is ["2", "4"]. Fractional boundaries such as "2.5" are allowed.';
+
+const zone = (description: string) => ({
+  description: `${description} ${ZONE_DOC}`,
+  oneOf: [
+    { type: 'number' },
+    { type: 'array', items: { type: ['string', 'number'] }, minItems: 1, maxItems: 2 },
+  ],
+});
+
 const range = (description: string, doc: string = RANGE_DOC) => ({
   description: `${description} ${doc}`,
   oneOf: [
@@ -60,24 +74,21 @@ export const STEP_SCHEMA = {
       goal_meters: { type: 'number', description: 'Run for this distance in metres, e.g. 400.' },
       goal_km: { type: 'number', description: 'Run for this distance in kilometres.' },
       goal_miles: { type: 'number', description: 'Run for this distance in miles.' },
-      goal_yards: { type: 'number', description: 'Swim/run for this distance in yards.' },
-      goal_calories: { type: 'number', description: 'Run until this many calories are burned.' },
-      goal_reps: { type: 'number', description: 'Strength: perform this many repetitions.' },
-      until_hr_above: { type: ['number', 'string'], description: 'Run until HR rises above this (bpm, or "85%").' },
-      until_hr_below: { type: ['number', 'string'], description: 'Run until HR drops below this (bpm, or "70%").' },
-      until_watts_above: { type: ['number', 'string'], description: 'Run until power rises above this (watts, or "95%" of FTP).' },
-      until_watts_below: { type: ['number', 'string'], description: 'Run until power drops below this (watts, or "60%" of FTP).' },
+      goal_yards: { type: 'number', description: 'Swim or run for this distance in yards.' },
 
       target_pace_km: range('Target pace per kilometre.', PACE_RANGE_DOC),
       target_pace_miles: range('Target pace per mile.', PACE_RANGE_DOC),
       target_heart_rate: range('Target heart rate in bpm, or "85%" for a percentage of max HR.'),
       target_watts: range('Target power in watts, or "95%" for a percentage of FTP.'),
       target_cadence: range('Target cadence in rpm (or steps per minute).'),
-      target_zone: { type: 'number', description: 'Heart-rate zone 1-5, as configured on the watch.' },
-      target_hr_zone: { type: 'number', description: 'Heart-rate zone 1-5.' },
-      target_pace_zone: { type: 'number', description: 'Pace/speed zone 1-10.' },
-      target_power_zone: { type: 'number', description: 'Power zone 1-7.' },
-      target_cadence_zone: { type: 'number', description: 'Cadence zone 1-10.' },
+      target_hr_zone: zone('Heart-rate zone 1-5, as configured on the watch.'),
+      target_power_zone: zone('Power zone 1-7, as configured on the watch.'),
+      target_pace_zone: {
+        type: 'number',
+        description:
+          'Pace/speed zone 1-10, as configured on the watch. Unlike the other zones this takes ' +
+          'a single zone only — FIT has no percentage speed target, so use target_pace_km for a band.',
+      },
 
       repeat: { type: 'number', description: 'Repeat the nested steps this many times. Use with "steps".' },
       steps: { type: 'array', description: 'The steps to repeat. Only valid alongside "repeat".' },

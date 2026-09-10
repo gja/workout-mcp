@@ -58,11 +58,20 @@ describe('durations', () => {
     expect(roundTrip(build([{ name: 'Cooldown' }])).workoutStepMesgs[0]).toMatchObject({ durationType: 'open' });
   });
 
-  it('encodes heart-rate gates with the +100 bpm offset', () => {
-    const steps = roundTrip(build([{ until_hr_below: 120 }, { until_hr_above: '85%' }])).workoutStepMesgs;
-    expect(steps[0]).toMatchObject({ durationType: 'hrLessThan', durationHr: 220 });
-    // 0-100 is a percentage of max HR, so it is written unchanged.
-    expect(steps[1]).toMatchObject({ durationType: 'hrGreaterThan', durationHr: 85 });
+  it('converts every distance unit into metres in the file', () => {
+    const steps = roundTrip(
+      build([{ goal_meters: 400 }, { goal_km: 5 }, { goal_miles: 1 }, { goal_yards: 100 }]),
+    ).workoutStepMesgs;
+    expect(steps[0].durationDistance).toBeCloseTo(400, 2);
+    expect(steps[1].durationDistance).toBeCloseTo(5000, 2);
+    expect(steps[2].durationDistance as number).toBeCloseTo(1609.34, 1);
+    expect(steps[3].durationDistance as number).toBeCloseTo(91.44, 1);
+  });
+
+  it('rounds sub-centimetre distances rather than truncating to zero', () => {
+    // 100 yards is 9144 centimetres exactly; a truncating encoder loses the tail.
+    const step = roundTrip(build([{ goal_yards: 100 }])).workoutStepMesgs[0];
+    expect(step.durationDistance).toBe(91.44);
   });
 });
 
@@ -96,9 +105,75 @@ describe('targets', () => {
   });
 
   it('writes zones as the target value, not a custom range', () => {
-    const step = roundTrip(build([{ goal_s: 60, target_zone: 3 }])).workoutStepMesgs[0];
+    const step = roundTrip(build([{ goal_s: 60, target_hr_zone: 3 }])).workoutStepMesgs[0];
     expect(step).toMatchObject({ targetType: 'heartRate', targetHrZone: 3 });
     expect(step.customTargetValueLow).toBeUndefined();
+  });
+
+  it('maps each zone metric to its FIT target type', () => {
+    const steps = roundTrip(
+      build([
+        { goal_s: 60, target_hr_zone: 2 },
+        { goal_s: 60, target_pace_zone: 6 },
+        { goal_s: 60, target_power_zone: 4 },
+      ]),
+    ).workoutStepMesgs;
+    expect(steps[0]).toMatchObject({ targetType: 'heartRate', targetHrZone: 2 });
+    // A pace zone is a speed zone as far as FIT is concerned.
+    expect(steps[1]).toMatchObject({ targetType: 'speed', targetSpeedZone: 6 });
+    expect(steps[2]).toMatchObject({ targetType: 'power', targetPowerZone: 4 });
+  });
+
+  it('writes a zone range as a percentage band, not a zone', () => {
+    const steps = roundTrip(
+      build([
+        { goal_s: 60, target_hr_zone: [2, 4] },
+        { goal_s: 60, target_power_zone: [4, 5] },
+      ]),
+    ).workoutStepMesgs;
+
+    // 0-100 in workoutHr is a percentage of max HR, written unchanged, and
+    // the zone number itself is no longer part of the step.
+    expect(steps[0]).toMatchObject({
+      targetType: 'heartRate',
+      targetHrZone: 0,
+      customTargetHeartRateLow: 60,
+      customTargetHeartRateHigh: 80,
+    });
+    // 0-1000 in workoutPower is a percentage of FTP.
+    expect(steps[1]).toMatchObject({ targetType: 'power', customTargetPowerLow: 90, customTargetPowerHigh: 105 });
+  });
+
+  it('writes a cadence range in plain rpm', () => {
+    const step = roundTrip(build([{ goal_s: 60, target_cadence: [85, 95] }])).workoutStepMesgs[0];
+    expect(step).toMatchObject({ targetType: 'cadence', customTargetCadenceLow: 85, customTargetCadenceHigh: 95 });
+  });
+
+  it('leaves an untargeted step open', () => {
+    const step = roundTrip(build([{ goal_s: 600 }])).workoutStepMesgs[0];
+    expect(step).toMatchObject({ targetType: 'open' });
+    expect(step.customTargetValueLow).toBeUndefined();
+  });
+});
+
+describe('names, notes and intensity', () => {
+  it('writes the step name and note the athlete will see', () => {
+    const step = roundTrip(
+      build([{ name: '400m rep', notes: 'Hold form, relax the shoulders', goal_meters: 400 }]),
+    ).workoutStepMesgs[0];
+    expect(step).toMatchObject({ wktStepName: '400m rep', notes: 'Hold form, relax the shoulders' });
+  });
+
+  it('writes every intensity FIT understands', () => {
+    const intensities = ['warmup', 'active', 'interval', 'rest', 'recovery', 'cooldown'];
+    const steps = roundTrip(
+      build(intensities.map((intensity) => ({ goal_s: 60, intensity }))),
+    ).workoutStepMesgs;
+    expect(steps.map((step) => step.intensity)).toEqual(intensities);
+  });
+
+  it('omits a name rather than writing an empty one', () => {
+    expect(roundTrip(build([{ goal_s: 60 }])).workoutStepMesgs[0].wktStepName).toBeUndefined();
   });
 });
 
@@ -136,6 +211,37 @@ describe('repeats', () => {
     expect(roundTrip(intervals).workoutMesgs[0]).toMatchObject({ numValidSteps: 5 });
   });
 
+  it('stores a repeat once instead of unrolling it', () => {
+    const reps = (times: number) =>
+      roundTrip(
+        build([
+          { name: 'Warmup', goal_s: 600 },
+          { repeat: times, steps: [{ name: 'On', goal_s: 30 }, { name: 'Off', goal_s: 30 }] },
+          { name: 'Cooldown', goal_s: 600 },
+        ]),
+      );
+
+    // Warmup, On, Off, the repeat, Cooldown — whatever the rep count.
+    const four = reps(4);
+    const forty = reps(40);
+    expect(four.workoutStepMesgs).toHaveLength(5);
+    expect(forty.workoutStepMesgs).toHaveLength(5);
+    expect(forty.bytes.length).toBe(four.bytes.length);
+    expect(forty.workoutStepMesgs[3]).toMatchObject({ repeatSteps: 40 });
+  });
+
+  it('keeps message indices dense and in order, which repeats point into', () => {
+    const decoded = roundTrip(
+      build([
+        { goal_s: 60 },
+        { repeat: 3, steps: [{ goal_s: 30 }, { repeat: 2, steps: [{ goal_s: 10 }] }] },
+        { goal_s: 60 },
+      ]),
+    );
+    expect(decoded.workoutStepMesgs.map((step) => step.messageIndex)).toEqual([...Array(6).keys()]);
+    expect(decoded.workoutMesgs[0]).toMatchObject({ numValidSteps: 6 });
+  });
+
   it('handles nested repeats', () => {
     const nested = build([
       { repeat: 2, steps: [{ name: 'A', goal_s: 30 }, { repeat: 3, steps: [{ name: 'B', goal_s: 10 }] }] },
@@ -149,5 +255,47 @@ describe('repeats', () => {
     ]);
     expect(flat[2]).toMatchObject({ durationValue: 1, targetValue: 3 });
     expect(flat[3]).toMatchObject({ durationValue: 0, targetValue: 2 });
+  });
+});
+
+describe('a whole session', () => {
+  it('encodes a real interval workout end to end', () => {
+    const session = build(
+      [
+        { name: 'Warmup', goal_s: 900, target_heart_rate: ['-', 145] },
+        { name: 'Strides', repeat: 4, steps: [{ name: 'Stride', goal_s: 20, target_pace_km: ['3:30', '-'] }, { name: 'Walk', goal_s: 40, intensity: 'rest' }] },
+        {
+          repeat: 5,
+          steps: [
+            { name: '1k rep', goal_meters: 1000, target_pace_km: ['3:55', '4:05'] },
+            { name: 'Jog', goal_s: 120, intensity: 'recovery', target_heart_rate: ['-', 140] },
+          ],
+        },
+        { name: 'Cooldown', goal_s: 600, intensity: 'cooldown' },
+      ],
+      { name: '5x1k' },
+    );
+
+    const decoded = roundTrip(session);
+    // Warmup, the strides block and its repeat, the reps block and its
+    // repeat, and the cooldown: eight FIT steps for a session of 19 efforts.
+    expect(decoded.workoutMesgs[0]).toMatchObject({ wktName: '5x1k', sport: 'running', numValidSteps: 8 });
+
+    expect(decoded.workoutStepMesgs.map((step) => step.wktStepName ?? step.durationType)).toEqual([
+      'Warmup',
+      'Stride',
+      'Walk',
+      'repeatUntilStepsCmplt',
+      '1k rep',
+      'Jog',
+      'repeatUntilStepsCmplt',
+      'Cooldown',
+    ]);
+
+    // The two repeats point at their own first child, not each other's.
+    const repeats = decoded.workoutStepMesgs.filter((step) => step.durationType === 'repeatUntilStepsCmplt');
+    expect(repeats).toHaveLength(2);
+    expect(repeats[0]).toMatchObject({ durationStep: 1, repeatSteps: 4 });
+    expect(repeats[1]).toMatchObject({ durationStep: 4, repeatSteps: 5 });
   });
 });

@@ -43,16 +43,9 @@ export type HrValue = { unit: 'bpm' | 'percent'; value: number };
 /** Power as absolute watts or a percentage of FTP. */
 export type PowerValue = { unit: 'watts' | 'percent'; value: number };
 
-export type Duration =
-  | { type: 'open' }
-  | { type: 'time'; seconds: number }
-  | { type: 'distance'; meters: number }
-  | { type: 'calories'; calories: number }
-  | { type: 'reps'; reps: number }
-  | { type: 'hr_above' | 'hr_below'; hr: HrValue }
-  | { type: 'power_above' | 'power_below'; power: PowerValue };
+export type Duration = { type: 'open' } | { type: 'time'; seconds: number } | { type: 'distance'; meters: number };
 
-export type ZoneMetric = 'heart_rate' | 'pace' | 'power' | 'cadence';
+export type ZoneMetric = 'heart_rate' | 'pace' | 'power';
 
 export type Target =
   | { type: 'open' }
@@ -89,16 +82,11 @@ export const MAX_REPEAT_DEPTH = 3;
 // ---------------------------------------------------------------------------
 
 /** Duration keys, in the order they are reported when a caller sets two. */
-const DURATION_KEYS = [
-  'goal_s', 'goal_time', 'goal_meters', 'goal_km', 'goal_miles', 'goal_yards',
-  'goal_calories', 'goal_reps', 'until_hr_above', 'until_hr_below',
-  'until_watts_above', 'until_watts_below',
-] as const;
+const DURATION_KEYS = ['goal_s', 'goal_time', 'goal_meters', 'goal_km', 'goal_miles', 'goal_yards'] as const;
 
 const TARGET_KEYS = [
   'target_pace_km', 'target_pace_miles', 'target_heart_rate', 'target_watts',
-  'target_cadence', 'target_zone', 'target_hr_zone', 'target_pace_zone',
-  'target_power_zone', 'target_cadence_zone',
+  'target_cadence', 'target_hr_zone', 'target_pace_zone', 'target_power_zone',
 ] as const;
 
 const STEP_KEYS = new Set<string>([
@@ -194,43 +182,73 @@ function parseDuration(raw: Record<string, unknown>, path: string): Duration {
       return { type: 'distance', meters: parseNumber(value, at) * 1000 };
     case 'goal_miles':
       return { type: 'distance', meters: parseNumber(value, at) * METRES_PER_MILE };
-    case 'goal_yards':
-      return { type: 'distance', meters: parseNumber(value, at) * METRES_PER_YARD };
-    case 'goal_calories':
-      return { type: 'calories', calories: parseInteger(value, at, 1, 65_535) };
-    case 'goal_reps':
-      return { type: 'reps', reps: parseInteger(value, at, 1, 1000) };
-    case 'until_hr_above':
-      return { type: 'hr_above', hr: parseHr(value, at) };
-    case 'until_hr_below':
-      return { type: 'hr_below', hr: parseHr(value, at) };
-    case 'until_watts_above':
-      return { type: 'power_above', power: parsePower(value, at) };
     default:
-      return { type: 'power_below', power: parsePower(value, at) };
+      return { type: 'distance', meters: parseNumber(value, at) * METRES_PER_YARD };
   }
 }
 
-const ZONE_METRICS: Record<string, ZoneMetric> = {
-  heart_rate: 'heart_rate', hr: 'heart_rate', pace: 'pace', speed: 'pace',
-  power: 'power', watts: 'power', cadence: 'cadence',
+/** How many zones each metric has, for a single-zone target. */
+const ZONE_COUNT: Record<ZoneMetric, number> = { heart_rate: 5, pace: 10, power: 7 };
+
+/**
+ * Zone boundaries as a percentage of the reference value: entry `i` is the
+ * bottom of zone `i + 1`, and the last entry is the top of the highest zone.
+ *
+ * These only come into play for a zone *range*, which FIT cannot express — it
+ * stores a single zone number and lets the watch resolve it. A range has to
+ * become a percentage band instead, and that needs a zone model. Heart rate
+ * uses Garmin's default five zones as a share of max HR; power uses the
+ * standard seven-zone model as a share of FTP.
+ */
+const ZONE_LIMITS: Record<'heart_rate' | 'power', number[]> = {
+  heart_rate: [50, 60, 70, 80, 90, 100],
+  power: [1, 55, 75, 90, 105, 120, 150, 200],
 };
 
-const ZONE_LIMITS: Record<ZoneMetric, number> = { heart_rate: 5, pace: 10, power: 7, cadence: 10 };
+/** A zone number, possibly fractional, as a percentage of the reference. */
+function zoneToPercent(zone: number, limits: number[]): number {
+  const floor = Math.floor(zone);
+  if (floor >= limits.length) return limits[limits.length - 1];
+  const fraction = zone - floor;
+  return Math.round(limits[floor - 1] + fraction * (limits[floor] - limits[floor - 1]));
+}
 
+/**
+ * A zone target: either a single zone, which FIT stores natively and the
+ * watch resolves against its own configuration, or a range of zone
+ * boundaries, which becomes a percentage band.
+ *
+ * The endpoints of a range are boundaries on a continuous scale, so
+ * `["2", "3"]` is exactly zone 2 and all of zones 2 and 3 is `["2", "4"]`.
+ */
 function parseZone(value: unknown, path: string, metric: ZoneMetric): Target {
-  let zone = value;
-  let resolved = metric;
-  if (isObject(value)) {
-    const type = value.type ?? value.metric;
-    if (type !== undefined) {
-      const found = ZONE_METRICS[String(type).toLowerCase()];
-      if (!found) fail(`${path}.type`, `unknown zone type ${JSON.stringify(type)}, expected one of ${Object.keys(ZONE_METRICS).join(', ')}`);
-      resolved = found;
-    }
-    zone = value.zone ?? value.value;
+  if (!Array.isArray(value)) {
+    return { type: 'zone', metric, zone: parseInteger(value, path, 1, ZONE_COUNT[metric]) };
   }
-  return { type: 'zone', metric: resolved, zone: parseInteger(zone, path, 1, ZONE_LIMITS[resolved]) };
+
+  if (metric === 'pace') {
+    fail(
+      path,
+      'FIT has no percentage speed target, so a pace zone must be a single zone — ' +
+        'use target_pace_km with explicit paces for a band',
+    );
+  }
+
+  const limits = ZONE_LIMITS[metric];
+  const top = limits.length;
+  const [low, high] = parseRange(value, path, (entry, at) => {
+    const zone = parseNumber(entry, at);
+    if (zone < 1 || zone > top) fail(at, `expected a zone boundary between 1 and ${top}, got ${JSON.stringify(entry)}`);
+    return zone;
+  });
+  assertOrdered(low ?? undefined, high ?? undefined, path, value);
+
+  const percent = (zone: number | null): { unit: 'percent'; value: number } | null =>
+    zone === null ? null : { unit: 'percent', value: zoneToPercent(zone, limits) };
+
+  return metric === 'heart_rate'
+    ? { type: 'heart_rate', low: percent(low), high: percent(high) }
+    : { type: 'power', low: percent(low), high: percent(high) };
 }
 
 function parseTarget(raw: Record<string, unknown>, path: string): Target {
@@ -263,16 +281,12 @@ function parseTarget(raw: Record<string, unknown>, path: string): Target {
       assertOrdered(low ?? undefined, high ?? undefined, at, value);
       return { type: 'cadence', low, high };
     }
-    case 'target_zone':
-      return parseZone(value, at, 'heart_rate');
     case 'target_hr_zone':
       return parseZone(value, at, 'heart_rate');
     case 'target_pace_zone':
       return parseZone(value, at, 'pace');
-    case 'target_power_zone':
-      return parseZone(value, at, 'power');
     default:
-      return parseZone(value, at, 'cadence');
+      return parseZone(value, at, 'power');
   }
 }
 

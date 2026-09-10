@@ -9,6 +9,7 @@
  * hard per-user cap — so the free tier is never the binding constraint.
  */
 
+import type { OAuthHelpers } from '@cloudflare/workers-oauth-provider';
 import { shiftDate, today } from './units';
 import type { Workout, WorkoutInput } from './workout';
 
@@ -19,10 +20,29 @@ export const MAX_WORKOUTS_PER_USER = 50;
 export type Env = {
   DB: D1Database;
   ASSETS: Fetcher;
-  ADMIN_TOKEN?: string;
+  /** Where the OAuth provider keeps clients, grants and their tokens. */
+  OAUTH_KV: KVNamespace;
+  /** Injected by the OAuth provider on every request it passes through. */
+  OAUTH_PROVIDER: OAuthHelpers;
+  /** Shown on the dashboard and the consent page. */
+  APP_NAME?: string;
+
+  /** Google sign-in. Both are needed for the button to appear. */
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+
+  /** Sign in with Apple. All four are needed for the button to appear. */
+  APPLE_CLIENT_ID?: string;
+  APPLE_TEAM_ID?: string;
+  APPLE_KEY_ID?: string;
+  /** The .p8 private key, base64 PKCS#8, with or without its PEM armour. */
+  APPLE_PRIVATE_KEY?: string;
+
+  /** Optional sign-up allowlist: addresses or "@domain", comma separated. */
+  ALLOWED_EMAILS?: string;
 };
 
-export type User = { id: string; name: string | null };
+export type User = { id: string; email: string | null };
 
 type WorkoutRow = { id: string; date: string; data: string };
 
@@ -34,40 +54,10 @@ export function newId(length = 8): string {
   return Array.from(bytes, (b) => ID_ALPHABET[b % ID_ALPHABET.length]).join('');
 }
 
-export function newToken(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return `wk_${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
-}
-
-export async function hashToken(token: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
-}
-
 /** The window of dates we keep, inclusive. */
 export function retentionWindow(now: Date = new Date()): { from: string; to: string } {
   const day = today(now);
   return { from: shiftDate(day, -RETENTION_DAYS_PAST), to: shiftDate(day, RETENTION_DAYS_FUTURE) };
-}
-
-// ---------------------------------------------------------------------------
-// Users
-// ---------------------------------------------------------------------------
-
-export async function findUserByToken(env: Env, token: string): Promise<User | null> {
-  const row = await env.DB.prepare('SELECT id, name FROM users WHERE token_hash = ?')
-    .bind(await hashToken(token))
-    .first<User>();
-  return row ?? null;
-}
-
-export async function createUser(env: Env, name: string | null): Promise<{ user: User; token: string }> {
-  const token = newToken();
-  const id = newId(12);
-  await env.DB.prepare('INSERT INTO users (id, name, token_hash, created_at) VALUES (?, ?, ?, ?)')
-    .bind(id, name, await hashToken(token), new Date().toISOString())
-    .run();
-  return { user: { id, name }, token };
 }
 
 // ---------------------------------------------------------------------------

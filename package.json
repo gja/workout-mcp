@@ -21,7 +21,9 @@
   },
   "homepage": "https://github.com/gja/workout-mcp#readme",
   "dependencies": {
-    "@garmin/fitsdk": "^21.214.0"
+    "@cloudflare/workers-oauth-provider": "^0.10.3",
+    "@garmin/fitsdk": "^21.214.0",
+    "arctic": "^3.7.0"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22.0",

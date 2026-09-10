@@ -49,18 +49,6 @@ function encodeDuration(duration: Duration): DurationFields {
       return { durationType: 'time', durationValue: Math.round(duration.seconds * 1000) };
     case 'distance':
       return { durationType: 'distance', durationValue: Math.round(duration.meters * 100) };
-    case 'calories':
-      return { durationType: 'calories', durationValue: duration.calories };
-    case 'reps':
-      return { durationType: 'reps', durationValue: duration.reps };
-    case 'hr_above':
-      return { durationType: 'hrGreaterThan', durationValue: encodeHr(duration.hr) };
-    case 'hr_below':
-      return { durationType: 'hrLessThan', durationValue: encodeHr(duration.hr) };
-    case 'power_above':
-      return { durationType: 'powerGreaterThan', durationValue: encodePower(duration.power) };
-    case 'power_below':
-      return { durationType: 'powerLessThan', durationValue: encodePower(duration.power) };
   }
 }
 
@@ -72,7 +60,7 @@ type TargetFields = {
 };
 
 /** FIT target type per zone metric. Pace zones are speed zones. */
-const ZONE_TARGET_TYPE = { heart_rate: 'heartRate', pace: 'speed', power: 'power', cadence: 'cadence' } as const;
+const ZONE_TARGET_TYPE = { heart_rate: 'heartRate', pace: 'speed', power: 'power' } as const;
 
 function encodeTarget(target: Target): TargetFields {
   switch (target.type) {
