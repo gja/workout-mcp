@@ -58,6 +58,15 @@ function splitDateId(slug: string): { date: string; id: string } | null {
 // Sign-in
 // ---------------------------------------------------------------------------
 
+/** Google's callback arrives in the query string, Apple's as a form body. */
+async function callbackParams(request: Request, url: URL): Promise<URLSearchParams> {
+  if (request.method !== 'POST') return url.searchParams;
+  const form = await request.formData();
+  const params = new URLSearchParams();
+  for (const [key, value] of form) if (typeof value === 'string') params.set(key, value);
+  return params;
+}
+
 /** A message for the dashboard to show after a failed sign-in. */
 const backToDashboard = (origin: string, message?: string): Response =>
   Response.redirect(message ? `${origin}/?error=${encodeURIComponent(message)}` : `${origin}/`, 302);
@@ -87,10 +96,7 @@ async function handleSignIn(request: Request, url: URL, env: Env): Promise<Respo
     if (!identity.isProviderName(callback[1])) return error(`unknown sign-in provider "${callback[1]}"`, 404);
 
     // Google comes back as a redirect; Apple posts a form, cross-site.
-    const params =
-      request.method === 'POST'
-        ? new URLSearchParams(await request.text())
-        : url.searchParams;
+    const params = await callbackParams(request, url);
 
     let who: identity.Identity;
     try {

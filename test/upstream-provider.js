@@ -33,7 +33,7 @@ export default {
     const provider = url.hostname === 'oauth2.googleapis.com' ? GOOGLE : url.hostname === 'appleid.apple.com' ? APPLE : null;
     if (!provider) return new Response(`unexpected outbound request to ${url.host}`, { status: 502 });
 
-    const body = new URLSearchParams(await request.text());
+    const body = await request.formData();
     const code = body.get('code') ?? '';
 
     // Apple authenticates with a signed JWT rather than a static secret;

@@ -314,9 +314,18 @@ that Miniflare routes all outbound traffic to, so the real `arctic` path runs
 — Apple's signed client secret included — without touching the network.
 
 ```bash
-npm test
+npm test        # 133 tests
 npm run typecheck
 ```
+
+| Suite | Covers |
+| --- | --- |
+| `workout.test.ts` | Parsing loose JSON: every duration and target, range semantics, repeats, intensity inference, and the error messages |
+| `fit.test.ts` | FIT encoding, decoded back with the SDK: scaling, offsets, zones, names, intensities, repeat flattening, a full session |
+| `api.test.ts` | The REST API and `/api/tools`, FIT downloads, cross-athlete isolation, bad requests, retention |
+| `auth.test.ts` | Google and Apple sign-in, state handling, ID-token checks, sessions, API tokens |
+| `oauth.test.ts` | Discovery, registration, consent, the PKCE code exchange, refresh, connected apps |
+| `mcp.test.ts` | The JSON-RPC protocol and every tool |
 
 ## Cost
 
