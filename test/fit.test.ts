@@ -1,6 +1,6 @@
 import { Decoder, Stream } from '@garmin/fitsdk';
 import { describe, expect, it } from 'vitest';
-import { encodeWorkoutFit, fitFilename, flattenSteps } from '../src/fit';
+import { encodeWorkoutFit, fitDownloadName, fitFilename, flattenSteps } from '../src/fit';
 import { resolveSteps } from '../src/resolve';
 import { parseWorkout } from '../src/workout';
 import type { Workout } from '../src/workout';
@@ -73,6 +73,29 @@ describe('file structure', () => {
 
   it('names the download after the date and id', () => {
     expect(fitFilename({ date: '2026-09-12', id: 'a1b2c3d4' })).toBe('2026-09-12-a1b2c3d4.fit');
+  });
+
+  describe('fitDownloadName', () => {
+    const name = (workoutName: string, id = 'a1b2c3d4') =>
+      fitDownloadName({ date: '2026-09-12', id, name: workoutName });
+
+    it('names the file after the date and the workout', () => {
+      expect(name('4x10 Tempo')).toBe('2026-09-12-4x10-Tempo.fit');
+    });
+
+    it('collapses punctuation a filesystem would argue about', () => {
+      expect(name("Tempo 30' / easy \"float\"")).toBe('2026-09-12-Tempo-30-easy-float.fit');
+    });
+
+    it('falls back to the id when nothing of the name survives', () => {
+      expect(name('？！')).toBe('2026-09-12-a1b2c3d4.fit');
+      expect(name('')).toBe('2026-09-12-a1b2c3d4.fit');
+    });
+
+    it('keeps the name short enough to store', () => {
+      const long = name('Long'.repeat(40));
+      expect(long.length).toBeLessThanOrEqual('2026-09-12-'.length + 60 + '.fit'.length);
+    });
   });
 
   it('writes the description, so the watch shows what the session is for', () => {

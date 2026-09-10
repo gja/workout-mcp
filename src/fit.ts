@@ -265,5 +265,22 @@ export function encodeWorkoutFit(workout: Workout, now: Date = new Date()): Uint
   return encoder.close();
 }
 
-/** Download filename for a workout: `2026-09-12-a1b2c3d4.fit`. */
+/** Download filename for a workout: `2026-09-12-a1b2c3d4.fit`. Mirrors the export URL. */
 export const fitFilename = (workout: Pick<Workout, 'date' | 'id'>): string => `${workout.date}-${workout.id}.fit`;
+
+/**
+ * The name to save an exported workout under: `2026-09-12-4x10-Tempo.fit`.
+ *
+ * A caller that gets the bytes rather than the URL — every MCP client — has no
+ * filename to fall back on, and a folder of these should read as a plan rather
+ * than a list of ids. Anything a filesystem would argue about collapses to a
+ * dash, and a workout whose name survives none of that keeps its id.
+ */
+export function fitDownloadName(workout: Pick<Workout, 'date' | 'id' | 'name'>): string {
+  const slug = (workout.name ?? '')
+    .normalize('NFKD')
+    .replace(/[^A-Za-z0-9]+/g, '-')
+    .slice(0, 60)
+    .replace(/^-+|-+$/g, '');
+  return `${workout.date}-${slug || workout.id}.fit`;
+}

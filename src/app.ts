@@ -318,7 +318,7 @@ async function handleApi(request: Request, url: URL, env: Env, user: User, baseU
   const tool = path.match(/^\/api\/tools\/([a-z_]+)$/);
   if (tool) {
     if (method !== 'POST') return error('method not allowed', 405);
-    return json(await callTool(tool[1], await request.json(), env, user, baseUrl));
+    return json(await callTool(tool[1], await request.json(), env, user));
   }
 
   return error('not found', 404);
