@@ -63,13 +63,47 @@ export function describeSteps(steps: Step[], indent = ''): string[] {
       lines.push(...describeSteps(step.steps, `${indent}  `));
       continue;
     }
-    const target = describeTarget(step.target);
+    const targets = [step.target, step.secondary_target]
+      .filter((target): target is Target => target !== undefined)
+      .map(describeTarget)
+      .filter(Boolean);
     const label = step.name ?? step.intensity;
-    lines.push(`${indent}${label}: ${describeDuration(step.duration)}${target ? ` @ ${target}` : ''}`);
+    lines.push(`${indent}${label}: ${describeDuration(step.duration)}${targets.length ? ` @ ${targets.join(' + ')}` : ''}`);
   }
   return lines;
 }
 
 export function describeWorkout(workout: Workout): string {
-  return [`${workout.date} — ${workout.name} (${workout.sport})`, ...describeSteps(workout.steps, '  ')].join('\n');
+  const sport = workout.sub_sport ? `${workout.sport}, ${workout.sub_sport.replace('_', ' ')}` : workout.sport;
+  return [`${workout.date} — ${workout.name} (${sport})`, ...describeSteps(workout.steps, '  ')].join('\n');
+}
+
+/**
+ * What the session adds up to, with repeats resolved.
+ *
+ * Steps that run until the lap button is pressed cannot be counted, so the
+ * totals are a floor rather than an estimate — `open_steps` says how many are
+ * missing from them.
+ */
+export type PlannedTotals = { seconds: number; meters: number; steps: number; open_steps: number };
+
+export function plannedTotals(steps: Step[]): PlannedTotals {
+  const totals: PlannedTotals = { seconds: 0, meters: 0, steps: 0, open_steps: 0 };
+
+  const walk = (list: Step[], multiplier: number): void => {
+    for (const step of list) {
+      if (step.kind === 'repeat') {
+        walk(step.steps, multiplier * step.times);
+        continue;
+      }
+      totals.steps += multiplier;
+      if (step.duration.type === 'time') totals.seconds += step.duration.seconds * multiplier;
+      else if (step.duration.type === 'distance') totals.meters += step.duration.meters * multiplier;
+      else totals.open_steps += multiplier;
+    }
+  };
+
+  walk(steps, 1);
+  totals.meters = Math.round(totals.meters);
+  return totals;
 }

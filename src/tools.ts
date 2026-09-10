@@ -6,7 +6,7 @@
  */
 
 import { encodeWorkoutFit, fitFilename } from './fit';
-import { describeWorkout } from './describe';
+import { describeWorkout, plannedTotals } from './describe';
 import * as db from './db';
 import type { Env, User } from './db';
 import { WorkoutError, normalizeWorkout } from './workout';
@@ -52,9 +52,11 @@ export const STEP_SCHEMA = {
   minItems: 1,
   description:
     'The steps of the workout, in order. A step either does something ' +
-    '(a duration plus an optional target) or repeats a group of steps. ' +
-    'Give a step at most one duration and at most one target; a step with no ' +
-    'duration runs until the lap button is pressed. Example: ' +
+    '(a duration plus optional targets) or repeats a group of steps. ' +
+    'Give a step at most one duration; a step with no duration runs until the ' +
+    'lap button is pressed. A step may carry up to two targets on different ' +
+    'metrics — pace plus cadence, say — and the one nearer the front of ' +
+    'pace, power, heart rate, cadence becomes the primary. Example: ' +
     '[{"name":"Warmup","goal_s":600,"target_heart_rate":[146,153]},' +
     '{"repeat":8,"steps":[{"name":"Fast","goal_meters":400,"target_pace_km":["4:00","4:15"]},' +
     '{"name":"Float","goal_s":90,"target_pace_km":["-","6:30"]}]},' +
@@ -105,7 +107,21 @@ const WORKOUT_PROPERTIES = {
     enum: ['running', 'cycling', 'swimming', 'walking', 'hiking', 'rowing', 'training', 'generic'],
     description: 'Defaults to running.',
   },
-  notes: { type: 'string', description: 'Free-form description of the session.' },
+  sub_sport: {
+    type: 'string',
+    enum: [
+      'treadmill', 'street', 'trail', 'track', 'ultra', 'road', 'mountain', 'indoor_cycling',
+      'spin', 'virtual_activity', 'lap_swimming', 'open_water', 'indoor_rowing', 'indoor_walking', 'generic',
+    ],
+    description: 'How the sport is done. The watch picks its activity profile from this, so a treadmill session does not wait for GPS.',
+  },
+  notes: { type: 'string', description: 'Description of the session. Written into the FIT file, so the watch shows it.' },
+  external_id: {
+    type: 'string',
+    description:
+      'Your own key for this workout. Creating one again with the same key updates that workout ' +
+      'in place instead of adding a duplicate, which is what makes re-syncing a plan safe.',
+  },
   steps: STEP_SCHEMA,
 } as const;
 
@@ -196,6 +212,7 @@ export function present(workout: Workout, baseUrl: string) {
   return {
     ...workout,
     summary: describeWorkout(workout),
+    planned: plannedTotals(workout.steps),
     fit_url: `${baseUrl}/export/${workout.date}-${workout.id}.fit`,
     json_url: `${baseUrl}/api/workouts/${workout.date}/${workout.id}.json`,
   };

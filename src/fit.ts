@@ -14,7 +14,7 @@
  */
 
 import { Encoder, Profile } from '@garmin/fitsdk';
-import type { Duration, HrValue, PowerValue, Sport, Step, Target, Workout } from './workout';
+import type { Duration, HrValue, PowerValue, Sport, Step, SubSport, Target, Workout } from './workout';
 
 /**
  * Values written when one end of a range is left open. FIT has no "unbounded"
@@ -52,12 +52,8 @@ function encodeDuration(duration: Duration): DurationFields {
   }
 }
 
-type TargetFields = {
-  targetType: string;
-  targetValue: number;
-  customTargetValueLow?: number;
-  customTargetValueHigh?: number;
-};
+/** A target in FIT's shape, before it is named primary or secondary. */
+type TargetFields = { type: string; value: number; low?: number; high?: number };
 
 /** FIT target type per zone metric. Pace zones are speed zones. */
 const ZONE_TARGET_TYPE = { heart_rate: 'heartRate', pace: 'speed', power: 'power' } as const;
@@ -65,40 +61,52 @@ const ZONE_TARGET_TYPE = { heart_rate: 'heartRate', pace: 'speed', power: 'power
 function encodeTarget(target: Target): TargetFields {
   switch (target.type) {
     case 'open':
-      return { targetType: 'open', targetValue: 0 };
+      return { type: 'open', value: 0 };
     case 'zone':
-      return { targetType: ZONE_TARGET_TYPE[target.metric], targetValue: target.zone };
+      return { type: ZONE_TARGET_TYPE[target.metric], value: target.zone };
     case 'heart_rate':
       return {
-        targetType: 'heartRate',
-        targetValue: 0,
-        customTargetValueLow: target.low ? encodeHr(target.low) : OPEN_ENDED.hrLow,
-        customTargetValueHigh: target.high ? encodeHr(target.high) : encodeHr({ unit: 'bpm', value: OPEN_ENDED.hrHigh }),
+        type: 'heartRate',
+        value: 0,
+        low: target.low ? encodeHr(target.low) : OPEN_ENDED.hrLow,
+        high: target.high ? encodeHr(target.high) : encodeHr({ unit: 'bpm', value: OPEN_ENDED.hrHigh }),
       };
     case 'speed':
       return {
-        targetType: 'speed',
-        targetValue: 0,
-        customTargetValueLow: encodeSpeed(target.low ?? OPEN_ENDED.speedLow),
-        customTargetValueHigh: encodeSpeed(target.high ?? OPEN_ENDED.speedHigh),
+        type: 'speed',
+        value: 0,
+        low: encodeSpeed(target.low ?? OPEN_ENDED.speedLow),
+        high: encodeSpeed(target.high ?? OPEN_ENDED.speedHigh),
       };
     case 'power':
       return {
-        targetType: 'power',
-        targetValue: 0,
-        customTargetValueLow: target.low ? encodePower(target.low) : OPEN_ENDED.powerLow,
-        customTargetValueHigh: target.high
-          ? encodePower(target.high)
-          : encodePower({ unit: 'watts', value: OPEN_ENDED.powerHigh }),
+        type: 'power',
+        value: 0,
+        low: target.low ? encodePower(target.low) : OPEN_ENDED.powerLow,
+        high: target.high ? encodePower(target.high) : encodePower({ unit: 'watts', value: OPEN_ENDED.powerHigh }),
       };
     case 'cadence':
       return {
-        targetType: 'cadence',
-        targetValue: 0,
-        customTargetValueLow: target.low ?? OPEN_ENDED.cadenceLow,
-        customTargetValueHigh: target.high ?? OPEN_ENDED.cadenceHigh,
+        type: 'cadence',
+        value: 0,
+        low: target.low ?? OPEN_ENDED.cadenceLow,
+        high: target.high ?? OPEN_ENDED.cadenceHigh,
       };
   }
+}
+
+/** The same fields under the primary or the secondary names. */
+function targetMesgFields(target: Target, secondary: boolean): Record<string, unknown> {
+  const { type, value, low, high } = encodeTarget(target);
+  const fields: Record<string, unknown> = secondary
+    ? { secondaryTargetType: type, secondaryTargetValue: value }
+    : { targetType: type, targetValue: value };
+
+  if (low !== undefined) {
+    fields[secondary ? 'secondaryCustomTargetValueLow' : 'customTargetValueLow'] = low;
+    fields[secondary ? 'secondaryCustomTargetValueHigh' : 'customTargetValueHigh'] = high;
+  }
+  return fields;
 }
 
 /** One encoded FIT workout step, before message indices are assigned. */
@@ -140,7 +148,8 @@ export function flattenSteps(steps: Step[], out: StepMesg[] = []): StepMesg[] {
       messageIndex: out.length,
       intensity: step.intensity,
       ...encodeDuration(step.duration),
-      ...encodeTarget(step.target),
+      ...targetMesgFields(step.target, false),
+      ...(step.secondary_target ? targetMesgFields(step.secondary_target, true) : {}),
     };
     if (step.name) mesg.wktStepName = step.name;
     if (step.notes) mesg.notes = step.notes;
@@ -157,6 +166,25 @@ const FIT_SPORT: Record<Sport, string> = {
   hiking: 'hiking',
   rowing: 'rowing',
   training: 'training',
+  generic: 'generic',
+};
+
+/** Our sub-sport names to the FIT enum's. */
+const FIT_SUB_SPORT: Record<SubSport, string> = {
+  treadmill: 'treadmill',
+  street: 'street',
+  trail: 'trail',
+  track: 'track',
+  ultra: 'ultra',
+  road: 'road',
+  mountain: 'mountain',
+  indoor_cycling: 'indoorCycling',
+  spin: 'spin',
+  virtual_activity: 'virtualActivity',
+  lap_swimming: 'lapSwimming',
+  open_water: 'openWater',
+  indoor_rowing: 'indoorRowing',
+  indoor_walking: 'indoorWalking',
   generic: 'generic',
 };
 
@@ -186,6 +214,9 @@ export function encodeWorkoutFit(workout: Workout, now: Date = new Date()): Uint
     wktName: workout.name,
     sport: FIT_SPORT[workout.sport],
     numValidSteps: steps.length,
+    ...(workout.sub_sport ? { subSport: FIT_SUB_SPORT[workout.sub_sport] } : {}),
+    // The session description the athlete wrote, which the watch shows.
+    ...(workout.notes ? { wktDescription: workout.notes } : {}),
   });
 
   for (const step of steps) {

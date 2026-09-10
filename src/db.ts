@@ -13,7 +13,7 @@
 
 import type { OAuthHelpers } from '@cloudflare/workers-oauth-provider';
 import { shiftDate, today } from './units';
-import type { Sport, Step, Workout, WorkoutInput } from './workout';
+import type { Sport, Step, SubSport, Workout, WorkoutInput } from './workout';
 
 export const RETENTION_DAYS_PAST = 7;
 export const RETENTION_DAYS_FUTURE = 14;
@@ -51,13 +51,15 @@ type WorkoutRow = {
   date: string;
   name: string;
   sport: string;
+  sub_sport: string | null;
   notes: string | null;
+  external_id: string | null;
   steps: string;
   updated_at: string;
 };
 
 /** The columns every read needs, in one place. */
-const WORKOUT_COLUMNS = 'id, date, name, sport, notes, steps, updated_at';
+const WORKOUT_COLUMNS = 'id, date, name, sport, sub_sport, notes, external_id, steps, updated_at';
 
 /** Short, URL-safe, unambiguous — no vowels, so no accidental words. */
 const ID_ALPHABET = '0123456789bcdfghjkmnpqrstvwxyz';
@@ -87,7 +89,9 @@ function parseRow(row: WorkoutRow): Workout {
     steps: JSON.parse(row.steps) as Step[],
     updated_at: row.updated_at,
   };
+  if (row.sub_sport) workout.sub_sport = row.sub_sport as SubSport;
   if (row.notes) workout.notes = row.notes;
+  if (row.external_id) workout.external_id = row.external_id;
   return workout;
 }
 
@@ -111,13 +115,39 @@ export async function getWorkout(env: Env, userId: string, date: string, id: str
   return row ? parseRow(row) : null;
 }
 
-export async function putWorkout(env: Env, userId: string, input: WorkoutInput, id = newId()): Promise<Workout> {
-  const workout: Workout = { version: 1, id, ...input, updated_at: new Date().toISOString() };
+/** Where an already-stored workout with this caller-supplied key lives. */
+export async function findByExternalId(
+  env: Env,
+  userId: string,
+  externalId: string,
+): Promise<{ date: string; id: string } | null> {
+  const row = await env.DB.prepare('SELECT date, id FROM workouts WHERE user_id = ? AND external_id = ?')
+    .bind(userId, externalId)
+    .first<{ date: string; id: string }>();
+  return row ?? null;
+}
+
+export async function putWorkout(env: Env, userId: string, input: WorkoutInput, id?: string): Promise<Workout> {
+  let workoutId = id;
+
+  // A caller that supplies its own key is re-syncing: land on the row that
+  // key already names, rather than creating a second copy of the session.
+  if (workoutId === undefined && input.external_id) {
+    const existing = await findByExternalId(env, userId, input.external_id);
+    if (existing) {
+      workoutId = existing.id;
+      // The workout moved day; the old row has to go before the new one lands.
+      if (existing.date !== input.date) await deleteWorkout(env, userId, existing.date, existing.id);
+    }
+  }
+
+  const workout: Workout = { version: 1, id: workoutId ?? newId(), ...input, updated_at: new Date().toISOString() };
   await env.DB.prepare(
-    `INSERT INTO workouts (user_id, date, id, name, sport, notes, steps, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)
+    `INSERT INTO workouts (user_id, date, id, name, sport, sub_sport, notes, external_id, steps, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)
      ON CONFLICT (user_id, date, id) DO UPDATE SET
-       name = excluded.name, sport = excluded.sport, notes = excluded.notes,
+       name = excluded.name, sport = excluded.sport, sub_sport = excluded.sub_sport,
+       notes = excluded.notes, external_id = excluded.external_id,
        steps = excluded.steps, updated_at = excluded.updated_at`,
   )
     .bind(
@@ -126,7 +156,9 @@ export async function putWorkout(env: Env, userId: string, input: WorkoutInput, 
       workout.id,
       workout.name,
       workout.sport,
+      workout.sub_sport ?? null,
       workout.notes ?? null,
+      workout.external_id ?? null,
       JSON.stringify(workout.steps),
       workout.updated_at,
     )

@@ -1,6 +1,7 @@
 import { SELF, env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Decoder, Stream } from '@garmin/fitsdk';
+import { plannedTotals } from '../src/describe';
 import { MAX_WORKOUTS_PER_USER, listWorkouts, prune, putWorkout } from '../src/db';
 import { shiftDate, today } from '../src/units';
 import { normalizeWorkout } from '../src/workout';
@@ -159,6 +160,91 @@ describe('workout CRUD', () => {
     expect((await response.json()) as { error: string }).toMatchObject({
       error: expect.stringContaining('only have one duration'),
     });
+  });
+});
+
+describe('planned totals', () => {
+  it('resolves repeats and reports what cannot be counted', () => {
+    const totals = plannedTotals(
+      normalizeWorkout({
+        date: '2026-09-12',
+        steps: [
+          { name: 'Warmup', goal_s: 600 },
+          { repeat: 8, steps: [{ goal_meters: 400 }, { goal_s: 90 }] },
+          { name: 'Cooldown' },
+        ],
+      }).steps,
+    );
+
+    // 600s warmup + 8x90s float; 8x400m; the cooldown runs to a lap press.
+    expect(totals).toEqual({ seconds: 600 + 8 * 90, meters: 3200, steps: 18, open_steps: 1 });
+  });
+
+  it('multiplies through nested repeats', () => {
+    const totals = plannedTotals(
+      normalizeWorkout({
+        date: '2026-09-12',
+        steps: [{ repeat: 3, steps: [{ repeat: 4, steps: [{ goal_s: 30 }] }] }],
+      }).steps,
+    );
+    expect(totals).toMatchObject({ seconds: 3 * 4 * 30, steps: 12, open_steps: 0 });
+  });
+
+  it('rides along on every workout the API returns', async () => {
+    const created = (await (
+      await call('/api/workouts', { method: 'POST', body: JSON.stringify(INTERVALS) })
+    ).json()) as { planned: { seconds: number; meters: number; open_steps: number } };
+
+    // 600s warmup + 8x90s float, 8x400m, and a 600s cooldown.
+    expect(created.planned).toEqual({ seconds: 600 + 8 * 90 + 600, meters: 3200, steps: 18, open_steps: 0 });
+  });
+});
+
+describe('an external id', () => {
+  const withKey = (extra: Record<string, unknown> = {}) =>
+    call('/api/workouts', {
+      method: 'POST',
+      body: JSON.stringify({ ...INTERVALS, external_id: 'watchletic-8891', ...extra }),
+    });
+
+  it('updates the same workout instead of duplicating it', async () => {
+    const first = (await (await withKey()).json()) as { id: string };
+    const again = (await (await withKey({ name: 'Renamed' })).json()) as { id: string; name: string };
+
+    expect(again.id).toBe(first.id);
+    expect(again.name).toBe('Renamed');
+
+    const { workouts } = (await (await call('/api/workouts.json')).json()) as { workouts: unknown[] };
+    expect(workouts).toHaveLength(1);
+  });
+
+  it('moves the workout when the plan moves it, without leaving a copy', async () => {
+    const first = (await (await withKey()).json()) as { id: string; date: string };
+    const moved = (await (await withKey({ date: '2026-09-13' })).json()) as { id: string; date: string };
+
+    expect(moved.id).toBe(first.id);
+    expect(moved.date).toBe('2026-09-13');
+
+    const { workouts } = (await (await call('/api/workouts.json')).json()) as { workouts: { date: string }[] };
+    expect(workouts.map((w) => w.date)).toEqual(['2026-09-13']);
+  });
+
+  it('keeps workouts without a key independent', async () => {
+    await createIntervals();
+    await createIntervals();
+    const { workouts } = (await (await call('/api/workouts.json')).json()) as { workouts: unknown[] };
+    expect(workouts).toHaveLength(2);
+  });
+
+  it('is scoped to the athlete', async () => {
+    await withKey();
+    const other = await seedUser('other@example.com');
+    const response = await SELF.fetch(`${BASE}/api/workouts`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${other.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...INTERVALS, external_id: 'watchletic-8891' }),
+    });
+    expect(response.status).toBe(201);
   });
 });
 

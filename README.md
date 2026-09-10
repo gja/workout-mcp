@@ -192,6 +192,7 @@ steps.
   "date": "2026-09-12",
   "name": "8x400m",
   "sport": "running",
+  "sub_sport": "track",
   "steps": [
     { "name": "Warmup", "goal_s": 600, "target_heart_rate": [146, 153] },
     {
@@ -216,7 +217,7 @@ steps.
 A step with **no** duration runs until the lap button is pressed — which is
 what you usually want for a cooldown.
 
-### Targets — at most one per step
+### Targets — up to two per step
 
 | Field | Accepts |
 | --- | --- |
@@ -227,6 +228,20 @@ what you usually want for a cooldown.
 | `target_hr_zone` | zone 1-5, or a range of boundaries |
 | `target_power_zone` | zone 1-7, or a range of boundaries |
 | `target_pace_zone` | zone 1-10, single only |
+
+A step may carry **two** targets, as long as they constrain different things —
+FIT stores a primary and a secondary, and a watch shows both:
+
+```jsonc
+{ "goal_meters": 400, "target_pace_km": ["4:00", "4:15"], "target_cadence": [178, 184] }
+```
+
+Which one leads is decided by a fixed order — **pace, power, heart rate,
+cadence** — so the thing you are told to run is the primary and what follows
+from it is the secondary. Writing the fields in the other order changes
+nothing. Two targets on the *same* metric (`target_heart_rate` and
+`target_hr_zone`, say) is an error rather than a silent winner, and a third
+target is refused because FIT has nowhere to put it.
 
 ### Ranges
 
@@ -281,6 +296,36 @@ explicit numbers with `target_heart_rate` or `target_watts` instead.
 `target_pace_zone` takes a single zone only: FIT has no percentage speed
 target, so there is nothing sensible to convert a range into. Use
 `target_pace_km` with explicit paces for a band.
+
+### The workout itself
+
+| Field | Meaning |
+| --- | --- |
+| `date` | Required, `YYYY-MM-DD` |
+| `name` | Defaults to the sport and date |
+| `sport` | `running`, `cycling`, `swimming`, `walking`, `hiking`, `rowing`, `training`, `generic` |
+| `sub_sport` | How it is done: `treadmill`, `track`, `trail`, `road`, `indoor_cycling`, `lap_swimming`, … |
+| `notes` | Description of the session, written into the FIT file so the watch shows it |
+| `external_id` | Your own key — see below |
+
+`sub_sport` is worth setting: a watch picks its activity profile from it, so a
+treadmill session will not sit waiting for a GPS fix.
+
+`external_id` makes re-syncing safe. Create a workout again with the same key
+and it **updates that workout in place** — same id, moved if the date changed
+— instead of adding a duplicate and quietly pushing an older session past the
+per-user cap. Keys are scoped to one athlete, so two people may use the same
+one.
+
+Every response also carries `planned`, computed from the steps with repeats
+resolved:
+
+```jsonc
+"planned": { "seconds": 2520, "meters": 3200, "steps": 18, "open_steps": 0 }
+```
+
+`open_steps` counts steps that run until a lap press. When it is above zero
+the totals are a floor rather than the whole session.
 
 ### The rest
 
@@ -385,7 +430,7 @@ npm run typecheck
 
 | Suite | Covers |
 | --- | --- |
-| `migrations.test.ts` | The data-carrying migration, the `json_valid` check, and querying steps from SQL |
+| `migrations.test.ts` | The data-carrying migrations, the `json_valid` check, the external-id index, and querying steps from SQL |
 | `workout.test.ts` | Parsing loose JSON: every duration and target, range semantics, repeats, intensity inference, and the error messages |
 | `fit.test.ts` | FIT encoding, decoded back with the SDK: scaling, offsets, zones, names, intensities, repeat flattening, a full session |
 | `api.test.ts` | The REST API and `/api/tools`, FIT downloads, cross-athlete isolation, bad requests, retention |
