@@ -2,6 +2,12 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "workout-mcp",
 	"main": "src/index.ts",
+	// Vite builds both the client and the Worker. Running it here means a bare
+	// `wrangler deploy` — which is what Workers Builds runs — cannot ship a
+	// Worker whose assets directory was never built.
+	"build": {
+		"command": "npm run build"
+	},
 	"compatibility_date": "2025-09-01",
 	// The dashboard and the OAuth consent page, built by Vite. Anything not
 	// matched by /mcp, /api, /oauth or /export is served from here.
