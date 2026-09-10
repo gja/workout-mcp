@@ -3,10 +3,10 @@
 	"name": "workout-mcp",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-09-01",
-	// The dashboard and the OAuth consent page. Anything not matched by /mcp,
-	// /api, /oauth or /export is served from here.
+	// The dashboard and the OAuth consent page, built by Vite. Anything not
+	// matched by /mcp, /api, /oauth or /export is served from here.
 	"assets": {
-		"directory": "./public",
+		"directory": "./dist/client",
 		"binding": "ASSETS"
 	},
 	"vars": {

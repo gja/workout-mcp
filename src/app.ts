@@ -239,7 +239,10 @@ async function handleApi(request: Request, url: URL, env: Env, user: User, baseU
   const path = url.pathname;
   const method = request.method;
 
-  if (path === '/api/me') return json(user);
+  // The window comes from the server because it is computed in UTC: a client
+  // deriving it from its own local midnight would disagree at the edges and
+  // drop a workout the server legitimately returned.
+  if (path === '/api/me') return json({ ...user, window: db.retentionWindow() });
 
   if (path === '/api/workouts' || path === '/api/workouts.json') {
     if (method === 'GET') {
