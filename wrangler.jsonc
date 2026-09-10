@@ -1,43 +1,45 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "workout-mcp",
-  "main": "src/index.ts",
-  "compatibility_date": "2025-09-01",
-
-  // The dashboard and the OAuth consent page. Anything not matched by /mcp,
-  // /api, /oauth or /export is served from here.
-  "assets": { "directory": "./public", "binding": "ASSETS" },
-
-  "vars": {
-    "APP_NAME": "Workouts"
-    // Sign-in is configured with secrets, not here. Google alone is enough:
-    //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
-    // Apple is optional and needs a paid developer account:
-    //   APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY
-    // Optional allowlist, e.g. "me@example.com,@myteam.com":
-    //   ALLOWED_EMAILS
-  },
-
-  // The OAuth provider stores clients, grants and tokens here.
-  "kv_namespaces": [
-    {
-      "binding": "OAUTH_KV",
-      // Replace with the id printed by: npx wrangler kv namespace create OAUTH_KV
-      "id": "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
-    }
-  ],
-
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "workout-mcp",
-      // Replace with the id printed by: npx wrangler d1 create workout-mcp
-      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID"
-    }
-  ],
-
-  // Nightly retention sweep (03:00 UTC).
-  "triggers": { "crons": ["0 3 * * *"] },
-
-  "observability": { "enabled": true }
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "workout-mcp",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-09-01",
+	// The dashboard and the OAuth consent page. Anything not matched by /mcp,
+	// /api, /oauth or /export is served from here.
+	"assets": {
+		"directory": "./public",
+		"binding": "ASSETS"
+	},
+	"vars": {
+		"APP_NAME": "Workouts"
+		// Sign-in is configured with secrets, not here. Google alone is enough:
+		//   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+		// Apple is optional and needs a paid developer account:
+		//   APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY
+		// Optional allowlist, e.g. "me@example.com,@myteam.com":
+		//   ALLOWED_EMAILS
+	},
+	// The OAuth provider stores clients, grants and tokens here.
+	"kv_namespaces": [
+		{
+			"binding": "OAUTH_KV",
+			// Replace with the id printed by: npx wrangler kv namespace create OAUTH_KV
+			"id": "ff5cb050b73a410f9b1482c2d18d1f53"
+		}
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "workout-mcp",
+			"database_id": "8c2f9ce3-5892-44ec-883f-7149426219c6"
+		}
+	],
+	// Nightly retention sweep (03:00 UTC).
+	"triggers": {
+		"crons": [
+			"0 3 * * *"
+		]
+	},
+	"observability": {
+		"enabled": true
+	}
 }
