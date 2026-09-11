@@ -8,6 +8,8 @@ Worker, a D1 database, and a static dashboard.
 - **REST** at `/api/*` — for a Garmin Connect IQ app, Watchletic, or curl.
 - **FIT** at `/export/2026-09-12-a1b2c3d4.fit` — drop it on a watch.
 - **Dashboard** at `/` — see the plan, tick sessions off, download files.
+- **intervals.icu** — paste in an API key and every workout you write here
+  lands on your calendar there; sessions you record there come back as done.
 - **Sign-in** with Google or Apple. No passwords, and no email to send.
 - **OAuth 2.1** via `@cloudflare/workers-oauth-provider`, so an MCP client can
   connect with a button rather than a pasted token.
@@ -131,6 +133,59 @@ anyway, so there is no reliable way to link them. And the in-flight sign-in
 state lives in D1 rather than a cookie, because Apple posts its callback back
 cross-site, where a `SameSite=Lax` cookie would not be sent; the state is a
 single-use random value with a ten-minute life.
+
+## Training platforms
+
+A plan that only lives here is a plan you have to remember to export. Connect a
+training platform on the dashboard and every workout you create, change or move
+is pushed to it, every workout you delete is taken off it, and every session
+you actually record there comes back here marked done.
+
+**intervals.icu** is the first, and the layer it sits behind
+(`src/platforms/`) is built for there to be others: an adapter is four
+functions — verify a credential, push a workout, remove one, list completions —
+and knows nothing about our storage, our routing or our retention.
+
+Connecting it takes an API key: in intervals.icu open **Settings** and find the
+**Developer Settings** box at the bottom. Paste it into the Training platforms
+section of the dashboard. The key is checked against intervals.icu before it is
+stored, so a typo fails there and then, and whatever is already planned is
+pushed straight away rather than trickling out as you next happen to edit
+something.
+
+The key is encrypted at rest with AES-GCM under `CREDENTIALS_SECRET`, which has
+to be set for connections to be offered at all:
+
+```bash
+npx wrangler secret put CREDENTIALS_SECRET   # any passphrase
+```
+
+Not hashed, unlike a session or an API token: the key has to be replayed to
+intervals.icu on every push, so it cannot be one-way. Without that secret there
+is nowhere safe to put it, so the dashboard says so and refuses rather than
+quietly storing it in the clear.
+
+A few details worth knowing:
+
+- **The workout is sent as the FIT file a watch would get.** intervals.icu
+  accepts one on its calendar endpoint, so the structure that arrives is
+  exactly the structure we encode — nested repeats, open-ended steps, every
+  target type — with no second serialiser to keep in step with the first.
+- **A push is an upsert, not an append.** Every workout carries a key of ours
+  that survives edits, moves and the retention sweep, so re-pushing updates the
+  event already there instead of piling up duplicates.
+- **A platform never fails your write.** intervals.icu being down, or a key
+  having been revoked, is recorded against the connection and shown on the
+  dashboard; creating the workout still succeeds, and the next write or
+  **Sync now** retries. Sync also only pushes what has actually changed.
+- **Retention is ours, not theirs.** A workout ageing out of our 7/14-day
+  window is not taken off your intervals.icu calendar.
+- **Completion is polled, not pushed.** intervals.icu delivers webhooks only to
+  OAuth applications it has approved, and this integration is a key you pasted
+  in, so there is no callback to register. Instead, an hourly cron reads back
+  the activities intervals.icu has paired with the events we created and marks
+  those workouts done; **Sync now** does the same on demand. Nothing goes the
+  other way: ticking a session off here does not manufacture an activity there.
 
 ## Connecting an MCP client
 
@@ -433,6 +488,10 @@ session cookie set at login.
 | `DELETE /api/workouts/:date/:id.json` | Delete one |
 | `POST /api/workouts/:date/:id/complete` | Mark it done; `{completed_at}` optional, defaults to now |
 | `DELETE /api/workouts/:date/:id/complete` | Clear that, leaving the plan alone |
+| `GET /api/platforms` | Training platforms and where each one stands |
+| `PUT /api/platforms/:platform` | `{key}` — verify a credential, store it, and sync |
+| `DELETE /api/platforms/:platform` | Disconnect, forgetting the key and the links |
+| `POST /api/platforms/:platform/sync` | Push what has changed, read completions back |
 | `GET /export/:date-:id.fit` | The FIT file |
 | `POST /api/tools/:name` | Any MCP tool, over REST |
 
@@ -454,6 +513,8 @@ src/resolve.ts    plan -> the model FIT needs, and the validator that proves it
 src/fit.ts        FIT encoding, including flattening nested repeats
 src/describe.ts   human-readable rendering, shared by MCP and the dashboard
 src/db.ts         D1 queries and retention
+src/plan.ts       every write to the plan, and the platforms it tells
+src/platforms/    training platforms: the interface, the store, intervals.icu
 src/identity.ts   signing in with Google or Apple
 src/auth.ts       sessions, accounts and API tokens
 src/tools.ts      the tool surface shared by MCP and REST
@@ -462,6 +523,13 @@ src/router.ts     a small path router: `:params`, and 405 apart from 404
 src/app.ts        the OAuth provider's defaultHandler: login, consent, REST, assets
 src/index.ts      the provider itself, and the protected /mcp handler
 ```
+
+Writes go through `src/plan.ts` whether they arrived over REST or as an MCP
+tool call. Before it, `app.ts` and `tools.ts` each had their own copy of the
+same three-step dance — read the old row, carry the completion across, delete
+before a move — and a change to the rules meant finding both. It is also the
+one place the connected platforms hear about a change, which is what keeps
+them in step no matter which door the write came in through.
 
 `src/index.ts` constructs the `OAuthProvider`, which wraps everything: it
 claims the OAuth endpoints and `/mcp`, and passes every other request to
@@ -478,7 +546,10 @@ cannot map the API by reading status codes back.
 Nothing is stored in the clear. Session ids and API tokens are SHA-256 hashes
 in D1; OAuth grants and their tokens are the library's problem, in KV. The
 dashboard only ever shows a token prefix, and the full value is returned
-exactly once, when it is minted.
+exactly once, when it is minted. A training platform's API key is the one
+credential that cannot be hashed, because it has to be replayed on every push,
+so it is AES-GCM encrypted under `CREDENTIALS_SECRET` with a fresh nonce per
+write — and without that secret, storing one is refused.
 
 An ID token coming back from Google or Apple is not signature-checked, and
 does not need to be: it arrives over TLS from the provider's own token
@@ -501,12 +572,14 @@ Two things are worth knowing if you touch `fit.ts`:
 Tests run inside `workerd` via `@cloudflare/vitest-pool-workers`, so the FIT
 encoder and the D1 queries are exercised on the same runtime that serves
 production traffic. FIT files are asserted by decoding them again with the
-SDK's own decoder. Google and Apple are stood in for by an auxiliary Worker
-that Miniflare routes all outbound traffic to, so the real `arctic` path runs
-— Apple's signed client secret included — without touching the network.
+SDK's own decoder. Google, Apple and intervals.icu are stood in for by an
+auxiliary Worker that Miniflare routes all outbound traffic to, so the real
+`arctic` path runs — Apple's signed client secret included — without touching
+the network. The intervals.icu stand-in keeps a calendar, and a test reaches
+into it through a service binding to see what actually landed.
 
 ```bash
-npm test        # 215 tests
+npm test        # 235 tests
 npm run typecheck
 ```
 
@@ -519,6 +592,7 @@ npm run typecheck
 | `auth.test.ts` | Google and Apple sign-in, state handling, ID-token checks, sessions, API tokens |
 | `oauth.test.ts` | Discovery, registration, consent, the PKCE code exchange, refresh, connected apps |
 | `mcp.test.ts` | The JSON-RPC protocol and every tool |
+| `platforms.test.ts` | Connecting intervals.icu, pushing creates, edits, moves and deletes, surviving an outage, and completions coming back |
 
 ## Cost
 

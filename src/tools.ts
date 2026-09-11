@@ -5,10 +5,11 @@
  * workout, so it carries the examples rather than leaving them to prose.
  */
 
-import { encodeWorkoutFit, fitDownloadName } from './fit';
+import { base64Encode, encodeWorkoutFit, fitDownloadName } from './fit';
 import { describeWorkout, plannedTotals } from './describe';
 import * as db from './db';
 import type { Env, User } from './db';
+import * as plan from './plan';
 import { WorkoutError, parseWorkout } from './workout';
 import type { Workout } from './workout';
 import { parseDate, parseTimestamp } from './units';
@@ -314,33 +315,24 @@ export async function callTool(name: string, rawArgs: unknown, env: Env, user: U
     }
 
     case 'create_workout': {
-      const workout = await db.putWorkout(env, user.id, parseWorkout(args));
+      const workout = await plan.createWorkout(env, user, parseWorkout(args));
       return presentBrief(workout);
     }
 
     case 'update_workout': {
       const id = requireString(args, 'id');
       const currentDate = parseDate(requireString(args, 'current_date'), 'current_date');
-      const existing = await db.getWorkout(env, user.id, currentDate, id);
-      if (!existing) throw new ToolError(`no workout ${id} on ${currentDate}`);
-
       const { id: _id, current_date: _currentDate, ...rest } = args;
-      const input = parseWorkout(rest);
-      // Replacing the plan is not un-doing the session, and a move deletes the
-      // row the completion would otherwise have been carried across from.
-      if (existing.completed_at) input.completed_at = existing.completed_at;
-      // A moved workout keeps its id, so the old row has to go first — which
-      // means the date has to be checked before that, or a refused move takes
-      // the workout with it.
-      db.assertRetainable(input.date);
-      if (input.date !== currentDate) await db.deleteWorkout(env, user.id, currentDate, id);
-      return presentBrief(await db.putWorkout(env, user.id, input, id));
+
+      const workout = await plan.replaceWorkout(env, user, currentDate, id, parseWorkout(rest));
+      if (!workout) throw new ToolError(`no workout ${id} on ${currentDate}`);
+      return presentBrief(workout);
     }
 
     case 'delete_workout': {
       const date = parseDate(requireString(args, 'date'), 'date');
       const id = requireString(args, 'id');
-      if (!(await db.deleteWorkout(env, user.id, date, id))) throw new ToolError(`no workout ${id} on ${date}`);
+      if (!(await plan.deleteWorkout(env, user, date, id))) throw new ToolError(`no workout ${id} on ${date}`);
       return { deleted: true, date, id };
     }
 
@@ -365,7 +357,7 @@ export async function callTool(name: string, rawArgs: unknown, env: Env, user: U
           ? new Date().toISOString()
           : parseTimestamp(args.completed_at, 'completed_at');
 
-      const workout = await db.setCompleted(env, user.id, date, id, completedAt);
+      const workout = await plan.setCompleted(env, user, date, id, completedAt);
       if (!workout) throw new ToolError(`no workout ${id} on ${date}`);
       return presentBrief(workout);
     }
@@ -387,12 +379,6 @@ export async function callTool(name: string, rawArgs: unknown, env: Env, user: U
     default:
       throw new ToolError(`unknown tool "${name}"`);
   }
-}
-
-export function base64Encode(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
 }
 
 /** Caller-visible errors get a 400; everything else is ours. */

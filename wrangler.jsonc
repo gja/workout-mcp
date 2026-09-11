@@ -23,6 +23,11 @@
 		//   APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY
 		// Optional allowlist, e.g. "me@example.com,@myteam.com":
 		//   ALLOWED_EMAILS
+		//
+		// Encrypts the API keys athletes paste in to connect a training
+		// platform. Any passphrase; without it those connections are refused
+		// rather than stored in the clear:
+		//   CREDENTIALS_SECRET
 	},
 	// The OAuth provider stores clients, grants and tokens here.
 	"kv_namespaces": [
@@ -39,10 +44,13 @@
 			"database_id": "8c2f9ce3-5892-44ec-883f-7149426219c6"
 		}
 	],
-	// Nightly retention sweep (03:00 UTC).
+	// Nightly retention sweep (03:00 UTC), and an hourly pass that reads
+	// completions back off the connected training platforms — src/index.ts
+	// tells the two apart by the cron that fired.
 	"triggers": {
 		"crons": [
-			"0 3 * * *"
+			"0 3 * * *",
+			"20 * * * *"
 		]
 	},
 	"observability": {

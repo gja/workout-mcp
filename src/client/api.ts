@@ -71,6 +71,40 @@ export const completeWorkout = (workout: Workout, completedAt?: string): Promise
 export const uncompleteWorkout = (workout: Workout): Promise<Workout> =>
   request(completionUrl(workout), { method: 'DELETE' });
 
+/** A training platform the plan can be pushed to, and where it stands. */
+export type Platform = {
+  id: string;
+  label: string;
+  credential: { label: string; help: string; help_url: string };
+  connected: boolean;
+  account: string | null;
+  last_error: string | null;
+  /** How many workouts we have pushed and still track. */
+  synced: number;
+  updated_at: string | null;
+};
+
+/** What one sync run did. `remaining` is what the per-run cap left behind. */
+export type SyncReport = {
+  platform: string;
+  pushed: number;
+  remaining: number;
+  completed: number;
+  error: string | null;
+};
+
+export const listPlatforms = (): Promise<{ configured: boolean; platforms: Platform[] }> =>
+  request('/api/platforms');
+
+export const connectPlatform = (id: string, key: string): Promise<{ account: string; sync: SyncReport }> =>
+  request(`/api/platforms/${id}`, { method: 'PUT', body: { key } });
+
+export const disconnectPlatform = (id: string): Promise<unknown> =>
+  request(`/api/platforms/${id}`, { method: 'DELETE' });
+
+export const syncPlatform = (id: string): Promise<SyncReport> =>
+  request(`/api/platforms/${id}/sync`, { method: 'POST' });
+
 export const listTokens = (): Promise<{ tokens: ApiToken[] }> => request('/api/tokens');
 export const createToken = (name: string): Promise<IssuedToken> => request('/api/tokens', { method: 'POST', body: { name } });
 export const revokeToken = (prefix: string): Promise<unknown> => request(`/api/tokens/${prefix}`, { method: 'DELETE' });

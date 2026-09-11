@@ -21,10 +21,14 @@ export default defineConfig({
           APPLE_TEAM_ID: 'TEAM123456',
           APPLE_KEY_ID: 'KEY1234567',
           APPLE_PRIVATE_KEY: await generateTestApplePrivateKey(),
+          CREDENTIALS_SECRET: 'test-credentials-secret',
         },
         // Every outbound fetch goes to the stand-in provider instead of the
         // internet, so the real arctic code path still runs.
         outboundService: { name: 'upstream-provider' },
+        // The same Worker, reachable from a test: the intervals.icu stand-in
+        // keeps state, and a test has to be able to arrange and read it.
+        serviceBindings: { INTERVALS: 'upstream-provider' },
         workers: [
           {
             name: 'upstream-provider',

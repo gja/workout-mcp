@@ -18,6 +18,8 @@ import * as identity from './identity';
 import * as db from './db';
 import type { Env, User } from './db';
 import { encodeWorkoutFit, fitFilename } from './fit';
+import * as plan from './plan';
+import * as platforms from './platforms';
 import { Router } from './router';
 import type { Handler } from './router';
 import { callTool, isCallerError, present, presentBrief } from './tools';
@@ -317,7 +319,7 @@ const listWorkouts: Handler<AuthedContext> = async ({ url, env, user }) => {
 };
 
 const createWorkout: Handler<AuthedContext> = async ({ request, url, env, user }) => {
-  const workout = await db.putWorkout(env, user.id, parseWorkout(await request.json()));
+  const workout = await plan.createWorkout(env, user, parseWorkout(await request.json()));
   return json(presentBrief(workout, url.origin), 201);
 };
 
@@ -332,23 +334,16 @@ const getWorkout: Handler<AuthedContext, WorkoutRoute> = async ({ url, env, user
 
 const replaceWorkout: Handler<AuthedContext, WorkoutRoute> = async ({ request, url, env, user, params }) => {
   const date = parseDate(params.date, 'date');
-  const existing = await db.getWorkout(env, user.id, date, params.id);
-  if (!existing) return error(`no workout ${params.id} on ${date}`, 404);
-
   const input = parseWorkout(await request.json());
-  // Replacing the plan is not un-doing the session, and a move deletes the
-  // row the completion would otherwise have been carried across from.
-  if (existing.completed_at) input.completed_at = existing.completed_at;
-  // Before the delete below, so a refused date does not also cost the
-  // workout the caller was trying to move.
-  db.assertRetainable(input.date);
-  if (input.date !== date) await db.deleteWorkout(env, user.id, date, params.id);
-  return json(presentBrief(await db.putWorkout(env, user.id, input, params.id), url.origin));
+  const workout = await plan.replaceWorkout(env, user, date, params.id, input);
+  return workout
+    ? json(presentBrief(workout, url.origin))
+    : error(`no workout ${params.id} on ${date}`, 404);
 };
 
 const deleteWorkout: Handler<AuthedContext, WorkoutRoute> = async ({ env, user, params }) => {
   const date = parseDate(params.date, 'date');
-  const deleted = await db.deleteWorkout(env, user.id, date, params.id);
+  const deleted = await plan.deleteWorkout(env, user, date, params.id);
   return deleted ? json({ deleted: true, date, id: params.id }) : error(`no workout ${params.id} on ${date}`, 404);
 };
 
@@ -362,7 +357,7 @@ const setCompletion = async (
 ): Promise<Response> => {
   const { url, env, user, params } = context;
   const date = parseDate(params.date, 'date');
-  const workout = await db.setCompleted(env, user.id, date, params.id, completedAt);
+  const workout = await plan.setCompleted(env, user, date, params.id, completedAt);
   return workout ? json(presentBrief(workout, url.origin)) : error(`no workout ${params.id} on ${date}`, 404);
 };
 
@@ -379,6 +374,64 @@ const completeWorkout: Handler<AuthedContext, CompletionRoute> = async (context)
 };
 
 const uncompleteWorkout: Handler<AuthedContext, CompletionRoute> = (context) => setCompletion(context, null);
+
+// ---------------------------------------------------------------------------
+// Training platforms
+// ---------------------------------------------------------------------------
+
+/**
+ * Every platform we can sync to, and where each one stands for this athlete.
+ * Unconnected ones are listed too, so the dashboard can offer them.
+ */
+const listPlatforms: Handler<AuthedContext> = async ({ env, user }) =>
+  json({ configured: platforms.credentialsConfigured(env), platforms: await platforms.status(env, user) });
+
+type PlatformRoute = '/api/platforms/:platform([a-z_]+)';
+
+/** The platform the path named, or a 404 response to return instead. */
+const namedPlatform = (name: string): platforms.PlatformId | Response =>
+  platforms.isPlatformId(name) ? name : error(`unknown platform "${name}"`, 404);
+
+/**
+ * Connect a platform by storing the athlete's key, then push what we have.
+ *
+ * The key is checked against the platform before it is stored, so a typo is a
+ * 400 here rather than an error that only shows up on the next workout. The
+ * first sync runs straight away: a calendar that fills in only when the next
+ * workout happens to be written would look broken.
+ */
+const connectPlatform: Handler<AuthedContext, PlatformRoute> = async ({ request, env, user, params }) => {
+  const platform = namedPlatform(params.platform);
+  if (platform instanceof Response) return platform;
+
+  const body = (await request.json().catch(() => ({}))) as { key?: unknown };
+  const key = typeof body.key === 'string' ? body.key.trim() : '';
+  if (!key) return error('key is required', 400);
+
+  try {
+    const account = await platforms.connect(env, user, platform, key);
+    return json({ connected: true, account: account.name ?? account.id, sync: await platforms.syncNow(env, user, platform) });
+  } catch (err) {
+    if (err instanceof platforms.CredentialsUnavailable) return error(err.message, 503);
+    if (err instanceof platforms.PlatformError) return error(err.message, 400);
+    throw err;
+  }
+};
+
+const disconnectPlatform: Handler<AuthedContext, PlatformRoute> = async ({ env, user, params }) => {
+  const platform = namedPlatform(params.platform);
+  if (platform instanceof Response) return platform;
+  return (await platforms.disconnect(env, user, platform))
+    ? json({ disconnected: true })
+    : error('that platform is not connected', 404);
+};
+
+/** Push anything out of date and read completions back, on demand. */
+const syncPlatform: Handler<AuthedContext, `${PlatformRoute}/sync`> = async ({ env, user, params }) => {
+  const platform = namedPlatform(params.platform);
+  if (platform instanceof Response) return platform;
+  return json(await platforms.syncNow(env, user, platform));
+};
 
 /** The MCP tools, reachable over plain REST. */
 const runTool: Handler<AuthedContext, '/api/tools/:name([a-z_]+)'> = async ({ request, env, user, params }) =>
@@ -415,6 +468,7 @@ function splitDateId(slug: string): { date: string; id: string } | null {
 // ---------------------------------------------------------------------------
 
 const WORKOUT: WorkoutRoute = '/api/workouts/:date(\\d{4}-\\d{2}-\\d{2})/:id([0-9a-z]+)';
+const PLATFORM: PlatformRoute = '/api/platforms/:platform([a-z_]+)';
 
 /**
  * Under the API prefixes a fallback is answered the way a route would be: the
@@ -461,6 +515,11 @@ const routes = new Router<Context>({
   .delete(WORKOUT, withUser(deleteWorkout))
   .post(`${WORKOUT}/complete`, withUser(completeWorkout))
   .delete(`${WORKOUT}/complete`, withUser(uncompleteWorkout))
+  .get('/api/platforms', withUser(listPlatforms))
+  .put(PLATFORM, withUser(connectPlatform))
+  .delete(PLATFORM, withUser(disconnectPlatform))
+  .post(`${PLATFORM}/sync`, withUser(syncPlatform))
+
   .post('/api/tools/:name([a-z_]+)', withUser(runTool))
 
   .get('/export/:slug', withUser(exportFit));

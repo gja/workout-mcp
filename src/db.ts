@@ -52,6 +52,13 @@ export type Env = {
 
   /** Optional sign-up allowlist: addresses or "@domain", comma separated. */
   ALLOWED_EMAILS?: string;
+
+  /**
+   * Encrypts the API keys athletes paste in for intervals.icu and any other
+   * training platform. Any passphrase will do; without it those connections
+   * are refused rather than stored in the clear.
+   */
+  CREDENTIALS_SECRET?: string;
 };
 
 export type User = { id: string; email: string | null };
