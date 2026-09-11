@@ -1,10 +1,5 @@
-/**
- * Dates, always in the athlete's own timezone.
- *
- * Workout dates are plain `YYYY-MM-DD` — a day on a calendar, not an instant —
- * so every conversion here goes through local midnight. `toISOString` would
- * push the date back a day for anyone west of Greenwich.
- */
+// A workout date is a day on a calendar, not an instant, so every conversion here
+// goes through *local* midnight. `toISOString` would lose a day west of Greenwich.
 
 export const startOfToday = (): Date => {
   const now = new Date();
@@ -41,10 +36,7 @@ export const shortDate = (date: Date): string => date.toLocaleDateString(undefin
 export const longDate = (date: Date): string =>
   date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 
-/**
- * "Monday, 12 Sep · tomorrow". Rounded, because the millisecond difference is
- * not a whole number of days across a DST boundary.
- */
+/** Rounded: across a DST boundary the difference is not a whole number of days. */
 export function relativeDate(key: string): string {
   const date = fromKey(key);
   const label = date.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
@@ -55,11 +47,7 @@ export function relativeDate(key: string): string {
   return label;
 }
 
-/**
- * `YYYY-MM-DDTHH:mm` in local time, which is the only shape
- * `<input type="datetime-local">` accepts. `toISOString` would hand it UTC and
- * the field would show the wrong hour for anyone not on it.
- */
+/** Local `YYYY-MM-DDTHH:mm`, the only shape `<input type="datetime-local">` accepts. */
 export function toLocalInput(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${toKey(date)}T${pad(date.getHours())}:${pad(date.getMinutes())}`;

@@ -1,21 +1,5 @@
-/**
- * A very small router, so routing can be read as a table instead of a chain of
- * `startsWith` checks.
- *
- * Patterns are paths whose segments may be `:name`, optionally constrained by
- * a regular expression: `/api/workouts/:date(\d{4}-\d{2}-\d{2})/:id([0-9a-z]+)`.
- * A constraint is what keeps a nonsense path a 404 rather than letting it
- * reach a handler that would call it a bad request.
- *
- * Routes are tried in the order they are declared. A path that matches but
- * offers no such method is answered by `methodNotAllowed` rather than falling
- * through to `notFound`, so "no such route" and "not that way" stay distinct.
- * HEAD is served by the GET route, as the method is defined to be: the runtime
- * drops the body on the way out.
- *
- * The context is the caller's: this module knows nothing about the app beyond
- * the path it is asked to match.
- */
+// A very small router: `:name` segments with optional regex constraints, tried in
+// declaration order, 405 kept distinct from 404. See docs/architecture.md.
 
 /** The `:name` segments of a pattern, as a type. `Params<'/a/:b'>` is `{ b: string }`. */
 export type Params<Pattern extends string> = Record<ParamNames<Pattern>, string>;
@@ -34,7 +18,7 @@ export type Handler<Context, Pattern extends string = string> = (
   context: Context & { params: Params<Pattern> },
 ) => Response | Promise<Response>;
 
-/** What the router needs of a context: the path to match against. */
+/** All the router needs of a context. */
 export type Routable = { path: string };
 
 export type Fallbacks<Context> = {

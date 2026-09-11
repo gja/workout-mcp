@@ -3,10 +3,7 @@ import { listProviders } from '../api';
 
 const LABELS: Record<string, string> = { google: 'Continue with Google', apple: 'Continue with Apple' };
 
-/**
- * Signing in is a full-page navigation, so there is no success callback: the
- * browser leaves and comes back with a session cookie already set.
- */
+/** A full-page navigation, so there is no success callback to wire up. */
 export function SignIn({ intro, returnTo }: { intro: string; returnTo?: string }) {
   const [providers, setProviders] = useState<string[] | null>(null);
   const [error, setError] = useState(() => new URLSearchParams(location.search).get('error'));

@@ -1,8 +1,4 @@
-/**
- * Parsing helpers for the human-friendly values accepted by the workout API:
- * durations ("10:00"), paces ("4:30" per km/mile) and open-ended ranges
- * (`["6:30", "-"]` — "faster than 6:30, no lower bound").
- */
+// Parsing the human-friendly values the workout API takes: durations, paces, open-ended ranges.
 
 export class WorkoutError extends Error {
   readonly path: string;
@@ -12,9 +8,7 @@ export class WorkoutError extends Error {
   }
 }
 
-// The explicit annotation on the binding, rather than only on the arrow, is
-// what lets TypeScript treat a `fail(...)` call as unreachable-after and
-// narrow the types that follow it.
+// Annotated on the binding, not just the arrow: that is what narrows the types after a call.
 export const fail: (path: string, message: string) => never = (path, message) => {
   throw new WorkoutError(path, message);
 };
@@ -25,10 +19,7 @@ const UNSPECIFIED = new Set(['-', '', '*', 'any', 'none', 'null']);
 const isUnspecified = (v: unknown): boolean =>
   v === null || v === undefined || (typeof v === 'string' && UNSPECIFIED.has(v.trim().toLowerCase()));
 
-/**
- * Seconds from a number or a "ss" / "mm:ss" / "hh:mm:ss" string.
- * Bare numbers are always seconds, so `goal_s: 300` and `goal_s: "5:00"` agree.
- */
+/** Bare numbers are always seconds, so `goal_s: 300` and `goal_s: "5:00"` agree. */
 export function parseSeconds(value: unknown, path: string): number {
   if (typeof value === 'number') {
     if (!Number.isFinite(value) || value <= 0) fail(path, `expected a positive number of seconds, got ${value}`);
@@ -64,13 +55,7 @@ export function parseInteger(value: unknown, path: string, min: number, max: num
   return n;
 }
 
-/**
- * A range with either end optionally unbounded.
- *
- * Accepts `[low, high]`, a single scalar (both ends equal), or `[low]`.
- * Ends are always ordered low-to-high as written, so for pace — where a
- * lower number is faster — `["6:30", "-"]` reads "faster than 6:30".
- */
+/** `[low, high]`, `[low]`, or a scalar for both. Always low-to-high as written. */
 export function parseRange<T>(
   value: unknown,
   path: string,
@@ -124,13 +109,7 @@ export function parseDate(value: unknown, path: string): string {
   return date;
 }
 
-/**
- * An instant, normalized to UTC: `2026-09-12T06:30:00.000Z`.
- *
- * A bare `YYYY-MM-DD` is accepted and read as the start of that day, since a
- * caller logging a session after the fact often knows the day and not the
- * hour. Anything else has to be something `Date` understands.
- */
+/** UTC. A bare `YYYY-MM-DD` is the start of that day — logging after the fact. */
 export function parseTimestamp(value: unknown, path: string): string {
   if (typeof value !== 'string') {
     fail(path, `expected an ISO 8601 timestamp, got ${typeof value}`);

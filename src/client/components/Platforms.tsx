@@ -18,13 +18,7 @@ function describeSync(report: SyncReport): string {
   return parts.length > 0 ? `Synced: ${parts.join(', ')}.` : 'Already up to date.';
 }
 
-/**
- * One platform: the key form while it is disconnected, and what the last sync
- * did once it is.
- *
- * `onSynced` reloads the calendar, because a sync can mark sessions done —
- * that is the only way a completion recorded on the platform gets here.
- */
+/** `onSynced` reloads the calendar: a sync is how a completion recorded upstream arrives. */
 function PlatformCard({
   platform,
   onChanged,
@@ -57,8 +51,7 @@ function PlatformCard({
     void run(async () => {
       const { sync } = await connectPlatform(platform.id, key);
       setKey('');
-      // A key that stores but cannot sync is worth saying out loud here,
-      // rather than only as the connection's standing error.
+      // A key that stores but cannot sync is worth saying here, not only as a standing error.
       setNote(sync.error ? `Connected, but the first sync failed: ${sync.error}` : describeSync(sync));
       onChanged();
       onSynced();
@@ -157,9 +150,7 @@ export function Platforms({ onSynced }: { onSynced: () => void }) {
 
   useEffect(reload, []);
 
-  // Only the first load is silent. Once it has failed there is something to
-  // say, and returning null here would say nothing at all — including about
-  // an unconfigured Worker, which is the likeliest reason to be looking.
+  // Only the first load is silent: after that, saying nothing hides an unconfigured Worker.
   if (platforms === null && error === null) return null;
 
   return (

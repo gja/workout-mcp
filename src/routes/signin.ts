@@ -1,10 +1,4 @@
-/**
- * Signing in, and signing out.
- *
- * Who the athlete is comes from Google or Apple, in `src/identity.ts`; what is
- * left here is the two legs of the redirect dance and the cookie that falls
- * out of it.
- */
+// The two legs of the redirect dance, and the cookie that falls out of it.
 
 import * as auth from '../auth';
 import * as identity from '../identity';
@@ -21,7 +15,7 @@ async function callbackParams(request: Request, url: URL): Promise<URLSearchPara
   return params;
 }
 
-/** `Response.redirect` gives an immutable response, so it has to be rebuilt. */
+/** `Response.redirect` is immutable, so adding a cookie means rebuilding it. */
 function withCookie(response: Response, cookie: string): Response {
   const headers = new Headers(response.headers);
   headers.append('Set-Cookie', cookie);
@@ -40,8 +34,7 @@ const startLogin: Route<'/auth/:provider/start'> = async ({ url, env, params }) 
   try {
     const returnTo = url.searchParams.get('return_to');
     const { url: authorizationUrl, state } = await identity.startLogin(env, params.provider, url.origin, returnTo);
-    // The state also goes to the browser, so the callback can prove it is
-    // finishing the sign-in this browser started rather than someone else's.
+    // The state also goes to the browser, so the callback can prove whose sign-in it finishes.
     return new Response(null, {
       status: 302,
       headers: {
@@ -75,9 +68,7 @@ const finishLogin: Route<'/auth/:provider/callback'> = async ({ request, url, en
     throw err;
   }
 
-  // An unverified address is only a claim, and `ALLOWED_EMAILS` is an
-  // authorization decision — so it is weighed as if no address were given,
-  // which the allowlist refuses. The address is still stored for display.
+  // An unverified address is a claim, not a fact, so the allowlist is asked as if there were none.
   if (!auth.isAllowed(env, who.emailVerified ? who.email : null)) {
     return withCookie(
       backToDashboard(url.origin, 'that account is not allowed to sign in here'),

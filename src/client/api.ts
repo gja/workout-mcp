@@ -1,11 +1,4 @@
-/**
- * Talking to the Worker.
- *
- * Everything is same-origin and authenticated by the session cookie, so there
- * is no token handling here. Every call goes through `request`, which turns a
- * non-2xx into a thrown `Error` carrying the server's own message — a delete
- * that quietly failed used to look exactly like one that worked.
- */
+// Talking to the Worker. Same-origin and cookie-authenticated, so no token handling here.
 
 export type PlannedTotals = { seconds: number; meters: number; steps: number; open_steps: number };
 
@@ -17,7 +10,7 @@ export type Workout = {
   sub_sport?: string;
   notes?: string;
   external_id?: string;
-  /** When the session was actually done, as an ISO instant; absent while planned. */
+  /** An ISO instant, absent while the session is still only planned. */
   completed_at?: string;
   updated_at: string;
   /** Server-rendered prose. The first line is a header; the rest are the steps. */
@@ -27,7 +20,7 @@ export type Workout = {
   json_url: string;
 };
 
-/** The retention window the server is actually using, in its own reckoning. */
+/** The server's own reckoning of it — it is computed in UTC. */
 export type Window = { from: string; to: string };
 
 export type Me = { id: string; email: string | null; window: Window };
@@ -63,15 +56,15 @@ export const deleteWorkout = (workout: Workout): Promise<unknown> => request(wor
 
 const completionUrl = (workout: Workout): string => `/api/workouts/${workout.date}/${workout.id}/complete`;
 
-/** Mark a session done. `completedAt` is an ISO instant; the server uses now without one. */
+/** `completedAt` is an ISO instant; the server uses now without one. */
 export const completeWorkout = (workout: Workout, completedAt?: string): Promise<Workout> =>
   request(completionUrl(workout), { method: 'POST', body: { completed_at: completedAt ?? null } });
 
-/** Put a session back to merely planned, leaving the plan itself alone. */
+/** Back to merely planned, leaving the plan itself alone. */
 export const uncompleteWorkout = (workout: Workout): Promise<Workout> =>
   request(completionUrl(workout), { method: 'DELETE' });
 
-/** A training platform the plan can be pushed to, and where it stands. */
+/** A training platform, and where it stands for this athlete. */
 export type Platform = {
   id: string;
   label: string;
@@ -84,11 +77,11 @@ export type Platform = {
   updated_at: string | null;
 };
 
-/** What one sync run did. `remaining` is what the per-run cap left behind. */
+/** `remaining` is what the per-run cap left behind. */
 export type SyncReport = {
   platform: string;
   pushed: number;
-  /** Workouts taken off the platform because a delete had not reached it. */
+  /** Taken off the platform because a delete had not reached it. */
   removed: number;
   remaining: number;
   completed: number;
@@ -122,13 +115,7 @@ export const approveAuthorization = (query: string): Promise<{ redirect: string 
 
 export const signOut = (): Promise<unknown> => request('/api/auth/logout', { method: 'POST' });
 
-/**
- * Fetch the FIT file and hand it to the browser as a blob, so the session
- * credential never lands in a URL or a history entry.
- *
- * The anchor goes into the document and the object URL is released on a later
- * tick: revoking it synchronously races the start of the download.
- */
+// Fetched as a blob so the session credential never lands in a URL or a history entry.
 export async function downloadFit(workout: Workout): Promise<void> {
   const response = await fetch(workout.fit_url);
   if (!response.ok) throw new Error(`could not export the FIT file (${response.status})`);
@@ -138,5 +125,6 @@ export async function downloadFit(workout: Workout): Promise<void> {
   document.body.append(link);
   link.click();
   link.remove();
+  // A later tick: revoking synchronously races the start of the download.
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }

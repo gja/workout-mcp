@@ -24,13 +24,10 @@ function Dashboard({ me }: { me: Me }) {
 
   useEffect(reload, [reload]);
 
-  // A workout deleted while selected simply falls out of the list, and the
-  // panel goes with it — no cleanup needed.
+  // A workout deleted while selected falls out of the list, and the panel with it.
   const open = workouts.find((workout) => `${workout.date}/${workout.id}` === selected);
 
-  // Picking a day off the calendar should bring its workout into view, since
-  // the panel opens below the fold on a short viewport. Keyed on the selection
-  // rather than on `open`, so a reload of the same workout does not re-scroll.
+  // Keyed on the selection, not on `open`, so reloading the same workout does not re-scroll.
   useEffect(() => {
     if (selected) panel.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [selected]);
@@ -53,8 +50,7 @@ function Dashboard({ me }: { me: Me }) {
       {open && (
         <div className="day" ref={panel}>
           <h3>{relativeDate(open.date)}</h3>
-          {/* Keyed, so the completion time in the card is seeded from the
-              workout being shown rather than the one shown before it. */}
+          {/* Keyed, so the card's completion time is seeded from this workout, not the last. */}
           <WorkoutCard key={selected} workout={open} onChanged={reload} />
         </div>
       )}

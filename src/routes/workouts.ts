@@ -1,7 +1,4 @@
-/**
- * The workouts themselves: the REST API the dashboard talks to, the MCP tool
- * surface reachable over plain REST, and the FIT download a watch follows.
- */
+// The REST API, the tools over plain REST, and the FIT download a watch follows.
 
 import * as db from '../db';
 import { encodeWorkoutFit, fitFilename } from '../fit';
@@ -55,10 +52,7 @@ const deleteWorkout: AuthedRoute<WorkoutRoute> = async ({ env, user, params }) =
   return deleted ? json({ deleted: true, date, id: params.id }) : error(`no workout ${params.id} on ${date}`, 404);
 };
 
-/**
- * Completing a workout is its own verb rather than a field on the plan, so
- * marking a session done does not mean resending — or risk rewriting — it.
- */
+/** Its own verb, so marking a session done never means resending the plan. */
 const setCompletion = async (
   context: Parameters<AuthedRoute<CompletionRoute>>[0],
   completedAt: string | null,

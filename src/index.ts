@@ -1,18 +1,5 @@
-/**
- * The Worker entry point.
- *
- * `@cloudflare/workers-oauth-provider` wraps the app: it owns the OAuth
- * metadata documents, the token endpoint and client registration, validates
- * the bearer token on `/mcp`, and passes everything else to `app`.
- *
- * Two kinds of credential reach `/mcp`:
- *
- *   - an OAuth access token the provider issued, which it validates itself;
- *   - one of our own `wk_` API tokens, resolved by `resolveExternalToken`,
- *     for MCP clients that only take a static header.
- *
- * Both arrive at the handler below as the same `ctx.props`.
- */
+// The Worker entry point: the OAuth provider wraps the app and claims /mcp.
+// See docs/architecture.md for the request path, docs/mcp.md for the two credentials.
 
 import { OAuthProvider } from '@cloudflare/workers-oauth-provider';
 import { app } from './app';
@@ -29,7 +16,7 @@ import { WorkoutError } from './workout';
 /** What `completeAuthorization` stores on the grant, and hands back here. */
 type AuthProps = { userId: string; email: string | null };
 
-/** The sweep's cron, as `wrangler.jsonc` spells it. The other one is hourly. */
+/** Spelled as `wrangler.jsonc` spells it. The other cron is hourly. */
 const NIGHTLY = '0 3 * * *';
 
 const mcpHandler = {
@@ -51,22 +38,16 @@ const provider = new OAuthProvider<Env>({
   apiHandler: mcpHandler,
   defaultHandler: app,
 
-  // The provider implements these two; the authorize endpoint is ours,
-  // because only we know how to sign someone in.
+  // The authorize endpoint is ours: only we know how to sign someone in.
   tokenEndpoint: '/oauth/token',
   clientRegistrationEndpoint: '/oauth/register',
   authorizeEndpoint: '/oauth/authorize',
 
   scopesSupported: [SCOPE],
 
-  // `resourceMetadata` is deliberately left unset: the provider then derives
-  // the resource and issuer from the request, so the same build works on
-  // localhost and on your domain with nothing to configure.
+  // `resourceMetadata` is left unset on purpose, so the provider derives it per request.
 
-  /**
-   * Let our own API tokens through the same door as OAuth tokens. Called
-   * only when the token is not one the provider issued.
-   */
+  /** Our own `wk_` tokens, through the same door. Only called for tokens it did not issue. */
   async resolveExternalToken({ token, env }) {
     if (!auth.isApiToken(token)) return null;
     const user = await auth.findTokenOwner(env, token);
@@ -77,27 +58,10 @@ const provider = new OAuthProvider<Env>({
 export default {
   fetch: (request: Request, env: Env, ctx: ExecutionContext) => provider.fetch(request, env, ctx),
 
-  /**
-   * Two schedules, told apart by which cron fired.
-   *
-   * Hourly: read completions back off the connected platforms. intervals.icu
-   * delivers webhooks only to OAuth applications it has approved, and this
-   * integration is a key the athlete pastes in, so there is no callback to
-   * register — a session recorded there becomes a workout marked done here
-   * within the hour instead.
-   *
-   * Nightly (`NIGHTLY`): the credential housekeeping — expired sessions,
-   * abandoned sign-ins, stale OAuth grants — plus a retry of any platform
-   * connection stuck on an error, since nothing else picks those up.
-   *
-   * Workouts are deliberately not swept. The window and the per-user cap are
-   * enforced on the way in and on every read, so an older session stops being
-   * visible without anything having to delete it; see `src/db.ts`.
-   */
+  /** Two schedules, told apart by which cron fired. See "Scheduled work" in docs/deployment.md. */
   async scheduled(event: ScheduledController, env: Env): Promise<void> {
-    // Guarded, and first: reading completions means talking to somebody
-    // else's server, and none of the housekeeping below should be skipped
-    // because that went wrong.
+    // First, and guarded: this talks to someone else's server, and the housekeeping below
+    // must not be skipped because that went wrong.
     const completed = await platforms.pullEveryCompletion(env).catch((err: unknown) => {
       console.error('reading completions back failed', err);
       return 0;

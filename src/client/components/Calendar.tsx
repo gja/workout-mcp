@@ -2,13 +2,8 @@ import type { Workout, Window } from '../api';
 import { calendarDays, longDate, shortDate, fromKey, toKey } from '../dates';
 import { plannedSummary, sportIcon } from '../format';
 
-/**
- * The retention window as whole Sunday-to-Saturday weeks.
- *
- * The window comes from the server, which computes it in UTC; it is widened to
- * cover any workout actually returned so an edge-of-window session cannot fall
- * off a calendar drawn in local time.
- */
+// Whole Sunday-to-Saturday weeks, widened to cover every workout returned: the server's
+// window is UTC and this calendar is local, so the edges disagree.
 function windowCovering(window: Window, workouts: Workout[]): Window {
   return workouts.reduce(
     (span, workout) => ({

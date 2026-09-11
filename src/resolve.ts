@@ -1,15 +1,5 @@
-/**
- * Resolving a plan into the model the FIT encoder needs.
- *
- * A stored workout keeps the steps as the caller wrote them — `goal_s`,
- * `target_pace_km`, an optional `intensity`. That is a good shape for an API
- * and a poor one for an encoder, which wants a single duration, one or two
- * targets, and speeds in metres per second. This module is where the one
- * becomes the other, and it is the only place that knows FIT's shape.
- *
- * It doubles as the validator: `parseWorkout` resolves every step and throws
- * away the result, so there is one set of rules rather than two.
- */
+// A plan in the shape the caller wrote it -> the model the FIT encoder needs.
+// Doubles as the validator, so there is one set of rules. See docs/workouts.md.
 
 import {
   METRES_PER_MILE,
@@ -34,7 +24,7 @@ export type Target =
   | { type: 'open' }
   | { type: 'zone'; metric: ZoneMetric; zone: number }
   | { type: 'heart_rate'; low: HrValue | null; high: HrValue | null }
-  /** Speed in m/s. `unit` records how the caller wrote it, for display only. */
+  /** Speed in m/s. `unit` is only how the caller wrote it, for display. */
   | { type: 'speed'; low: number | null; high: number | null; unit: 'km' | 'mi' }
   | { type: 'power'; low: PowerValue | null; high: PowerValue | null }
   | { type: 'cadence'; low: number | null; high: number | null };
@@ -52,7 +42,7 @@ export type ResolvedStep =
       secondary_target?: Target;
     };
 
-/** Duration keys, in the order they are reported when a caller sets two. */
+/** In the order they are reported when a caller sets two. */
 export const DURATION_KEYS = ['goal_s', 'goal_meters', 'goal_km', 'goal_miles', 'goal_yards'] as const;
 
 export const TARGET_KEYS = [
@@ -74,9 +64,7 @@ export function setKeys(raw: Record<string, unknown>, keys: readonly string[]): 
   return keys.filter((k) => raw[k] !== undefined && raw[k] !== null);
 }
 
-// ---------------------------------------------------------------------------
-// Values
-// ---------------------------------------------------------------------------
+// --- Values ----------------------------------------------------------------
 
 /** `150` or `"150"` -> bpm; `"85%"` -> percent of max HR. */
 function parseHr(value: unknown, path: string): HrValue {
@@ -96,19 +84,8 @@ function parsePower(value: unknown, path: string): PowerValue {
 
 const parseCadence = (value: unknown, path: string): number => parseInteger(value, path, 1, 254);
 
-/**
- * A pace range over `metres` -> a speed range in m/s.
- *
- * Positions mean the same thing as in every other range: the first entry is the
- * floor on effort and the second the ceiling. Since a *lower* pace number is a
- * *higher* speed, that reads as:
- *
- *   ["6:30", "-"]     faster than 6:30 — a floor on speed
- *   ["-", "8:00"]     slower than 8:00 — a ceiling on speed
- *
- * When both ends are given the band is unambiguous whichever way round it is
- * written, so ["4:00", "4:15"] and ["4:15", "4:00"] both mean 4:00-4:15.
- */
+// A lower pace number is a higher speed, so the ends swap here; two-sided bands
+// are unambiguous either way round. See "Ranges" in docs/workouts.md.
 function paceRangeToSpeed(value: unknown, path: string, metres: number): { low: number | null; high: number | null } {
   const [first, second] = parseRange(value, path, parseSeconds);
 
@@ -148,16 +125,8 @@ function parseDuration(raw: Record<string, unknown>, path: string): Duration {
 /** How many zones each metric has, for a single-zone target. */
 const ZONE_COUNT: Record<ZoneMetric, number> = { heart_rate: 5, pace: 10, power: 7 };
 
-/**
- * Zone boundaries as a percentage of the reference value: entry `i` is the
- * bottom of zone `i + 1`, and the last entry is the top of the highest zone.
- *
- * These only come into play for a zone *range*, which FIT cannot express — it
- * stores a single zone number and lets the watch resolve it. A range has to
- * become a percentage band instead, and that needs a zone model. Heart rate
- * uses Garmin's default five zones as a share of max HR; power uses the
- * standard seven-zone model as a share of FTP.
- */
+// Entry `i` is the bottom of zone `i + 1`. Only used for a zone range, which FIT
+// cannot express and so becomes a percentage band. See "Zones" in docs/workouts.md.
 const ZONE_LIMITS: Record<'heart_rate' | 'power', number[]> = {
   heart_rate: [50, 60, 70, 80, 90, 100],
   power: [1, 55, 75, 90, 105, 120, 150, 200],
@@ -171,14 +140,7 @@ function zoneToPercent(zone: number, limits: number[]): number {
   return Math.round(limits[floor - 1] + fraction * (limits[floor] - limits[floor - 1]));
 }
 
-/**
- * A zone target: either a single zone, which FIT stores natively and the
- * watch resolves against its own configuration, or a range of zone
- * boundaries, which becomes a percentage band.
- *
- * The endpoints of a range are boundaries on a continuous scale, so
- * `["2", "3"]` is exactly zone 2 and all of zones 2 and 3 is `["2", "4"]`.
- */
+/** A range's endpoints are boundaries, so `["2", "3"]` is exactly zone 2. */
 function parseZone(value: unknown, path: string, metric: ZoneMetric): Target {
   if (!Array.isArray(value)) {
     return { type: 'zone', metric, zone: parseInteger(value, path, 1, ZONE_COUNT[metric]) };
@@ -212,11 +174,7 @@ function parseZone(value: unknown, path: string, metric: ZoneMetric): Target {
 /** Which metric a target constrains, for de-duplication and ordering. */
 type TargetMetric = 'pace' | 'power' | 'heart_rate' | 'cadence';
 
-/**
- * When a step carries two targets, FIT stores one as primary and one as
- * secondary. This is the order they are chosen in: what you are told to run,
- * then what follows from it. So pace plus cadence makes pace the primary.
- */
+/** Which of two targets leads: what you are told to run, then what follows from it. */
 const TARGET_PRIORITY: readonly TargetMetric[] = ['pace', 'power', 'heart_rate', 'cadence'];
 
 function targetMetric(target: Target): TargetMetric | null {
@@ -273,11 +231,7 @@ function parseOneTarget(key: string, value: unknown, at: string): Target {
   }
 }
 
-/**
- * A step may carry two targets, which FIT stores as a primary and a
- * secondary — "400m at 4:00/km and 180 spm". They have to constrain different
- * metrics, and the priority list decides which of the two leads.
- */
+/** Two at most, on different metrics — FIT stores a primary and a secondary. */
 function parseTargets(raw: Record<string, unknown>, path: string): { target: Target; secondary?: Target } {
   const present = setKeys(raw, TARGET_KEYS);
   if (present.length === 0) return { target: { type: 'open' } };
@@ -308,11 +262,7 @@ function parseTargets(raw: Record<string, unknown>, path: string): { target: Tar
     : { target: parsed[0].target, secondary: parsed[1].target };
 }
 
-/**
- * FIT stores a percentage and an absolute in the same field, telling them
- * apart by magnitude, so a range cannot have one of each: the pair would be
- * read as two unrelated numbers rather than as two ends of one band.
- */
+// FIT tells a percentage from an absolute by magnitude, in one field, so a range cannot mix them.
 function assertSameUnit(
   low: { unit: string } | null,
   high: { unit: string } | null,
@@ -339,16 +289,11 @@ function inferIntensity(name: string | undefined, insideRepeat: boolean): Intens
   return insideRepeat ? 'interval' : 'active';
 }
 
-// ---------------------------------------------------------------------------
-// Steps
-// ---------------------------------------------------------------------------
+// --- Steps -----------------------------------------------------------------
 
 const isRepeat = (step: PlanStep): step is Extract<PlanStep, { repeat: number }> => 'repeat' in step;
 
-/**
- * One validated plan step in FIT's shape. Called both when a workout is
- * written, to prove it is sound, and when one is exported.
- */
+/** Called on write, to prove the plan is sound, and again on export. */
 export function resolveStep(step: PlanStep, path: string, insideRepeat: boolean): ResolvedStep {
   if (isRepeat(step)) {
     return {

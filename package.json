@@ -8,6 +8,7 @@
     "test": "vite build && vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.client.json",
+    "check:readme": "node scripts/check-readme.mjs",
     "db:local": "wrangler d1 migrations apply workout-mcp --local",
     "db:remote": "wrangler d1 migrations apply workout-mcp --remote",
     "db:new": "wrangler d1 migrations create workout-mcp",

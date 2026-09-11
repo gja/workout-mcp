@@ -1,17 +1,5 @@
-/**
- * Where a platform connection and its pushed workouts are kept.
- *
- * The credential is encrypted, not hashed. A session cookie is only ever
- * compared against, so a one-way digest is enough for it; a platform API key
- * has to be replayed to the platform on every push, so it has to come back
- * out. AES-GCM under a key derived from `CREDENTIALS_SECRET`, with a fresh
- * nonce per write — so the same key stored twice does not produce the same
- * ciphertext, and a tampered row fails to decrypt rather than decrypting to
- * something else.
- *
- * Without that secret there is nowhere safe to put the key, so connecting a
- * platform is refused outright rather than quietly falling back to plaintext.
- */
+// Platform connections and the links to what we pushed. The credential is
+// encrypted rather than hashed, because it has to be replayed: see docs/integrations.md.
 
 import { retentionWindow } from '../db';
 import type { Env } from '../db';
@@ -38,8 +26,7 @@ const IV_BYTES = 12;
 
 async function aesKey(env: Env): Promise<CryptoKey> {
   if (!env.CREDENTIALS_SECRET) throw new CredentialsUnavailable();
-  // The secret is a passphrase of unknown length; SHA-256 turns it into the
-  // 32 bytes AES-256 wants without asking the operator to produce them.
+  // The secret is a passphrase of any length; SHA-256 makes it the 32 bytes AES-256 wants.
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(env.CREDENTIALS_SECRET));
   return crypto.subtle.importKey('raw', digest, 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
@@ -59,15 +46,7 @@ export async function encryptSecret(env: Env, plaintext: string): Promise<string
   return toBase64(new Uint8Array([...iv, ...new Uint8Array(sealed)]));
 }
 
-/**
- * The stored credential, or null if it cannot be read back.
- *
- * Never throws, including when the secret is missing entirely. A rotated or
- * removed `CREDENTIALS_SECRET` makes every row undecryptable, and that is a
- * connection the athlete has to make again — not a reason for every workout
- * they write from then on to fail. Storing a *new* credential still refuses
- * outright; see `encryptSecret`.
- */
+// Never throws: a rotated secret costs a connection, not every write from then on.
 export async function decryptSecret(env: Env, stored: string): Promise<string | null> {
   try {
     const bytes = fromBase64(stored);
@@ -82,9 +61,7 @@ export async function decryptSecret(env: Env, stored: string): Promise<string | 
   }
 }
 
-// ---------------------------------------------------------------------------
-// Connections
-// ---------------------------------------------------------------------------
+// --- Connections -----------------------------------------------------------
 
 const CONNECTION_COLUMNS = 'platform, account, last_error, created_at, updated_at';
 
@@ -116,14 +93,7 @@ export async function listConnections(env: Env, userId: string): Promise<Connect
   return results ?? [];
 }
 
-/**
- * Connections to this platform, least recently visited first.
- *
- * A scheduled run is capped on outbound subrequests like any other, so the
- * sweep takes a batch rather than everyone. Every pass stamps `updated_at`,
- * so this ordering is what makes consecutive runs work their way round
- * instead of hammering the same athletes.
- */
+/** Least recently visited first, which is what makes consecutive sweeps work round. */
 export async function connectionBatch(
   env: Env,
   platform: PlatformId,
@@ -137,14 +107,7 @@ export async function connectionBatch(
   return results ?? [];
 }
 
-/**
- * Connections carrying a standing error, for the nightly retry.
- *
- * A push that failed is not retried by the next workout written — that one
- * pushes itself — so without this a workout missing from a calendar because
- * the platform was down that minute stays missing until an athlete notices
- * and presses Sync now.
- */
+/** For the nightly retry: nothing else picks these up. */
 export async function failedConnections(
   env: Env,
   limit: number,
@@ -209,9 +172,7 @@ export async function forgetConnection(env: Env, userId: string, platform: Platf
   return (result.meta.changes ?? 0) > 0;
 }
 
-// ---------------------------------------------------------------------------
-// Links
-// ---------------------------------------------------------------------------
+// --- Links -----------------------------------------------------------------
 
 export type Link = {
   date: string;
@@ -226,13 +187,7 @@ export type Link = {
 
 const LINK_COLUMNS = 'date, workout_id, remote_id, fingerprint, applied_completion, synced_at';
 
-/**
- * Record where a workout now lives on a platform.
- *
- * `applied_completion` is deliberately untouched: it records what has already
- * been read back off the platform, which re-pushing the plan neither changes
- * nor un-does.
- */
+/** Leaves `applied_completion` alone: re-pushing the plan neither changes nor un-does it. */
 export async function saveLink(
   env: Env,
   userId: string,
@@ -309,16 +264,8 @@ export async function dropLink(
     .run();
 }
 
-/**
- * A moved workout keeps its remote event; only the date it is filed under
- * changes.
- *
- * The key it is moving onto may already carry a link of its own — a delete
- * that could not reach the platform leaves one behind to retry from — and the
- * update alone would collide with it on the primary key. The workout that
- * link named is gone either way, so it goes first, in the same batch, so a
- * failure cannot leave the move half done.
- */
+// A moved workout keeps its remote event. The delete comes first, in the same batch:
+// the key moved onto may already hold a link, which the update alone would collide with.
 export async function moveLinks(
   env: Env,
   userId: string,
@@ -364,16 +311,7 @@ export async function countLinks(env: Env, userId: string, platform: PlatformId)
   return row?.n ?? 0;
 }
 
-/**
- * Drop links that name no workout and are past being acted on.
- *
- * Inside the window, a link with no workout is a delete that did not reach
- * the platform, and `syncNow` flushes it — deleting the row here would lose
- * the only record of the event left to remove. Outside the window there is
- * nothing left to do with it either way: the workout is gone, the athlete's
- * calendar upstream is theirs, and no read or sync will ever reach that date
- * again. So that is where this sweeps.
- */
+// Outside the window only: inside it, a link with no workout is a delete `syncNow` still owes.
 export async function pruneOrphanedLinks(env: Env, now: Date = new Date()): Promise<number> {
   const { from, to } = retentionWindow(now);
   const result = await env.DB.prepare(

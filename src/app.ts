@@ -1,15 +1,4 @@
-/**
- * Everything that is not the OAuth machinery: login, the consent page, the
- * REST API, FIT downloads, and the dashboard.
- *
- * This is the OAuth provider's `defaultHandler`, so it sees every request the
- * provider does not claim for itself. Requests here authenticate with a
- * session cookie or an API token; `/mcp` is handled separately, by the
- * provider, and reaches `src/index.ts` instead.
- *
- * This file is only the table: the context and `withUser` live in
- * `src/http.ts`, and each group of routes declares itself in `src/routes/`.
- */
+// The provider's `defaultHandler`, and only the routing table: the groups live in `src/routes/`.
 
 import type { Env } from './db';
 import type { Context } from './http';
@@ -25,11 +14,7 @@ import { isCallerError } from './tools';
 
 const appName = (env: Env): string => env.APP_NAME ?? 'Workouts';
 
-/**
- * Under the API prefixes a fallback is answered the way a route would be: the
- * credential is checked first, so 401 comes before 404 or 405 and a caller
- * without one cannot map the API by reading status codes back.
- */
+/** 401 before 404 or 405, so the API cannot be mapped by reading status codes back. */
 const guarded = (handler: Handler<Context>): Handler<Context> => {
   const behindTheDoor = withUser(handler);
   return (context) => (isApiPath(context.path) ? behindTheDoor(context) : handler(context));
@@ -38,8 +23,7 @@ const guarded = (handler: Handler<Context>): Handler<Context> => {
 const routes = new Router<Context>({
   methodNotAllowed: guarded(() => error('method not allowed', 405)),
 
-  // Anything the table does not claim is the dashboard. Under the API
-  // prefixes there is no dashboard to fall back to, only a 404.
+  // Anything unclaimed is the dashboard — except under the API prefixes, where it is a 404.
   notFound: guarded((context) =>
     isApiPath(context.path) ? error('not found', 404) : context.env.ASSETS.fetch(context.request),
   ),

@@ -1,17 +1,5 @@
-/**
- * The workout as the caller writes it.
- *
- * Steps are kept in exactly the shape they arrive in — `goal_s`,
- * `target_pace_km`, an optional `intensity` — and that shape is what gets
- * stored and what reads return. FIT's model, with its single duration and its
- * speeds in metres per second, is derived in `resolve.ts` when a file is
- * actually generated; it is an encoding detail and does not belong in the
- * database or in an API response.
- *
- * Validation is done by resolving: this module checks the shape of a step —
- * its keys, its name, its nesting — and `resolveStep` checks the values, so
- * the rules live in one place rather than two.
- */
+// The workout as the caller writes it, which is also how it is stored and read back.
+// Shape is checked here; values are checked by resolving. See docs/workouts.md.
 
 import { WorkoutError, fail, parseDate, parseInteger } from './units';
 import { DURATION_KEYS, TARGET_KEYS, resolveSteps } from './resolve';
@@ -24,11 +12,7 @@ export const SPORTS: readonly Sport[] = [
   'running', 'cycling', 'swimming', 'walking', 'hiking', 'rowing', 'training', 'generic',
 ];
 
-/**
- * How the sport is done, which a watch uses to pick the activity profile —
- * a treadmill session should not sit waiting for GPS. Names map to the FIT
- * sub-sport enum.
- */
+/** Picks the watch's activity profile, so a treadmill run does not wait for GPS. */
 export type SubSport =
   | 'treadmill' | 'street' | 'trail' | 'track' | 'ultra'
   | 'road' | 'mountain' | 'indoor_cycling' | 'spin' | 'virtual_activity'
@@ -50,10 +34,7 @@ export type PlanValue = string | number | Array<string | number>;
 /** A group of steps, run through several times. */
 export type PlanRepeat = { repeat: number; steps: PlanStep[] };
 
-/**
- * One effort. At most one `goal_*` — none means "until the lap button" — and
- * at most two `target_*` on different metrics.
- */
+/** At most one `goal_*` — none means "until the lap button" — and two `target_*` at most. */
 export type PlanEffort = {
   name?: string;
   notes?: string;
@@ -72,14 +53,7 @@ export type Workout = {
   /** The caller's own key for this workout, for idempotent re-syncs. */
   external_id?: string;
   steps: PlanStep[];
-  /**
-   * When the session was actually done, as an ISO instant; absent while it is
-   * still only planned.
-   *
-   * Deliberately not something `parseWorkout` reads: completing a workout is
-   * its own verb, so rewriting the plan neither sets it nor clears it by
-   * accident. The write paths carry the stored value across themselves.
-   */
+  /** Never read by `parseWorkout`: completing is its own verb, so a rewrite cannot touch it. */
   completed_at?: string;
   updated_at: string;
 };
@@ -121,11 +95,7 @@ function rejectUnknownKeys(raw: Record<string, unknown>, allowed: Set<string>, p
 const looksLikeRepeat = (raw: Record<string, unknown>): boolean =>
   raw.repeat !== undefined || raw.times !== undefined || String(raw.type ?? '').toLowerCase() === 'repeat';
 
-/**
- * A step in storable form: the caller's own fields, with the shape checked and
- * the alternative spellings of a repeat collapsed into one. Values are copied
- * across untouched — `resolveStep` is what decides whether they make sense.
- */
+/** Shape checked, repeat spellings collapsed; the values themselves are `resolveStep`'s. */
 function planStep(value: unknown, path: string, depth: number): PlanStep {
   if (!isObject(value)) {
     fail(path, `expected an object describing a step, got ${Array.isArray(value) ? 'an array' : typeof value}`);
@@ -199,8 +169,7 @@ export function parseWorkout(value: unknown): WorkoutInput {
   const total = countSteps(steps);
   if (total > MAX_STEPS) fail('steps', `a workout may have at most ${MAX_STEPS} steps, got ${total}`);
 
-  // Resolving proves every value is usable, and throws naming the field that
-  // is not. The result is discarded: it is rebuilt when a FIT file is made.
+  // Discarded: this is the validation pass, and it is rebuilt when a FIT file is made.
   resolveSteps(steps);
 
   const name = raw.name === undefined || raw.name === null
