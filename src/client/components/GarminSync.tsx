@@ -76,42 +76,53 @@ function Report({ report }: { report: GarminSyncReport }) {
   );
 }
 
+type Mode = 'sync' | 'preview' | 'resend';
+
 /**
  * Connecting and syncing a Garmin account.
  *
  * Connecting is a full-page navigation out to Garmin's consent screen and back
  * — the same shape as signing in, and for the same reason: only Garmin can ask
  * the athlete to approve it. The callback lands back here with
- * `?garmin_connected` or `?garmin_error`, which is what the first `useState`
- * below is reading.
+ * `?garmin_connected` or `?garmin_error`, which is what `fromCallback` below
+ * is reading.
  *
  * Renders nothing when the deployment has no Garmin credentials, so a
- * self-hosted install that has not set them up does not show a dead panel.
+ * self-hosted install that has not set them up does not show a dead panel —
+ * but a *failure* to find that out is shown rather than swallowed, because a
+ * panel that silently vanishes on a failed request looks identical to one that
+ * was never configured.
  */
 export function GarminSync() {
   const [status, setStatus] = useState<GarminStatus | null>(null);
+  const [unreachable, setUnreachable] = useState<string | null>(null);
   const [report, setReport] = useState<GarminSyncReport | null>(null);
-  const [busy, setBusy] = useState<'sync' | 'preview' | null>(null);
-  const [error, setError] = useState<string | null>(() => {
-    const params = new URLSearchParams(location.search);
-    return params.get('garmin_error');
-  });
+  const [busy, setBusy] = useState<Mode | null>(null);
+  const [error, setError] = useState<string | null>(() =>
+    new URLSearchParams(location.search).get('garmin_error'),
+  );
   const [justConnected] = useState(() => new URLSearchParams(location.search).has('garmin_connected'));
 
   const reload = useCallback(() => {
-    getGarminStatus().then(setStatus, (failure: Error) => {
-      setStatus({ configured: false, connected: false });
-      setError(failure.message);
-    });
+    getGarminStatus().then(
+      (found) => {
+        setStatus(found);
+        setUnreachable(null);
+      },
+      (failure: Error) => setUnreachable(failure.message),
+    );
   }, []);
 
   useEffect(reload, [reload]);
 
-  const run = async (mode: 'sync' | 'preview') => {
+  const run = async (mode: Mode) => {
+    if (mode === 'resend' && !confirm('Re-send every workout to Garmin, even the ones it already has unchanged?')) {
+      return;
+    }
     setBusy(mode);
     setError(null);
     try {
-      setReport(await syncGarmin(mode === 'preview' ? { dry_run: true } : {}));
+      setReport(await syncGarmin({ dry_run: mode === 'preview', force: mode === 'resend' }));
       reload();
     } catch (failure) {
       setError((failure as Error).message);
@@ -141,6 +152,18 @@ export function GarminSync() {
     }
   };
 
+  // A failed status call is reported, not hidden: it is the one case where
+  // rendering nothing would be a lie about what this deployment supports.
+  if (unreachable) {
+    return (
+      <section>
+        <h2>Garmin Connect</h2>
+        <p className="error">Could not read the Garmin connection: {unreachable}</p>
+      </section>
+    );
+  }
+
+  // Still loading, or this server has no Garmin credentials at all.
   if (status === null || !status.configured) return null;
 
   return (
@@ -204,6 +227,16 @@ export function GarminSync() {
           {report && <Report report={report} />}
 
           <div className="actions">
+            {/*
+              A normal sync only touches what changed here, so a session
+              deleted from the Garmin app — which changed nothing here — is
+              invisible to it. Re-sending is how that gets noticed and put
+              back, which is why this is reachable rather than a flag only the
+              API has.
+            */}
+            <button className="link" disabled={busy !== null} onClick={() => void run('resend')}>
+              {busy === 'resend' ? 'Re-sending…' : 'Re-send everything'}
+            </button>
             <button className="link danger" onClick={() => void disconnect()}>
               Disconnect
             </button>

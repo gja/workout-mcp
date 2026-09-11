@@ -39,7 +39,7 @@ const backToDashboard = (origin: string, path: string, params: Record<string, st
 // ---------------------------------------------------------------------------
 
 /**
- * `/garmin/connect` and `/garmin/callback`, or null when the path is neither.
+ * `/garmin/connect` and `/garmin/callback`.
  *
  * The athlete is already signed in here — `app.ts` will not route to this
  * without a user — so the account the connection lands on is never in doubt.
@@ -49,7 +49,7 @@ export async function handleGarminBrowser(
   url: URL,
   env: Env,
   user: User,
-): Promise<Response | null> {
+): Promise<Response> {
   if (url.pathname === '/garmin/connect' && request.method === 'GET') {
     if (!isConfigured(env)) {
       return backToDashboard(url.origin, '/', { garmin_error: 'Garmin sync is not configured on this server' });
@@ -110,7 +110,7 @@ export async function handleGarminBrowser(
     return backToDashboard(url.origin, flow.returnTo ?? '/', { garmin_connected: '1' });
   }
 
-  return null;
+  return error('not found', 404);
 }
 
 // ---------------------------------------------------------------------------

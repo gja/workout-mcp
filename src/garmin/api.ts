@@ -27,8 +27,9 @@ const TRAINING_BASE = `${API_BASE}/training-api`;
  * A call Garmin refused.
  *
  * `status` is kept apart from the message because the caller acts on it: a
- * 401 is worth one retry with a fresh token, a 429 means stop for now, and a
- * 404 on a delete means the thing is already gone, which is success.
+ * 401 is worth one retry with a fresh token (`sync.ts` spends it), a 429 means
+ * stop for now, and a 404 on a delete means the thing is already gone, which
+ * is success.
  */
 export class GarminApiError extends Error {
   readonly status: number;
@@ -38,11 +39,6 @@ export class GarminApiError extends Error {
     super(`Garmin refused to ${what} (HTTP ${status})${body ? `: ${body}` : ''}`);
     this.status = status;
     this.body = body;
-  }
-
-  /** Worth trying again later, rather than a payload that will never be accepted. */
-  get retryable(): boolean {
-    return this.status === 429 || this.status >= 500;
   }
 }
 
@@ -75,8 +71,9 @@ async function call(accessToken: string, { method, path, body, what }: Call): Pr
     });
   } catch (error) {
     console.error(`garmin ${method} ${path} failed`, error);
-    // Reported as a 503, so it falls under `retryable` alongside Garmin's own
-    // outages: a network failure is exactly as temporary as one of those.
+    // Reported as a 503, so it lands with Garmin's own outages rather than
+    // with a refused payload: a network failure is one workout's bad luck and
+    // not a reason to stop the run, which is exactly how `isFatal` reads it.
     throw new GarminApiError(503, 'the request did not reach Garmin', what);
   }
 

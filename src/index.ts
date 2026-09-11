@@ -37,9 +37,10 @@ const mcpHandler = {
     if (!props?.userId) return Response.json({ error: 'no authenticated user' }, { status: 401 });
 
     const user: User = { id: props.userId, email: props.email };
-    const response = await handleMcp(request, env, user);
-    response.headers.set('Access-Control-Allow-Origin', '*');
-    return response;
+    // No CORS headers here: the provider wraps every response it routes to
+    // this handler and sets its own, echoing the request's origin. Anything
+    // we set was overwritten a moment later.
+    return handleMcp(request, env, user);
   },
 } satisfies ExportedHandler<Env>;
 
@@ -100,7 +101,10 @@ export default {
       if (garmin.users > 0) {
         console.log(
           `nightly garmin sync covered ${garmin.users} athlete(s): ` +
-            `${garmin.pushed} calendar change(s), ${garmin.failed} failure(s)`,
+            `${garmin.pushed} calendar change(s), ${garmin.failed} failure(s)` +
+            // Worth saying out loud: the athletes it did not reach are not
+            // broken, they are first in the queue tomorrow.
+            (garmin.budgetSpent ? ', and stopped on its call budget' : ''),
         );
       }
     } catch (error) {

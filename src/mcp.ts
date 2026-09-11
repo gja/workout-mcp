@@ -6,7 +6,7 @@
  * keeps this deployable on the Workers free plan.
  */
 
-import { TOOLS, ToolError, callTool, isCallerError } from './tools';
+import { ToolError, availableTools, callTool, isCallerError } from './tools';
 import type { Env, User } from './db';
 
 const PROTOCOL_VERSION = '2025-06-18';
@@ -39,7 +39,7 @@ async function handleRequest(request: JsonRpcRequest, env: Env, user: User, orig
       return {};
 
     case 'tools/list':
-      return { tools: TOOLS };
+      return { tools: availableTools(env) };
 
     case 'tools/call': {
       const params = (request.params ?? {}) as { name?: string; arguments?: unknown };
@@ -109,7 +109,7 @@ export async function handleMcp(request: Request, env: Env, user: User): Promise
   // response, and an all-notification batch gets a bare 202.
   const batch = Array.isArray(body) ? (body as JsonRpcRequest[]) : [body as JsonRpcRequest];
   // The origin is read off the request rather than configured, so the connect
-  // link `garmin_status` hands back points at whichever host answered.
+  // link `sync_garmin` falls back on points at whichever host answered.
   const origin = new URL(request.url).origin;
   const responses = (await Promise.all(batch.map((r) => dispatch(r, env, user, origin)))).filter(
     (r): r is JsonRpcResponse => r !== null,

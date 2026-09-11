@@ -167,7 +167,17 @@ const OPEN_ENDS = {
   cadence: { low: 1, high: 254 },
   /** Metres per second: a slow walk, and faster than a track sprint. */
   speed: { low: 0.1, high: 25 },
-  percent: { low: 1, high: 100 },
+  /**
+   * Percentages have a ceiling per metric, not one shared ceiling. A share of
+   * max heart rate cannot exceed 100, but 150% of FTP is an ordinary VO2max
+   * interval — which is why `parsePower` accepts percentages up to 1000 where
+   * `parseHr` stops at 100. Sharing a ceiling of 100 between them turned
+   * `target_watts: ["110%", "-"]` into a band from 110 to 100: inverted, and
+   * past the point where `assertOrdered` could have caught it, since that only
+   * fires when the caller gave both ends.
+   */
+  percentHeartRate: { low: 1, high: 100 },
+  percentPower: { low: 1, high: 1000 },
 };
 
 // ---------------------------------------------------------------------------
@@ -200,7 +210,7 @@ function garminTarget(target: Target): TargetFields {
       // `parseRange` has already refused a range that mixes the two units, so
       // either end tells us how to read both.
       const percent = (target.low ?? target.high)?.unit === 'percent';
-      const ends = percent ? OPEN_ENDS.percent : OPEN_ENDS.heartRate;
+      const ends = percent ? OPEN_ENDS.percentHeartRate : OPEN_ENDS.heartRate;
       return {
         targetType: 'HEART_RATE',
         targetValueLow: target.low?.value ?? ends.low,
@@ -211,7 +221,7 @@ function garminTarget(target: Target): TargetFields {
 
     case 'power': {
       const percent = (target.low ?? target.high)?.unit === 'percent';
-      const ends = percent ? OPEN_ENDS.percent : OPEN_ENDS.power;
+      const ends = percent ? OPEN_ENDS.percentPower : OPEN_ENDS.power;
       return {
         targetType: 'POWER',
         targetValueLow: target.low?.value ?? ends.low,

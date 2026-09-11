@@ -14,9 +14,10 @@ import * as identity from './identity';
 import * as db from './db';
 import type { Env, User } from './db';
 import { encodeWorkoutFit, fitFilename } from './fit';
-import { CORS_HEADERS, error, json } from './http';
+import { error, json } from './http';
 import { handleGarminApi, handleGarminBrowser } from './garmin/routes';
 import { GarminAuthError } from './garmin/oauth';
+import { GarminBusyError } from './garmin/sync';
 import { callTool, isCallerError, present, presentBrief } from './tools';
 import { parseWorkout } from './workout';
 import { parseDate } from './units';
@@ -326,7 +327,6 @@ async function handleExport(url: URL, env: Env, user: User): Promise<Response> {
   const bytes = encodeWorkoutFit(workout);
   return new Response(bytes, {
     headers: {
-      ...CORS_HEADERS,
       'Content-Type': 'application/vnd.ant.fit',
       'Content-Disposition': `attachment; filename="${fitFilename(workout)}"`,
       'Cache-Control': 'no-store',
@@ -338,11 +338,66 @@ async function handleExport(url: URL, env: Env, user: User): Promise<Response> {
 // Routing
 // ---------------------------------------------------------------------------
 
+/** Every authenticated handler takes the same four arguments. */
+type Handler = (request: Request, url: URL, env: Env, user: User) => Promise<Response>;
+
+/**
+ * The routes that need a signed-in athlete, and who serves each.
+ *
+ * This table *is* the definition of what needs authentication — the router
+ * below looks a path up here and only then reads a credential, so a route is
+ * unreachable until it is listed, and listing it is what makes it
+ * authenticated. Previously the two were separate: one condition decided
+ * which paths needed a user and a second chain of prefix tests decided who
+ * handled them, which meant a new route could be added to the second and
+ * silently miss the first.
+ *
+ * Order matters, and only in one way: `/api/` is the catch-all for the
+ * workout API, so it comes last and the narrower `/api/*` prefixes above win.
+ */
+const AUTHENTICATED: ReadonlyArray<{ path: string; exact?: boolean; handle: Handler }> = [
+  { path: '/oauth/authorize', exact: true, handle: (request, _url, env, user) => grantConsent(request, env, user) },
+  { path: '/api/tokens', handle: handleTokens },
+  { path: '/api/connections', handle: handleConnections },
+  { path: '/api/garmin', handle: handleGarminApi },
+  // Connecting Garmin happens while already signed in, so both halves of that
+  // flow — the hop out and the callback — know which account to attach to.
+  // Garmin's callback is a top-level redirect, so the `SameSite=Lax` session
+  // cookie does come back with it.
+  { path: '/garmin/', handle: handleGarminBrowser },
+  { path: '/export/', handle: (_request, url, env, user) => handleExport(url, env, user) },
+  { path: '/api/', handle: (request, url, env, user) => handleApi(request, url, env, user, url.origin) },
+];
+
+const routeFor = (path: string): Handler | null =>
+  AUTHENTICATED.find((route) => (route.exact ? path === route.path : path.startsWith(route.path)))?.handle ?? null;
+
+/** Being signed out of a browser journey has to land somewhere readable. */
+const isBrowserRoute = (path: string): boolean => path.startsWith('/garmin/');
+
+function unauthenticated(url: URL, token: string | null): Response {
+  if (isBrowserRoute(url.pathname)) {
+    return Response.redirect(
+      `${url.origin}/?error=${encodeURIComponent('please sign in before connecting a Garmin account')}`,
+      302,
+    );
+  }
+  return Response.json(
+    { error: token ? 'invalid or expired token' : 'not signed in' },
+    {
+      status: 401,
+      // RFC 9728: point a client at the metadata that starts the flow.
+      headers: {
+        'WWW-Authenticate': `Bearer resource_metadata="${url.origin}/.well-known/oauth-protected-resource/mcp"`,
+      },
+    },
+  );
+}
+
 export const app = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS });
     if (url.pathname === '/api/health') return json({ ok: true, name: appName(env) });
 
     try {
@@ -357,58 +412,21 @@ export const app = {
       const signInResponse = await handleSignIn(request, url, env);
       if (signInResponse) return signInResponse;
 
-      const needsUser =
-        url.pathname === '/oauth/authorize' ||
-        url.pathname.startsWith('/api/') ||
-        url.pathname.startsWith('/export/') ||
-        // Connecting Garmin happens while already signed in, so both halves of
-        // that flow — the hop out and the callback — need to know who to
-        // attach the account to. Garmin's callback is a top-level redirect, so
-        // the `SameSite=Lax` session cookie does come back with it.
-        url.pathname.startsWith('/garmin/');
-      if (!needsUser) return env.ASSETS.fetch(request);
+      // Not in the table means not ours: the dashboard and its assets.
+      const handle = routeFor(url.pathname);
+      if (!handle) return env.ASSETS.fetch(request);
 
       const token = readToken(request, url);
       const user = token ? await auth.findTokenOwner(env, token) : await auth.readSession(env, request);
-      if (!user) {
-        // The Garmin flow is a browser journey, so being signed out on the way
-        // back has to send the athlete somewhere they can read, and somewhere
-        // they can sign in again from.
-        if (url.pathname.startsWith('/garmin/')) {
-          return Response.redirect(
-            `${url.origin}/?error=${encodeURIComponent('please sign in before connecting a Garmin account')}`,
-            302,
-          );
-        }
-        return Response.json(
-          { error: token ? 'invalid or expired token' : 'not signed in' },
-          {
-            status: 401,
-            // RFC 9728: point a client at the metadata that starts the flow.
-            headers: {
-              ...CORS_HEADERS,
-              'WWW-Authenticate': `Bearer resource_metadata="${url.origin}/.well-known/oauth-protected-resource/mcp"`,
-            },
-          },
-        );
-      }
+      if (!user) return unauthenticated(url, token);
 
-      if (url.pathname === '/oauth/authorize') return await grantConsent(request, env, user);
-      if (url.pathname.startsWith('/api/tokens')) return await handleTokens(request, url, env, user);
-      if (url.pathname.startsWith('/api/connections')) return await handleConnections(request, url, env, user);
-      if (url.pathname.startsWith('/api/garmin')) return await handleGarminApi(request, url, env, user);
-      if (url.pathname.startsWith('/garmin/')) {
-        const garmin = await handleGarminBrowser(request, url, env, user);
-        if (garmin) return garmin;
-        return error('not found', 404);
-      }
-      if (url.pathname.startsWith('/export/')) return await handleExport(url, env, user);
-      return await handleApi(request, url, env, user, url.origin);
+      return await handle(request, url, env, user);
     } catch (err) {
-      // Checked before the generic caller error below, which it is also one
-      // of: not connected, or a connection that has lapsed, is the athlete's
-      // to fix by connecting again, and 409 says that where 400 would not.
-      if (err instanceof GarminAuthError) return error(err.message, 409);
+      // Checked before the generic caller error below, which these are also
+      // one of: an account not linked, a connection lapsed, or a sync already
+      // in flight are all states of the world rather than bad requests, and
+      // 409 says so where 400 would not.
+      if (err instanceof GarminAuthError || err instanceof GarminBusyError) return error(err.message, 409);
       if (isCallerError(err)) return error(err.message, 400);
       if (err instanceof SyntaxError) return error('invalid JSON body', 400);
       console.error('unhandled error', err);

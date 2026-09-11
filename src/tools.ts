@@ -10,9 +10,8 @@ import { describeWorkout, plannedTotals } from './describe';
 import * as db from './db';
 import type { Env, User } from './db';
 import { GarminAuthError, isConfigured as garminConfigured } from './garmin/oauth';
-import { disconnectAccount } from './garmin/routes';
 import * as garminStore from './garmin/store';
-import { status as garminStatus, syncAll } from './garmin/sync';
+import { syncAll } from './garmin/sync';
 import { WorkoutError, parseWorkout } from './workout';
 import type { Workout } from './workout';
 import { parseDate } from './units';
@@ -210,15 +209,6 @@ export const TOOLS = [
     },
   },
   {
-    name: 'garmin_status',
-    annotations: { title: 'Check the Garmin connection', readOnlyHint: true, openWorldHint: false },
-    description:
-      'Whether a Garmin Connect account is linked, when it last synced, and how many workouts are ' +
-      'tracked on it. When nothing is linked, returns the URL the athlete should open in a browser ' +
-      "to link one: connecting needs Garmin's own consent screen, so it cannot be done from here.",
-    inputSchema: { type: 'object', properties: {} },
-  },
-  {
     name: 'sync_garmin',
     annotations: {
       title: 'Sync workouts to the Garmin calendar',
@@ -228,10 +218,13 @@ export const TOOLS = [
       openWorldHint: true,
     },
     description:
-      'Push every planned workout in the retention window to the linked Garmin Connect calendar, ' +
-      'where a watch will pick them up. Only what has actually changed is sent, so calling this ' +
-      'twice in a row is free the second time. Workouts deleted here are removed from the calendar; ' +
-      'ones that have aged out of the window are left on it, since they are training already done.',
+      'Push every planned workout in the retention window to the athlete\'s Garmin Connect calendar, ' +
+      'where their watch picks them up. Only what has actually changed is sent, so calling this twice ' +
+      'in a row is free the second time. Workouts deleted here are removed from the calendar; ones ' +
+      'that have aged out of the window are left on it, since they are training already done. ' +
+      'Call with dry_run to see the state of things — what is connected, what would change — without ' +
+      'sending anything. Linking a Garmin account is a one-time step the athlete does in a browser, ' +
+      'so it is not a tool; if none is linked, this says where to go.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -250,39 +243,20 @@ export const TOOLS = [
       },
     },
   },
-  {
-    name: 'set_garmin_auto_sync',
-    annotations: {
-      title: 'Turn nightly Garmin sync on or off',
-      readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-    description: 'Whether the nightly sweep pushes to Garmin on its own. Syncing on request works either way.',
-    inputSchema: {
-      type: 'object',
-      properties: { enabled: { type: 'boolean', description: 'True to sync nightly, false to sync only on request.' } },
-      required: ['enabled'],
-    },
-  },
-  {
-    name: 'disconnect_garmin',
-    annotations: {
-      title: 'Unlink the Garmin account',
-      readOnlyHint: false,
-      destructiveHint: true,
-      idempotentHint: true,
-      openWorldHint: true,
-    },
-    description:
-      'Unlink the Garmin Connect account and stop pushing to it. Workouts already on the calendar are ' +
-      'left there: this stops future syncing rather than undoing past ones.',
-    inputSchema: { type: 'object', properties: {} },
-  },
 ] as const;
 
 export type ToolName = (typeof TOOLS)[number]['name'];
+
+/**
+ * The tools this deployment can actually offer.
+ *
+ * `sync_garmin` is hidden where no Garmin credentials are set, which is the
+ * same thing the dashboard panel does and for the same reason: advertising a
+ * tool whose every call answers "not configured on this server" only invites
+ * an assistant to keep trying it.
+ */
+export const availableTools = (env: Env): ReadonlyArray<(typeof TOOLS)[number]> =>
+  TOOLS.filter((tool) => tool.name !== 'sync_garmin' || garminConfigured(env));
 
 /** Thrown for tool-level problems that are the caller's fault. */
 export class ToolError extends Error {}
@@ -333,14 +307,14 @@ export function presentBrief(workout: Workout, baseUrl?: string) {
 }
 
 /**
- * `origin` is the deployment's own base URL, and only the Garmin tools use it.
+ * `origin` is the deployment's own base URL, and only `sync_garmin` uses it.
  *
- * The workout tools deliberately return no URLs, for the reason `urls` above
- * explains — a link to bytes behind the caller's credential is no use to
- * anyone it is handed to. The Garmin connect link is the opposite case: it is
- * a page the athlete is *meant* to open in their own browser, and an
- * assistant that cannot hand it over has nothing useful to say about
- * connecting an account.
+ * The tools deliberately return no URLs, for the reason `urls` above explains
+ * — a link to bytes behind the caller's credential is no use to anyone it is
+ * handed to. The one exception is the Garmin connect link, which is the
+ * opposite case: a page the athlete is *meant* to open in their own browser,
+ * and without it an assistant has nothing useful to say when no account is
+ * linked.
  */
 export async function callTool(
   name: string,
@@ -419,26 +393,27 @@ export async function callTool(
       };
     }
 
-    case 'garmin_status': {
-      const status = await garminStatus(env, user.id);
-      if (!status.configured) {
-        return { ...status, note: 'This server has no Garmin credentials configured, so syncing is unavailable.' };
-      }
-      if (!status.connected) {
-        return {
-          ...status,
-          ...(origin ? { connect_url: `${origin}/garmin/connect` } : {}),
-          note:
-            'No Garmin account is linked. Linking one needs Garmin\'s consent screen in a browser, ' +
-            'so send the athlete to connect_url; there is nothing to paste back.',
-        };
-      }
-      return status;
-    }
-
     case 'sync_garmin': {
-      const dryRun = args.dry_run === true;
-      const report = await syncAll(env, user.id, { dryRun, force: args.force === true });
+      if (!garminConfigured(env)) throw new ToolError('Garmin sync is not configured on this server');
+
+      // Linking an account needs Garmin's consent screen in a browser, so it
+      // is deliberately not a tool. But a sync that cannot run for want of a
+      // link is exactly when the link is wanted, so the refusal carries it —
+      // the one URL these tools hand back, and a page the athlete is meant to
+      // open rather than bytes behind a credential.
+      if (!(await garminStore.getConnection(env, user.id))) {
+        throw new GarminAuthError(
+          origin
+            ? `no Garmin account is linked — open ${origin}/garmin/connect in a browser to link one. ` +
+              'It is a one-time step, and there is nothing to paste back.'
+            : 'no Garmin account is linked — link one from the dashboard first.',
+        );
+      }
+
+      const report = await syncAll(env, user.id, {
+        dryRun: args.dry_run === true,
+        force: args.force === true,
+      });
 
       // The payloads are large and mostly uninteresting, and a window of
       // fifty workouts would swamp the answer. Kept behind a flag, and only
@@ -446,19 +421,6 @@ export async function callTool(
       if (args.include_payloads === true) return report;
       return { ...report, workouts: report.workouts.map(({ payload: _payload, ...rest }) => rest) };
     }
-
-    case 'set_garmin_auto_sync': {
-      if (typeof args.enabled !== 'boolean') throw new ToolError('enabled must be true or false');
-      if (!(await garminStore.getConnection(env, user.id))) {
-        throw new GarminAuthError('no Garmin account is connected, so there is nothing to schedule');
-      }
-      await garminStore.setAutoSync(env, user.id, args.enabled);
-      return garminStatus(env, user.id);
-    }
-
-    case 'disconnect_garmin':
-      if (!garminConfigured(env)) throw new ToolError('Garmin sync is not configured on this server');
-      return disconnectAccount(env, user.id);
 
     default:
       throw new ToolError(`unknown tool "${name}"`);

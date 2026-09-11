@@ -1,0 +1,14 @@
+-- An advisory lock on an athlete's Garmin sync.
+--
+-- Two syncs for the same athlete at once — the nightly sweep at 03:00 while
+-- the athlete presses "Sync now", say — both read the same links, both see a
+-- workout as new, and both create it. The loser's `saveLink` overwrites the
+-- winner's, which orphans a Garmin workout and a calendar entry that no later
+-- diff can see, let alone remove: a duplicate on the calendar for good.
+--
+-- One nullable timestamp is enough to prevent that. A run claims it with a
+-- conditional UPDATE, which is a single statement and therefore atomic in
+-- SQLite, and only the run whose UPDATE changed a row proceeds. The stored
+-- time is what makes the lock self-healing: a run that dies without releasing
+-- it — an isolate evicted mid-flight — holds it only until it goes stale.
+ALTER TABLE garmin_connections ADD COLUMN sync_locked_at TEXT;

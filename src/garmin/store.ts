@@ -210,8 +210,8 @@ export async function getConnection(env: Env, userId: string): Promise<Connectio
  * token on every use: keeping the old one would mean the next refresh fails
  * and the athlete is asked to reconnect for no reason.
  */
-export async function withFreshToken(env: Env, connection: Connection): Promise<Connection> {
-  if (Date.parse(connection.accessExpiresAt) - REFRESH_MARGIN_MS > Date.now()) return connection;
+export async function withFreshToken(env: Env, connection: Connection, force = false): Promise<Connection> {
+  if (!force && Date.parse(connection.accessExpiresAt) - REFRESH_MARGIN_MS > Date.now()) return connection;
 
   if (connection.refreshExpiresAt && Date.parse(connection.refreshExpiresAt) < Date.now()) {
     throw new GarminAuthError('the Garmin connection has expired — please connect the account again');
@@ -232,6 +232,37 @@ export async function setAutoSync(env: Env, userId: string, enabled: boolean): P
   await env.DB.prepare('UPDATE garmin_connections SET auto_sync = ?, updated_at = ? WHERE user_id = ?')
     .bind(enabled ? 1 : 0, iso(), userId)
     .run();
+}
+
+/**
+ * How long a claimed sync lock is honoured before another run may take it.
+ *
+ * A Worker invocation is bounded well under this, so a lock older than it
+ * belongs to a run that died rather than to one still working — an isolate
+ * evicted mid-flight leaves no chance to release it.
+ */
+export const SYNC_LOCK_TTL_MS = 5 * 60_000;
+
+/**
+ * Claim the right to sync this athlete, or find it already claimed.
+ *
+ * One conditional UPDATE, which SQLite applies atomically, so exactly one of
+ * two concurrent runs sees a changed row and proceeds. See
+ * `migrations/0005_garmin_sync_lock.sql` for what goes wrong without it.
+ */
+export async function claimSync(env: Env, userId: string, now: Date = new Date()): Promise<boolean> {
+  const stale = new Date(now.getTime() - SYNC_LOCK_TTL_MS).toISOString();
+  const result = await env.DB.prepare(
+    `UPDATE garmin_connections SET sync_locked_at = ?1
+     WHERE user_id = ?2 AND (sync_locked_at IS NULL OR sync_locked_at < ?3)`,
+  )
+    .bind(iso(now), userId, stale)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+export async function releaseSync(env: Env, userId: string): Promise<void> {
+  await env.DB.prepare('UPDATE garmin_connections SET sync_locked_at = NULL WHERE user_id = ?').bind(userId).run();
 }
 
 export async function recordSync(env: Env, userId: string, error: string | null): Promise<void> {

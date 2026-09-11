@@ -6,7 +6,7 @@ import type { GarminExecutableStep, GarminRepeatStep } from '../src/garmin/paylo
 import { fingerprint, keyId, seal, unseal } from '../src/garmin/crypto';
 import { challengeFor, randomVerifier } from '../src/garmin/oauth';
 import * as store from '../src/garmin/store';
-import { planFor, syncAll } from '../src/garmin/sync';
+import { GarminBusyError, newBudget, planFor, syncAll, syncEveryone } from '../src/garmin/sync';
 import { shiftDate, today } from '../src/units';
 import { parseWorkout } from '../src/workout';
 import type { Workout } from '../src/workout';
@@ -234,6 +234,28 @@ describe('building the Garmin payload', () => {
     expect(step.targetValueType).toBe('PERCENT_MAX_HEART_RATE');
     expect(step.targetValueLow).toBe(70);
     expect(step.targetValueHigh).toBe(80);
+  });
+
+  it('does not invert an open-ended power band above 100% of FTP', async () => {
+    // 110% of FTP is an ordinary interval, and a shared percent ceiling of
+    // 100 used to turn "at least 110%" into a band from 110 down to 100.
+    const { workout } = buildWorkout(
+      await store_workout({ date: DAY, name: 'Over FTP', steps: [{ goal_s: 300, target_watts: ['110%', '-'] }] }),
+    );
+    const step = workout.segments[0].steps[0] as GarminExecutableStep;
+    expect(step.targetValueType).toBe('PERCENT_FTP');
+    expect(step.targetValueLow).toBe(110);
+    expect(step.targetValueHigh).toBe(1000);
+    expect(step.targetValueLow!).toBeLessThanOrEqual(step.targetValueHigh!);
+  });
+
+  it('keeps a percentage heart-rate band inside 100', async () => {
+    const { workout } = buildWorkout(
+      await store_workout({ date: DAY, name: 'Percent HR', steps: [{ goal_s: 300, target_heart_rate: ['80%', '-'] }] }),
+    );
+    const step = workout.segments[0].steps[0] as GarminExecutableStep;
+    expect(step.targetValueLow).toBe(80);
+    expect(step.targetValueHigh).toBe(100);
   });
 
   it('sends a single zone as a zone, for the watch to resolve', async () => {
@@ -647,6 +669,111 @@ describe('syncing to the calendar', () => {
     expect((await store.getConnection(env, athlete))?.accessToken).toBe(state.issued.at(-1));
   });
 
+  it('refreshes once and retries when a token is invalidated mid-run', async () => {
+    await write(INTERVALS);
+    // The token looks fresh to us but Garmin has stopped honouring it, which
+    // proactive refreshing cannot predict.
+    await stub.fail({ expireTokens: true });
+
+    const report = await sync();
+    expect(report.counts.created).toBe(1);
+    expect(report.counts.failed).toBe(0);
+
+    const state = await stub.state();
+    expect(state.calls.filter((c) => c.grant === 'refresh_token')).toHaveLength(1);
+  });
+
+  it('refuses a second sync while one is already running', async () => {
+    await write(INTERVALS);
+    // Claimed as another run would claim it, and not released.
+    expect(await store.claimSync(env, athlete)).toBe(true);
+
+    const response = await SELF.fetch(`${BASE}/api/garmin/sync`, {
+      method: 'POST',
+      headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining('already running') });
+
+    // Nothing was pushed behind the lock, so no duplicate is possible.
+    expect(training(await stub.state())).toHaveLength(0);
+
+    // And it is released afterwards, so the next sync is not locked out.
+    await store.releaseSync(env, athlete);
+    expect((await sync()).counts.created).toBe(1);
+  });
+
+  it('lets a preview through while a sync holds the lock', async () => {
+    await write(INTERVALS);
+    expect(await store.claimSync(env, athlete)).toBe(true);
+
+    // A dry run changes nothing on either side, so waiting on the lock would
+    // only stop someone looking at what the running sync is doing.
+    const report = await sync({ dry_run: true });
+    expect(report.counts.created).toBe(1);
+    expect(training(await stub.state())).toHaveLength(0);
+  });
+
+  it('releases the lock even when the run fails outright', async () => {
+    await stub.fail({ rejectNamed: '8x400m' });
+    await write(INTERVALS);
+
+    expect((await sync()).counts.failed).toBe(1);
+    // Not still held: the next attempt gets the lock rather than a 409.
+    expect(await store.claimSync(env, athlete)).toBe(true);
+  });
+
+  it('reclaims a lock left behind by a run that died', async () => {
+    await env.DB.prepare('UPDATE garmin_connections SET sync_locked_at = ? WHERE user_id = ?')
+      .bind(new Date(Date.now() - 10 * 60_000).toISOString(), athlete)
+      .run();
+
+    await write(INTERVALS);
+    expect((await sync()).counts.created).toBe(1);
+  });
+
+  it('stops on the shared call budget rather than pushing past it', async () => {
+    // Three workouts at two calls each, with room for one.
+    await write(INTERVALS);
+    await write({ ...INTERVALS, date: OTHER_DAY, name: 'Second' });
+    await write({ ...INTERVALS, date: shiftDate(today(), 6), name: 'Third' });
+
+    const report = await syncAll(env, athlete, { budget: newBudget(5) });
+    expect(report.counts.created).toBe(1);
+    expect(report.counts.skipped).toBe(2);
+    expect(report.truncated).toBe(true);
+    // Skipped is not failed: nothing is wrong, there was just no room.
+    expect(report.counts.failed).toBe(0);
+    expect(report.error).toBeUndefined();
+
+    // The next run finishes the job, because the diff comes from stored state.
+    const rest = await syncAll(env, athlete);
+    expect(rest.counts.created).toBe(2);
+    expect(rest.counts.unchanged).toBe(1);
+  });
+
+  it('puts a workout deleted on Garmin back when everything is re-sent', async () => {
+    await write(INTERVALS);
+    await sync();
+    const before = await stub.state();
+
+    // Deleted in the Connect app, and nothing changed here — so an ordinary
+    // sync has no reason to touch it and reports it unchanged.
+    await stub.forget();
+    expect((await sync()).counts.unchanged).toBe(1);
+    expect((await stub.state()).workouts).toHaveLength(0);
+
+    // Re-sending is what notices, and what puts it back.
+    const resent = await sync({ force: true });
+    expect(resent.counts.created).toBe(1);
+
+    const after = await stub.state();
+    expect(after.workouts).toHaveLength(1);
+    expect(after.workouts[0].id).not.toBe(before.workouts[0].id);
+    expect(after.schedules).toHaveLength(1);
+  });
+
   it('asks the athlete to reconnect when the refresh is refused', async () => {
     await stub.fail({ refuseRefresh: true });
     await env.DB.prepare('UPDATE garmin_connections SET access_expires_at = ? WHERE user_id = ?')
@@ -660,6 +787,43 @@ describe('syncing to the calendar', () => {
     });
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ error: expect.stringContaining('Garmin') });
+  });
+});
+
+describe('the nightly sweep', () => {
+  let cookie: string;
+  let athlete: string;
+
+  beforeEach(async () => {
+    cookie = await connectGarmin();
+    athlete = (await currentUserId())!;
+  });
+
+  it('pushes for an athlete who asked for it', async () => {
+    await SELF.fetch(`${BASE}/api/workouts`, {
+      method: 'POST',
+      headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify(INTERVALS),
+    });
+
+    expect(await syncEveryone(env)).toMatchObject({ users: 1, pushed: 1, failed: 0, budgetSpent: false });
+    expect((await stub.state()).schedules).toHaveLength(1);
+  });
+
+  it('leaves out an athlete who turned the nightly sync off', async () => {
+    await store.setAutoSync(env, athlete, false);
+    expect(await syncEveryone(env)).toMatchObject({ users: 0, pushed: 0 });
+    expect(training(await stub.state())).toHaveLength(0);
+  });
+
+  it('does not count a locked athlete as a failure', async () => {
+    expect(await store.claimSync(env, athlete)).toBe(true);
+    expect(await syncEveryone(env)).toMatchObject({ failed: 0, pushed: 0 });
+  });
+
+  it('reports a busy sync as its own kind of outcome', async () => {
+    expect(await store.claimSync(env, athlete)).toBe(true);
+    await expect(syncAll(env, athlete)).rejects.toBeInstanceOf(GarminBusyError);
   });
 });
 
@@ -735,32 +899,34 @@ describe('the MCP tools', () => {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
     });
-    return (await response.json()) as { result: { isError?: boolean; structuredContent?: Record<string, unknown> } };
+    return (await response.json()) as {
+      result: {
+        isError?: boolean;
+        content?: Array<{ text?: string }>;
+        structuredContent?: Record<string, unknown>;
+      };
+    };
   };
 
-  it('offers the Garmin tools alongside the workout ones', async () => {
+  it('exposes syncing and nothing else — linking is a one-time browser step', async () => {
     const response = await SELF.fetch(`${BASE}/mcp`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
     });
     const { result } = (await response.json()) as { result: { tools: Array<{ name: string }> } };
-    expect(result.tools.map((t) => t.name)).toEqual(
-      expect.arrayContaining(['garmin_status', 'sync_garmin', 'set_garmin_auto_sync', 'disconnect_garmin']),
-    );
+    const names = result.tools.map((t) => t.name);
+
+    expect(names).toContain('sync_garmin');
+    expect(names.filter((name) => name.includes('garmin'))).toEqual(['sync_garmin']);
   });
 
-  it('hands back a browser link when no account is connected', async () => {
-    const { result } = await tool('garmin_status');
-    expect(result.structuredContent).toMatchObject({
-      connected: false,
-      connect_url: `${BASE}/garmin/connect`,
-    });
-  });
-
-  it('reports a missing connection as something the caller can act on', async () => {
+  it('answers a sync with nothing linked by saying where to link it', async () => {
     const { result } = await tool('sync_garmin');
     expect(result.isError).toBe(true);
+    // The one URL these tools hand back, because it is a page to open rather
+    // than bytes behind a credential.
+    expect(result.content?.[0]?.text).toContain(`${BASE}/garmin/connect`);
   });
 
   it('leaves the payloads out of a dry run unless asked', async () => {
