@@ -125,7 +125,7 @@ function readMultipart(bytes, boundary) {
   return { metadata: JSON.parse(bodyOf(parts[0])), content: bodyOf(parts[1] ?? '\r\n\r\n') };
 }
 
-/** `workouts-mcp/2026-09/intervals.icu/…`, walked back up through the parents. */
+/** `workouts-mcp/intervals.icu/2026-09/…`, walked back up through the parents. */
 function drivePath(id) {
   const segments = [];
   for (let at = id; at && at !== SHARED_DRIVE; at = state.drive.files.get(at)?.parents?.[0]) {
@@ -145,6 +145,12 @@ function drive(request, url) {
     return Response.json({ error: { message: 'Invalid Credentials' } }, { status: 401 });
   }
   state.drive.requests.push({ method: request.method, path, search: url.search });
+
+  for (const [fragment, status] of Object.entries(state.drive.failing)) {
+    if (path.includes(fragment)) {
+      return Response.json({ error: { message: `Drive is unhappy about ${fragment}` } }, { status });
+    }
+  }
 
   // GET /drive/v3/drives/{id}
   const asDrive = /^\/drive\/v3\/drives\/([^/]+)$/.exec(path);
@@ -222,8 +228,8 @@ const freshState = () => ({
   failing: {},
   /** Every intervals.icu request seen, so a test can assert the call was made. */
   requests: [],
-  /** Google Drive: the files put there, and the calls that put them. */
-  drive: { files: new Map(), nextId: 1, requests: [] },
+  /** Google Drive: the files put there, the calls that put them, and arranged failures. */
+  drive: { files: new Map(), nextId: 1, requests: [], failing: {} },
 });
 
 let state = freshState();
@@ -270,6 +276,7 @@ function control(request, path) {
     return request.json().then((body) => {
       if (body.activities) state.activities = body.activities;
       if (body.failing) state.failing = body.failing;
+      if (body.driveFailing) state.drive.failing = body.driveFailing;
       if (body.athlete) state.athlete = body.athlete;
       return Response.json({ ok: true });
     });

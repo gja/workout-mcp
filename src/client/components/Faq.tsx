@@ -72,7 +72,7 @@ export function Faq() {
           <p className="note">
             Connect a Google shared drive under <strong>Setup</strong>, and every race you record on a connected
             training platform is copied into it as the FIT file your watch produced, filed as{' '}
-            <code>workouts-mcp/yyyy-mm/intervals.icu/yyyy-mm-dd-id-name.fit</code>.
+            <code>workouts-mcp/intervals.icu/yyyy-mm/yyyy-mm-dd-id-name.fit</code>.
           </p>
           <p className="note">
             Then analyse it there. That is the honest answer to "where are my charts?" — there are none here, because
@@ -80,9 +80,9 @@ export function Faq() {
             yours: point an assistant at the folder, open it in whatever tool you like, keep it as long as you want.
           </p>
           <p className="note">
-            You will need to add this server's service account to the drive as a member; the panel shows you which
-            address, and checks it works before it stores anything. Only races are copied — an ordinary session stays
-            where it is.
+            You will need to add this server's service account to the drive as a <strong>Contributor</strong>; the
+            panel shows you which address, and it writes a folder there to prove it can before storing anything. Only
+            races are copied — an ordinary session stays where it is.
           </p>
         </Section>
       </Accordion>

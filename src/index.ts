@@ -17,8 +17,9 @@ import { WorkoutError } from './workout';
 /** What `completeAuthorization` stores on the grant, and hands back here. */
 type AuthProps = { userId: string; email: string | null };
 
-/** Spelled as `wrangler.jsonc` spells it. The other cron is hourly. */
+/** Spelled as `wrangler.jsonc` spells them. The third is the hourly completion pass. */
 const NIGHTLY = '0 3 * * *';
+const DRIVE = '40 * * * *';
 
 const mcpHandler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -59,24 +60,28 @@ const provider = new OAuthProvider<Env>({
 export default {
   fetch: (request: Request, env: Env, ctx: ExecutionContext) => provider.fetch(request, env, ctx),
 
-  /** Two schedules, told apart by which cron fired. See "Scheduled work" in docs/deployment.md. */
+  /** Three schedules, told apart by which cron fired. See "Scheduled work" in docs/deployment.md. */
   async scheduled(event: ScheduledController, env: Env): Promise<void> {
-    // First, and guarded: this talks to someone else's server, and the housekeeping below
+    // Its own invocation, so it gets its own subrequest allowance rather than
+    // whatever the completion sweep below left of a 50-call budget.
+    if (event.cron === DRIVE) {
+      const copied = await drive.copyForEveryone(env).catch((err: unknown) => {
+        console.error('copying races to Google Drive failed', err);
+        return 0;
+      });
+      console.log(`drive pass copied ${copied} races`);
+      return;
+    }
+
+    // Guarded: this talks to someone else's server, and the housekeeping below
     // must not be skipped because that went wrong.
     const completed = await platforms.pullEveryCompletion(env).catch((err: unknown) => {
       console.error('reading completions back failed', err);
       return 0;
     });
 
-    // Also guarded, and after the completions: someone else's Drive is one more
-    // server that can be down, and the housekeeping below must still run.
-    const copied = await drive.copyForEveryone(env).catch((err: unknown) => {
-      console.error('copying races to Google Drive failed', err);
-      return 0;
-    });
-
     if (event.cron !== NIGHTLY) {
-      console.log(`hourly pass marked ${completed} workouts done and copied ${copied} races to Drive`);
+      console.log(`hourly pass marked ${completed} workouts done`);
       return;
     }
 
@@ -89,8 +94,7 @@ export default {
     const abandoned = await identity.pruneLoginStates(env);
     const purged = await provider.purgeExpiredData(env);
     console.log(
-      `nightly sweep marked ${completed} workouts done, copied ${copied} races to Drive, ` +
-        `brought ${retried} platform connections back, ` +
+      `nightly sweep marked ${completed} workouts done, brought ${retried} platform connections back, ` +
         `and removed ${links} stale platform links, ${credentials} expired sessions, ` +
         `${abandoned} abandoned sign-ins and ${purged.grantsPurged ?? 0} stale grants`,
     );

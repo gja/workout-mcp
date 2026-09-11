@@ -48,7 +48,7 @@ carries data, is tested against a row written in the old shape.
 | `oauth.test.ts` | Discovery, registration, consent, the PKCE code exchange, refresh, connected apps |
 | `mcp.test.ts` | The JSON-RPC protocol and every tool |
 | `platforms.test.ts` | Connecting intervals.icu, pushing creates, edits, moves and deletes, surviving an outage, and completions coming back |
-| `drive.test.ts` | Configuring a shared drive, which sessions count as races, the path a copy lands at, copying each once, and the per-run cap |
+| `drive.test.ts` | Configuring a shared drive and the write check, which sessions count as races, the path a copy lands at, the ledger claim, copying each once, and the per-run cap |
 | `router.test.ts` | Pattern matching, parameter constraints, 405 apart from 404, HEAD on a GET route |
 
 CI runs `npm run typecheck` and `npm test` on every push to `main` and every

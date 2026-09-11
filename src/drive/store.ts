@@ -61,7 +61,7 @@ export async function forgetConnection(env: Env, userId: string): Promise<boolea
 
 export type Copy = { platform: string; remote_id: string; path: string; copied_at: string };
 
-/** The platform ids a race has already been copied under, for one sync run. */
+/** Races already copied or claimed, for one sync run. A claim counts: it is being copied. */
 export async function copiedIds(env: Env, userId: string, platform: string): Promise<Set<string>> {
   const { results } = await env.DB.prepare(
     'SELECT remote_id FROM drive_copies WHERE user_id = ? AND platform = ?',
@@ -71,28 +71,60 @@ export async function copiedIds(env: Env, userId: string, platform: string): Pro
   return new Set((results ?? []).map((row) => row.remote_id));
 }
 
-/** Ignores a second write for the same race: the first copy is the one that counts. */
-export async function recordCopy(
+/**
+ * Take the race, or find that someone else already has it.
+ *
+ * Written *before* the upload, not after: "Copy now" can overlap the hourly
+ * pass, and two runs that each checked an empty ledger first would both upload
+ * — Drive allows duplicate names, so that is two files, one of them orphaned.
+ * The primary key decides it instead, and `file_id` stays null until it lands.
+ */
+export async function claimCopy(
   env: Env,
   userId: string,
   platform: string,
   remoteId: string,
   path: string,
+): Promise<boolean> {
+  const result = await env.DB.prepare(
+    `INSERT INTO drive_copies (user_id, platform, remote_id, path, file_id, copied_at)
+     VALUES (?1, ?2, ?3, ?4, NULL, ?5)
+     ON CONFLICT (user_id, platform, remote_id) DO NOTHING`,
+  )
+    .bind(userId, platform, remoteId, path, new Date().toISOString())
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+/** The upload landed: name the file, which is also what marks the claim finished. */
+export async function completeCopy(
+  env: Env,
+  userId: string,
+  platform: string,
+  remoteId: string,
   fileId: string,
 ): Promise<void> {
   await env.DB.prepare(
-    `INSERT INTO drive_copies (user_id, platform, remote_id, path, file_id, copied_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-     ON CONFLICT (user_id, platform, remote_id) DO NOTHING`,
+    'UPDATE drive_copies SET file_id = ? WHERE user_id = ? AND platform = ? AND remote_id = ?',
   )
-    .bind(userId, platform, remoteId, path, fileId, new Date().toISOString())
+    .bind(fileId, userId, platform, remoteId)
     .run();
 }
 
+/** Give the race back, so a claim whose upload failed is retried rather than lost. */
+export async function releaseCopy(env: Env, userId: string, platform: string, remoteId: string): Promise<void> {
+  await env.DB.prepare(
+    'DELETE FROM drive_copies WHERE user_id = ? AND platform = ? AND remote_id = ? AND file_id IS NULL',
+  )
+    .bind(userId, platform, remoteId)
+    .run();
+}
+
+// `file_id IS NOT NULL` throughout: a claim still in flight is not a file yet.
 export async function recentCopies(env: Env, userId: string, limit: number): Promise<Copy[]> {
   const { results } = await env.DB.prepare(
     `SELECT platform, remote_id, path, copied_at FROM drive_copies
-     WHERE user_id = ? ORDER BY copied_at DESC LIMIT ?`,
+     WHERE user_id = ? AND file_id IS NOT NULL ORDER BY copied_at DESC LIMIT ?`,
   )
     .bind(userId, limit)
     .all<Copy>();
@@ -100,7 +132,9 @@ export async function recentCopies(env: Env, userId: string, limit: number): Pro
 }
 
 export async function countCopies(env: Env, userId: string): Promise<number> {
-  const row = await env.DB.prepare('SELECT COUNT(*) AS n FROM drive_copies WHERE user_id = ?')
+  const row = await env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM drive_copies WHERE user_id = ? AND file_id IS NOT NULL',
+  )
     .bind(userId)
     .first<{ n: number }>();
   return row?.n ?? 0;

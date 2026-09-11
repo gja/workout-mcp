@@ -85,6 +85,10 @@ async function assertion(env: Env): Promise<string> {
 
 /** A token per sync run. Caching one across runs would be a credential in a global. */
 export async function accessToken(env: Env): Promise<string> {
+  // Signed outside the try below, so an unreadable key is not reported as an outage,
+  // and `DriveUnavailable` keeps its own type rather than being rewrapped.
+  const signed = await assertion(env);
+
   let response: Response;
   try {
     response = await fetch(TOKEN_ENDPOINT, {
@@ -92,7 +96,7 @@ export async function accessToken(env: Env): Promise<string> {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-        assertion: await assertion(env),
+        assertion: signed,
       }),
     });
   } catch (err) {
@@ -196,8 +200,10 @@ export async function ensureFolder(token: string, parentId: string, name: string
 // contain it, and FIT is binary, so it could.
 const boundary = (): string => `workouts-mcp-${crypto.randomUUID()}`;
 
-/** Well above any FIT recording, and well below what a Worker may hold. */
-export const MAX_UPLOAD_BYTES = 64 * 1024 * 1024;
+// Well above any FIT recording — a long ultra is single-digit MB — and low
+// enough that the recording plus the multipart body around it are nowhere near
+// the isolate's 128 MB. An OOM is not catchable, so this has to be the guard.
+export const MAX_UPLOAD_BYTES = 16 * 1024 * 1024;
 
 export type Upload = {
   parentId: string;
@@ -209,35 +215,69 @@ export type Upload = {
 };
 
 /**
+ * Read the whole recording, refusing it the moment it passes the cap.
+ *
+ * Bounded as it arrives rather than from `Content-Length`, because the platform
+ * may not have sent one — and a cap that only checks the header it was given is
+ * no cap at all.
+ */
+async function readBounded(body: ReadableStream, what: string): Promise<Uint8Array[]> {
+  const reader = (body as ReadableStream<Uint8Array>).getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_UPLOAD_BYTES) fail(`“${what}” is larger than ${MAX_UPLOAD_BYTES / 1e6} MB, so it is not relayed`);
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  if (size === 0) fail(`“${what}” came back empty`);
+  return chunks;
+}
+
+/**
  * Relay a recording into the drive in one call, and answer with Google's file id.
  *
- * The bytes pass through an `ArrayBuffer` rather than a stream because Google's
+ * The bytes are assembled in memory rather than streamed because Google's
  * multipart endpoint wants a `Content-Length`, and a Worker cannot put one on a
  * streamed request body. They are held for the one call and written nowhere:
  * see "Nothing is kept here" in docs/drive.md.
  */
 export async function uploadFile(token: string, upload: Upload): Promise<string> {
+  // Before a byte is read, when the platform said: refusing early beats refusing late.
   if (upload.length !== null && upload.length > MAX_UPLOAD_BYTES) {
     fail(`that recording is ${Math.round(upload.length / 1e6)} MB, which is more than this will relay`);
   }
 
-  const recording = await new Response(upload.body).arrayBuffer();
-  if (recording.byteLength === 0) fail(`“${upload.name}” came back empty`);
-  if (recording.byteLength > MAX_UPLOAD_BYTES) fail(`“${upload.name}” is too large to relay`);
-
-  const metadata = { name: upload.name, parents: [upload.parentId] };
   const mark = boundary();
-  const body = new Blob(
-    [
-      `--${mark}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`,
+  const encoder = new TextEncoder();
+  const metadata = { name: upload.name, parents: [upload.parentId] };
+  const opening = encoder.encode(
+    `--${mark}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
       `--${mark}\r\nContent-Type: ${upload.contentType}\r\n\r\n`,
-      recording,
-      `\r\n--${mark}--\r\n`,
-    ],
-    { type: `multipart/related; boundary=${mark}` },
   );
+  const closing = encoder.encode(`\r\n--${mark}--\r\n`);
+
+  // Assembled once, straight out of the chunks, so no copy of the recording outlives the next.
+  const chunks = await readBounded(upload.body, upload.name);
+  const parts = [opening, ...chunks, closing];
+  const body = new Uint8Array(parts.reduce((total, part) => total + part.byteLength, 0));
+  let at = 0;
+  for (const part of parts) {
+    body.set(part, at);
+    at += part.byteLength;
+  }
 
   const query = new URLSearchParams({ uploadType: 'multipart', fields: 'id', ...SHARED_DRIVE_PARAMS });
-  const created = await call<{ id?: string }>(token, `${UPLOAD}?${query}`, { method: 'POST', body });
+  const created = await call<{ id?: string }>(token, `${UPLOAD}?${query}`, {
+    method: 'POST',
+    headers: { 'Content-Type': `multipart/related; boundary=${mark}` },
+    body,
+  });
   return created.id ?? fail(`Google Drive accepted “${upload.name}” but named no file`);
 }

@@ -100,6 +100,14 @@ describe('configuring a drive', () => {
     expect((await driveStatus()).connected).toBe(false);
   });
 
+  it('refuses a drive it can read but not write to, so a Viewer fails at the form', async () => {
+    await control('setup', { driveFailing: { '/drive/v3/files': 403 } });
+
+    const { response } = await connectDrive();
+    expect(response.status).toBe(400);
+    expect((await driveStatus()).connected).toBe(false);
+  });
+
   it('refuses something that is not a drive link at all', async () => {
     const { response, body } = await connectDrive('not a drive');
     expect(response.status).toBe(400);
@@ -127,7 +135,7 @@ describe('copying a race', () => {
     await connectPlatform();
   });
 
-  it('puts the recording at workouts-mcp/yyyy-mm/<platform>/yyyy-mm-dd-<id>-name.fit', async () => {
+  it('puts the recording at workouts-mcp/<platform>/yyyy-mm/yyyy-mm-dd-<id>-name.fit', async () => {
     await control('setup', { activities: [race('i555')] });
 
     const { body } = await connectDrive();
@@ -135,7 +143,7 @@ describe('copying a race', () => {
 
     const { files } = await driveState();
     expect(files).toHaveLength(1);
-    expect(files[0].path).toBe(`workouts-mcp/${MONTH}/intervals.icu/${RACE_DAY}-i555-City-Marathon.fit`);
+    expect(files[0].path).toBe(`workouts-mcp/intervals.icu/${MONTH}/${RACE_DAY}-i555-City-Marathon.fit`);
     // The athlete's own upload, not the one intervals.icu builds from the streams.
     expect(files[0].content).toBe('file:i555');
   });
@@ -151,7 +159,7 @@ describe('copying a race', () => {
     const { body } = await connectDrive();
     expect(body.sync).toMatchObject({ copied: 1 });
     expect((await driveState()).files.map((file) => file.path)).toEqual([
-      `workouts-mcp/${MONTH}/intervals.icu/${RACE_DAY}-i555-City-Marathon.fit`,
+      `workouts-mcp/intervals.icu/${MONTH}/${RACE_DAY}-i555-City-Marathon.fit`,
     ]);
   });
 
@@ -167,7 +175,7 @@ describe('copying a race', () => {
 
     const { files } = await driveState();
     expect(files[0].content).toBe('fit-file:i558');
-    expect(files[0].path).toBe(`workouts-mcp/${MONTH}/intervals.icu/${RACE_DAY}-i558-City-Marathon.fit`);
+    expect(files[0].path).toBe(`workouts-mcp/intervals.icu/${MONTH}/${RACE_DAY}-i558-City-Marathon.fit`);
   });
 
   it('copies each race once, however often it is asked', async () => {
@@ -178,13 +186,35 @@ describe('copying a race', () => {
     expect((await driveState()).files).toHaveLength(1);
   });
 
+  /** Stands in for the hourly pass having claimed the race while "Copy now" was queueing it. */
+  it('leaves a race another run has already claimed, rather than uploading it twice', async () => {
+    await control('setup', { activities: [race('i560')] });
+    await connectDrive();
+
+    const { id: userId } = await seedUser('other@example.com');
+    await env.DB.prepare(
+      `INSERT INTO drive_copies (user_id, platform, remote_id, path, file_id, copied_at)
+       VALUES (?, 'intervals', 'i560', 'claimed', NULL, ?)`,
+    )
+      .bind(userId, new Date().toISOString())
+      .run();
+
+    // Someone else's claim is not ours, so ours still goes.
+    expect((await driveState()).files).toHaveLength(1);
+
+    // Our own in-flight claim is: the race is skipped and nothing is uploaded again.
+    await env.DB.prepare('UPDATE drive_copies SET file_id = NULL WHERE remote_id = ?').bind('i560').run();
+    expect(await copyNow()).toMatchObject({ copied: 0, error: null });
+    expect((await driveState()).files).toHaveLength(1);
+  });
+
   it('reuses the month folder instead of making a second one', async () => {
     await control('setup', { activities: [race('i561'), race('i562', { name: 'Half' })] });
     await connectDrive();
 
     const { files, requests } = await driveState();
     expect(files).toHaveLength(2);
-    // Three folders, made once between them: the root, the month, the platform.
+    // Three folders, made once between them: the root (at configure), the platform, the month.
     expect(requests.filter((seen) => seen.method === 'POST' && seen.path === '/drive/v3/files')).toHaveLength(3);
   });
 
@@ -201,7 +231,8 @@ describe('copying a race', () => {
     await control('setup', { activities: many });
 
     expect((await connectDrive()).body.sync).toMatchObject({ copied: COPY_LIMIT, remaining: 2 });
-    expect((await driveStatus()).last_error).toBe('2 left to copy');
+    // A backlog clears itself next hour, so it is never reported as a failed copy.
+    expect((await driveStatus()).last_error).toBeNull();
 
     expect(await copyNow()).toMatchObject({ copied: 2, remaining: 0, error: null });
     expect((await driveState()).files).toHaveLength(COPY_LIMIT + 2);
@@ -213,7 +244,7 @@ describe('copying a race', () => {
     await connectDrive();
 
     const { files } = await driveState();
-    expect(files[0].path).toBe(`workouts-mcp/${MONTH}/intervals.icu/${RACE_DAY}-i564-10k-PB-attempt.fit`);
+    expect(files[0].path).toBe(`workouts-mcp/intervals.icu/${MONTH}/${RACE_DAY}-i564-10k-PB-attempt.fit`);
   });
 
   it('records the failure against the drive rather than throwing', async () => {
@@ -223,6 +254,11 @@ describe('copying a race', () => {
     expect(body.sync?.error).toContain('500');
     expect((await driveStatus()).last_error).toContain('500');
     expect((await driveState()).files).toHaveLength(0);
+
+    // The claim went back, so the race is still owed rather than silently dropped.
+    await control('setup', { failing: {} });
+    expect(await copyNow()).toMatchObject({ copied: 1, error: null });
+    expect((await driveState()).files).toHaveLength(1);
   });
 
   it('stores nothing about the race itself beyond where it went', async () => {
@@ -252,11 +288,11 @@ describe('copying a race', () => {
     await connectDrive();
     await control('setup', { activities: [race('i567')] });
 
-    await worker.scheduled!(createScheduledController({ cron: '20 * * * *' }), env);
+    await worker.scheduled!(createScheduledController({ cron: '40 * * * *' }), env);
 
     const { files } = await driveState();
     expect(files).toHaveLength(1);
-    expect(files[0].path).toBe(`workouts-mcp/${MONTH}/intervals.icu/${RACE_DAY}-i567-City-Marathon.fit`);
+    expect(files[0].path).toBe(`workouts-mcp/intervals.icu/${MONTH}/${RACE_DAY}-i567-City-Marathon.fit`);
   });
 
   it('lists the most recent copies on the dashboard', async () => {

@@ -9,7 +9,7 @@ Connect a Google shared drive and **every race you record on a connected
 training platform is copied into it as a FIT file**, on the hour, as:
 
 ```
-workouts-mcp/2026-04/intervals.icu/2026-04-19-i44031892-City-Marathon.fit
+workouts-mcp/intervals.icu/2026-04/2026-04-19-i44031892-City-Marathon.fit
 ```
 
 From there it is yours. Point an assistant at the folder, open it in whatever
@@ -70,13 +70,33 @@ What an athlete does, once:
    left-hand column. An ordinary My Drive folder will also work, but see
    [Why a shared drive](#why-a-shared-drive) first.
 2. Open it, **Manage members**, and add the service account's address (the
-   dashboard shows it) as a **Content manager**.
+   dashboard shows it) as a **Contributor** — see [What it is allowed to
+   do](#what-it-is-allowed-to-do).
 3. Copy the drive's link from the address bar and paste it into the **Google
    Drive** panel on the dashboard.
 
-The address is checked against Google there and then, so a drive that was never
-actually shared fails at the form rather than silently never syncing, and the
-first copy runs immediately instead of waiting for the hour.
+The drive is checked against Google there and then — and checked by *writing*
+to it, not merely reading: the `workouts-mcp` folder is created as part of
+connecting. A Viewer, or a folder the service account cannot own files in, fails
+at the form rather than connecting cleanly and then failing every copy for
+reasons nobody sees. The first copy runs immediately instead of waiting for the
+hour.
+
+### What it is allowed to do
+
+**Contributor** is the minimum, and it is the right one: the integration adds
+folders and uploads files, and never moves, renames or deletes anything.
+
+| Where | What is needed |
+| --- | --- |
+| Google Cloud IAM | **nothing** — no project roles at all |
+| Google Cloud APIs | the **Drive API** enabled on the project |
+| OAuth scope (ours, not yours to set) | `https://www.googleapis.com/auth/drive` |
+| Shared drive membership | **Contributor** |
+
+Content manager also works and is what you want if you would rather *we* could
+tidy up, but nothing here ever will. Commenter and Viewer cannot create the
+folder, so connecting fails.
 
 ### Why a shared drive
 
@@ -116,10 +136,15 @@ of exactly the drives athletes have added it to.
 
 ```
 workouts-mcp/            everything this writes, under one folder, so nothing else is touched
-  2026-04/               the race's month, so a drive with years in it stays navigable
-    intervals.icu/       which platform it came from, by the name a person knows it by
+  intervals.icu/         which platform it came from, by the name a person knows it by
+    2026-04/             the race's month, so a drive with years in it stays navigable
       2026-04-19-i44031892-City-Marathon.fit
 ```
+
+Platform above month, rather than the other way round: a month folder per
+platform means one folder per month you actually raced in, where month-first
+would make a new set of platform folders inside every month. Fewer folders, and
+a single place to look for everything one platform has ever sent.
 
 The file name is the race's local date, the platform's own id for it, and the
 name you gave it. The date sorts; the id is what makes the name unique and what
@@ -141,15 +166,26 @@ request, held only in memory while it happens and then gone. The only thing
 written down is a row saying *this race, on this platform, went to this path* —
 which exists so the next hourly pass does not copy it a second time.
 
-The bytes pass through an `ArrayBuffer` rather than a stream, because Google's
+The bytes are assembled in memory rather than streamed, because Google's
 multipart upload wants a `Content-Length` and a Worker cannot put one on a
-streamed request body. A recording above `MAX_UPLOAD_BYTES` (64 MB) is refused
+streamed request body. A recording above `MAX_UPLOAD_BYTES` (16 MB) is refused
 rather than relayed — far above any real FIT file, and far below what an isolate
-may hold.
+may hold. The cap is applied to the bytes *as they arrive*, not to the
+platform's `Content-Length`: the `/fit-file` fallback often sends no length at
+all, and a cap that only checks a header it may never be given is no cap. An
+out-of-memory kill cannot be caught, so this guard has to come first.
 
 ## One copy, and only one
 
-A race is copied when it is first seen and never again. Re-analysing it
+A race is claimed in the ledger *before* its bytes move, not after. **Copy now**
+can overlap the hourly pass, and two runs that had each read an empty ledger
+would both upload — Drive allows duplicate names, so that is two files, one of
+them orphaned. The ledger's primary key settles it instead: the run that loses
+the insert skips the race. `file_id` stays null until the upload lands, so a
+claim whose download failed is released and tried again rather than lost, and a
+claim still in flight is not counted as a copy on the dashboard.
+
+Beyond that race, a race is copied when it is first seen and never again. Re-analysing it
 upstream, renaming it, or fixing its GPS does not produce a second file, and
 does not overwrite the one in your drive — which may by then be a file you have
 annotated, moved, or built a spreadsheet next to. If you do want the newer
@@ -167,27 +203,32 @@ Deleting the copy in Drive does not bring it back either, for the same reason.
   `LOOKBACK_DAYS` (30) ago to today.
 - Drop the ones already in the ledger, and take the oldest `COPY_LIMIT` (3) of
   what is left.
-- For each: make the folders if they are not there, ask the platform for the
-  file, hand it to Google, write the ledger row.
+- For each: claim it in the ledger, make the folders if they are not there, ask
+  the platform for the file, hand it to Google, then name the file on the claim.
 
 The lookback is deliberately **not** the retention window. That window exists to
 bound what the database holds, and the database holds nothing about a race, so
 it has no bearing here. Thirty days means connecting a drive the week after a
 race still catches the race.
 
-The per-run cap is the Worker's outbound subrequest budget: each copy is a
-download and an upload, on top of the folder lookups, and on the hourly cron all
-of that shares one invocation's budget with the completion pass that runs first.
-That budget is 50 subrequests on Cloudflare's free plan, which is why both caps
-here are small. A drive with a backlog fills in over consecutive hourly passes
-rather than failing the first one, and the standing error says how many are
-left. As with a training platform, a run is the only thing that clears that
-error, and only when it finds nothing left to do.
+The per-run cap is the Worker's outbound subrequest budget, which is 50 on
+Cloudflare's free plan: each copy is a download and an upload, on top of up to
+six folder lookups on a cold run, so `COPY_BATCH` (3) athletes at `COPY_LIMIT`
+(3) races each comes to about forty. That is also why the drive pass has its own
+cron rather than riding along on the completion sweep — that one already spends
+up to 40 subrequests of its own, and two jobs in one invocation would share a
+budget neither fits in twice.
 
-The hourly cron does this for a batch of `COPY_BATCH` (5) athletes, least
-recently visited first, so consecutive passes work round everybody. An error is
-per-athlete: one drive whose membership was revoked must not stop the sweep for
-anyone else.
+A drive with a backlog fills in over consecutive hourly passes rather than
+failing the first one, and the report says how many are left. A backlog is
+deliberately **not** written to the connection as a standing error, unlike a
+training platform's: there is nothing an athlete can do about it and it clears
+itself within the hour, so calling it a failed copy on the dashboard would be a
+lie. Only a real failure is recorded, and the next clean run clears it.
+
+The pass takes a batch of `COPY_BATCH` (3) athletes, least recently visited
+first, so consecutive passes work round everybody. An error is per-athlete: one
+drive whose membership was revoked must not stop the sweep for anyone else.
 
 The folder ids are cached for the run, keyed by month and platform, because a
 run is usually several races in the same month and each miss is three more

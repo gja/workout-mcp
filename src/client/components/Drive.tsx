@@ -123,8 +123,8 @@ export function Drive() {
           <>
             <p className="note">
               In Google Drive, open your shared drive, add{' '}
-              <code>{drive.service_account ?? 'the service account'}</code> as a <strong>Content manager</strong>,
-              then paste the drive's link here.
+              <code>{drive.service_account ?? 'the service account'}</code> as a <strong>Contributor</strong>, then
+              paste the drive's link here.
             </p>
             <div className="row">
               <form onSubmit={connect}>

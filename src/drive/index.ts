@@ -23,12 +23,12 @@ export const ROOT_FOLDER = 'workouts-mcp';
  */
 export const LOOKBACK_DAYS = 30;
 
-// Each copy is a download and an upload, and the hourly pass shares one
-// invocation's subrequest budget with the completion pass ahead of it. Both are
-// deliberately small: a backlog fills in over consecutive hours instead of
-// spending a budget that has already been half used.
+// Each copy is a download and an upload, on top of up to six folder lookups on
+// a cold run, so a batch of three athletes at three races each is about forty
+// subrequests — inside the 50 a Worker gets on the free plan. The pass has its
+// own cron for exactly that reason: see "Scheduled work" in docs/deployment.md.
 export const COPY_LIMIT = 3;
-export const COPY_BATCH = 5;
+export const COPY_BATCH = 3;
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
@@ -49,22 +49,32 @@ const safe = (value: string, limit: number): string =>
 export const fileName = (race: Competition): string =>
   `${race.date}-${safe(race.remote_id, 40)}-${safe(race.name, 80)}.fit`;
 
-/** `workouts-mcp/yyyy-mm/<platform>/<file>`, for the dashboard and the ledger. */
+/** `workouts-mcp/<platform>/yyyy-mm/<file>`, for the dashboard and the ledger. */
 const pathOf = (label: string, race: Competition): string =>
-  `${ROOT_FOLDER}/${race.date.slice(0, 7)}/${label}/${fileName(race)}`;
+  `${ROOT_FOLDER}/${label}/${race.date.slice(0, 7)}/${fileName(race)}`;
 
 // --- Configuring ------------------------------------------------------------
 
 export type Drive = google.Drive;
 
-/** Check the service account can actually see the drive before storing it. */
+/**
+ * Check the service account can actually *write* to the drive before storing it.
+ *
+ * Reading is not enough to prove anything useful: a Viewer, or a My Drive folder
+ * a service account has no quota to own files in, reads fine and then fails
+ * every copy. Making the root folder is the cheapest honest test, and it is a
+ * folder the first copy would have had to make anyway.
+ */
 export async function configure(env: Env, user: User, pasted: string): Promise<Drive> {
   if (!google.driveConfigured(env)) throw new google.DriveUnavailable();
 
   const driveId = google.readDriveId(pasted);
   if (!driveId) throw new google.DriveError('that does not look like a Google Drive link or id');
 
-  const drive = await google.findDrive(await google.accessToken(env), driveId);
+  const token = await google.accessToken(env);
+  const drive = await google.findDrive(token, driveId);
+  await google.ensureFolder(token, drive.id, ROOT_FOLDER);
+
   await store.saveConnection(env, user.id, drive.id, drive.name);
   return drive;
 }
@@ -96,7 +106,7 @@ export async function status(env: Env, user: User): Promise<DriveStatus> {
     drive_id: connection?.drive_id ?? null,
     drive_name: connection?.drive_name ?? null,
     last_error: connection?.last_error ?? null,
-    path_template: `${ROOT_FOLDER}/yyyy-mm/<platform>/yyyy-mm-dd-<id>-name.fit`,
+    path_template: `${ROOT_FOLDER}/<platform>/yyyy-mm/yyyy-mm-dd-<id>-name.fit`,
     copied: connection ? await store.countCopies(env, user.id) : 0,
     recent: connection ? await store.recentCopies(env, user.id, 5) : [],
     updated_at: connection?.updated_at ?? null,
@@ -113,39 +123,50 @@ export type CopyReport = {
   error: string | null;
 };
 
-/** One race, relayed from the platform into the drive. The path it landed at. */
+/** One race, relayed from the platform into the drive. The path it landed at, or null if taken. */
 async function copyOne(
   env: Env,
   userId: string,
   token: string,
-  monthFolderCache: Map<string, string>,
+  folderCache: Map<string, string>,
   driveId: string,
   source: RaceSource,
   race: Competition,
-): Promise<string> {
-  // Cached because a run is usually several races in the same month on the same platform,
-  // and each miss is two more subrequests against the budget the copies need.
-  const key = `${race.date.slice(0, 7)}/${source.label}`;
-  let folderId = monthFolderCache.get(key);
-  if (!folderId) {
-    const root = await google.ensureFolder(token, driveId, ROOT_FOLDER);
-    const month = await google.ensureFolder(token, root, race.date.slice(0, 7));
-    folderId = await google.ensureFolder(token, month, source.label);
-    monthFolderCache.set(key, folderId);
-  }
-
-  const recording = await source.recording(race);
-  const fileId = await google.uploadFile(token, {
-    parentId: folderId,
-    name: fileName(race),
-    contentType: recording.content_type,
-    body: recording.body,
-    length: recording.content_length,
-  });
-
+): Promise<string | null> {
   const path = pathOf(source.label, race);
-  await store.recordCopy(env, userId, source.platform, race.remote_id, path, fileId);
-  return path;
+
+  // Claimed before a byte moves, so an overlapping run cannot upload it too.
+  if (!(await store.claimCopy(env, userId, source.platform, race.remote_id, path))) return null;
+
+  try {
+    // Cached because a run is usually several races in the same month on the same platform,
+    // and each miss is up to six more subrequests against the budget the copies need.
+    const month = race.date.slice(0, 7);
+    const key = `${source.label}/${month}`;
+    let folderId = folderCache.get(key);
+    if (!folderId) {
+      const root = await google.ensureFolder(token, driveId, ROOT_FOLDER);
+      const platform = await google.ensureFolder(token, root, safe(source.label, 60));
+      folderId = await google.ensureFolder(token, platform, month);
+      folderCache.set(key, folderId);
+    }
+
+    const recording = await source.recording(race);
+    const fileId = await google.uploadFile(token, {
+      parentId: folderId,
+      name: fileName(race),
+      contentType: recording.content_type,
+      body: recording.body,
+      length: recording.content_length,
+    });
+
+    await store.completeCopy(env, userId, source.platform, race.remote_id, fileId);
+    return path;
+  } catch (err) {
+    // The claim goes back: a download that failed is one to try again, not one to forget.
+    await store.releaseCopy(env, userId, source.platform, race.remote_id);
+    throw err;
+  }
 }
 
 /** Every race not yet copied, oldest first, across every platform that offers them. */
@@ -167,6 +188,12 @@ async function pending(env: Env, userId: string): Promise<Array<{ source: RaceSo
 export async function copyNow(env: Env, user: User): Promise<CopyReport> {
   const report: CopyReport = { copied: 0, remaining: 0, paths: [], error: null };
 
+  // Before anything is attempted: a deployment with no service account is not a drive failure.
+  if (!google.driveConfigured(env)) {
+    report.error = new google.DriveUnavailable().message;
+    return report;
+  }
+
   const connection = await store.findConnection(env, user.id);
   if (!connection) {
     report.error = 'no Google Drive is configured for this account';
@@ -178,15 +205,21 @@ export async function copyNow(env: Env, user: User): Promise<CopyReport> {
     const queue = await pending(env, user.id);
     const folders = new Map<string, string>();
 
+    let reached = 0;
     for (const { source, race } of queue) {
-      if (report.copied === COPY_LIMIT) break;
-      report.paths.push(await copyOne(env, user.id, token, folders, connection.drive_id, source, race));
+      if (reached === COPY_LIMIT) break;
+      reached += 1;
+      const path = await copyOne(env, user.id, token, folders, connection.drive_id, source, race);
+      // Null means another run claimed it between the queue being built and now.
+      if (path === null) continue;
+      report.paths.push(path);
       report.copied += 1;
     }
-    report.remaining = queue.length - report.copied;
+    report.remaining = queue.length - reached;
 
-    // The only place a standing error is cleared, and only with nothing left queued.
-    await store.recordError(env, user.id, report.remaining > 0 ? `${report.remaining} left to copy` : null);
+    // A backlog is not a failure: it clears itself next hour, so it never becomes a
+    // standing error the dashboard would report as "Last copy failed".
+    await store.recordError(env, user.id, null);
   } catch (err) {
     report.error = message(err);
     await store.recordError(env, user.id, report.error);
@@ -194,7 +227,7 @@ export async function copyNow(env: Env, user: User): Promise<CopyReport> {
   return report;
 }
 
-/** The hourly pass. Errors are per-athlete: one unshared drive must not stop the sweep. */
+/** The hourly drive pass. Errors are per-athlete: one unshared drive must not stop the sweep. */
 export async function copyForEveryone(env: Env): Promise<number> {
   if (!google.driveConfigured(env)) return 0;
 
