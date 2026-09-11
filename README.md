@@ -556,6 +556,7 @@ src/auth.ts       sessions, accounts and API tokens
 src/http.ts       the JSON and CORS conventions every handler shares
 src/tools.ts      the tool surface shared by MCP and REST
 src/mcp.ts        JSON-RPC over Streamable HTTP
+src/router.ts     a small path router: `:params`, and 405 apart from 404
 src/app.ts        the OAuth provider's defaultHandler: login, consent, REST, assets
 src/index.ts      the provider itself, and the protected /mcp handler
 src/sync.ts       what a sync is, and which platforms to sync to
@@ -581,14 +582,18 @@ workout.
 claims the OAuth endpoints and `/mcp`, and passes every other request to
 `src/app.ts`.
 
-Inside `app.ts`, one table lists every route that needs a signed-in athlete
-along with the handler for it, and that table *is* the definition of what needs
-authentication: the router looks a path up in it and only then reads a
-credential, so a route is unreachable until it is listed and listing it is what
-authenticates it. Anything not in the table is the dashboard, served from
-assets. The two used to be separate — one condition deciding which paths needed
-a user, a second chain of prefix tests deciding who handled them — which meant
-a new route could be added to the second and silently miss the first.
+Routing lives in one table at the bottom of `src/app.ts`. Each route is a
+single handler, and the ones declared through `withUser` are given the athlete
+they are acting for, so no handler has to read a cookie or a bearer token. A
+path the table does not claim is the dashboard — except under `/api/` and
+`/export/`, which answer an unknown or wrongly-addressed path the way they
+would a known one: 401 before 404 or 405, so a caller without a credential
+cannot map the API by reading status codes back.
+
+The browser journeys out to a watch platform go through `withUserOrSignIn`
+instead, which sends a signed-out athlete to the dashboard with a message. A
+JSON 401 at the end of a trip through somebody else's consent screen is
+something they can neither read nor act on.
 
 Nothing is stored in the clear. Session ids and API tokens are SHA-256 hashes
 in D1; OAuth grants and their tokens are the library's problem, in KV. The
@@ -635,7 +640,7 @@ asserted as one calendar entry on the new date rather than as two API calls in
 some order.
 
 ```bash
-npm test        # 294 tests
+npm test        # 305 tests
 npm run typecheck
 ```
 
