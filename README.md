@@ -228,11 +228,17 @@ error a write that has already been saved — and the nightly sweep plus an
 explicit sync are there as backstops. Syncing is a diff, so the same plan
 synced twice costs nothing the second time.
 
-It goes both ways. The plan travels out; what the athlete actually recorded
-comes back, ticking off the sessions it accounts for, so a run you have run is
-marked done here without you saying so twice. Completion only ever arrives —
-never departs: a session ticked off by hand stays ticked off whether or not
-Garmin has heard of it.
+It is built to go both ways. The plan travels out; what the athlete actually
+recorded comes back, ticking off the sessions it accounts for, so a run you
+have run is marked done here without you saying so twice. Completion only ever
+arrives — never departs: a session ticked off by hand stays ticked off whether
+or not Garmin has heard of it.
+
+The return half is not finished, and knowingly so: Garmin's Activity API is
+webhook-based rather than pollable, so the transport needs replacing with a
+receiver before completions actually arrive. The matching is done and tested;
+[docs/garmin.md](docs/garmin.md) records exactly what was verified against
+Garmin's own specification and what is still outstanding.
 
 ```bash
 npx wrangler secret put GARMIN_CLIENT_ID

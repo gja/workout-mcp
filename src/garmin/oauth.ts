@@ -36,10 +36,12 @@ export const CONNECT_STATE_TTL_MINUTES = 10;
  *
  * A sync is several calls, and a token that expires between the first and the
  * last would fail the run halfway through with some workouts pushed and some
- * not. Garmin's access tokens last a day, so five minutes of slack costs
- * nothing.
+ * not. Ten minutes rather than a round five because that is the floor Garmin's
+ * own OAuth2 PKCE specification asks for — it recommends subtracting at least
+ * 600 seconds from the stated expiry. Their access tokens last a day, so the
+ * extra slack costs nothing.
  */
-export const REFRESH_MARGIN_MS = 5 * 60_000;
+export const REFRESH_MARGIN_MS = 10 * 60_000;
 
 export class GarminAuthError extends Error {}
 
@@ -158,9 +160,12 @@ async function requestTokens(env: Env, params: Record<string, string>): Promise<
   return {
     accessToken: payload.access_token,
     refreshToken: payload.refresh_token,
-    // Garmin documents both lifetimes, but a missing one should shorten the
-    // token's assumed life rather than extend it: an hour is well inside the
-    // day these actually last, so the worst case is one extra refresh.
+    // Garmin's spec gives 86400 for `expires_in` — a day — and around 90 days
+    // for the refresh token. (Their prose elsewhere says access tokens last
+    // three months, which is that second figure in the wrong sentence.) A
+    // missing value should shorten the token's assumed life rather than extend
+    // it, so the fallback is an hour: well inside a day, and the worst case is
+    // one extra refresh.
     accessExpiresAt: at(payload.expires_in ?? 3600),
     refreshExpiresAt: payload.refresh_token_expires_in ? at(payload.refresh_token_expires_in) : null,
   };

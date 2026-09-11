@@ -18,10 +18,32 @@
  *   - **Already-completed workouts are skipped**, which is what makes the pull
  *     idempotent and cheap: it only ever looks at what is still outstanding.
  *
- * As with `payload.ts`, the Activity API's exact field spellings are
- * documented behind the developer portal's login. The matching below is a pure
- * function over a small, named shape, so correcting a field name or an
- * activity type is a one-line change here.
+ * ## The transport here is wrong, and known to be
+ *
+ * This module fetches activities by polling
+ * `GET /activity-api/rest/activities?uploadStartTimeInSeconds=…`. Garmin's own
+ * developer documentation says the Activity API does not work that way: it is
+ * **PING/PUSH webhook-based**. Garmin calls a callback URL registered at
+ * app-configuration time when a device syncs — a PING carrying a
+ * `callbackURL` to fetch, or a PUSH carrying the summaries inline — and
+ * pre-connection history is caught up with a one-time `backfill/activities`
+ * call whose results also arrive through that webhook, never in the HTTP
+ * response. So the polling below is expected to fail against the real API.
+ *
+ * It is left in place rather than half-replaced because the replacement is a
+ * redesign, not a field rename: a publicly reachable receiver handling both
+ * webhook shapes, a backfill at connect time, and whatever signature scheme
+ * Garmin requires on inbound calls — none of which can be built blind, since
+ * the PING/PUSH field names, the backfill parameters and the verification
+ * scheme are all behind the developer-portal login, and the Developer Program
+ * is paused. `fetchActivities`, `uploadWindows` and `completableRange` are the
+ * three functions that redesign replaces.
+ *
+ * What survives it untouched is everything below the fetch. Matching a
+ * recorded activity to a planned session is the same problem whether the
+ * activity arrived by poll or by webhook, so `sportOf`, `localDateOf` and
+ * `matchCompletions` are pure functions over a named shape and stay as they
+ * are. That is the half worth having built.
  */
 
 import { shiftDate, today } from '../units';
@@ -58,9 +80,10 @@ export type GarminActivity = {
 export const UPLOAD_LOOKBACK_DAYS = 3;
 
 /**
- * Garmin bounds an activity query to a 24-hour slice of upload time, so a
- * lookback of several days is several requests. One constant, so the cost of
- * the pull is `UPLOAD_LOOKBACK_DAYS` calls and visibly so.
+ * A 24-hour slice of upload time per request, so a lookback of several days is
+ * several requests. One constant, so the cost of the pull is
+ * `UPLOAD_LOOKBACK_DAYS` calls and visibly so. Moot once the webhook receiver
+ * replaces the polling — see the module header.
  */
 export const UPLOAD_WINDOW_SECONDS = 24 * 60 * 60;
 
@@ -80,9 +103,12 @@ export function uploadWindows(now: Date = new Date(), days = UPLOAD_LOOKBACK_DAY
 /**
  * One slice of the athlete's recorded activities.
  *
- * Returns `null` rather than throwing when Garmin refuses. A sync whose push
- * worked should not be reported as failed because the optional half could not
- * read history — the caller counts the slices it got and says so.
+ * Built on the polling model the module header explains is the wrong one, so
+ * expect this to be refused by the real API until the webhook receiver
+ * replaces it. Returning `null` rather than throwing is what keeps that from
+ * mattering more than it should: a sync whose push worked is not reported as
+ * failed because the optional half could not read history — the caller counts
+ * the slices it got and says so.
  */
 export async function fetchActivities(
   accessToken: string,

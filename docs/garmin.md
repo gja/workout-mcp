@@ -180,6 +180,12 @@ to push in that direction and no point pretending otherwise. What there is, is
 the Activity API: a record of what the athlete recorded. Every sync finishes by
 reading it and ticking off the sessions it accounts for.
 
+> **The transport described here is wrong.** Garmin's Activity API is
+> webhook-based (PING/PUSH), not the polling this does, so none of the
+> fetching below will get answers from the real API. The *matching* is
+> unaffected and is the part worth reading. See **What has been checked
+> against Garmin's own docs** below.
+
 | | |
 | --- | --- |
 | Endpoint | `GET apis.garmin.com/activity-api/rest/activities` |
@@ -245,6 +251,46 @@ sync result carries the notes per workout, and the dashboard shows them.
 - **Sub-sports are mapped only where a Garmin name is unambiguous.** Getting
   one wrong is a small loss; sending an enum Garmin does not know fails the
   whole workout, which is a large one. Anything unmapped is left off.
+
+## What has been checked against Garmin's own docs
+
+The Developer Program is paused, so none of this can be exercised end to end.
+What follows was checked against Garmin's own OAuth2.0 PKCE specification PDF
+and their developer-portal material — a primary source, not community
+writeups — and is recorded here rather than only in a pull request, so the
+next person to pick it up starts from it.
+
+**Confirmed correct.** The authorize URL and its parameters, the token URL, and
+`GET /wellness-api/rest/user/id` / `DELETE /wellness-api/rest/user/registration`
+all match the spec exactly. So does the assumed access-token lifetime: the
+spec's own example gives `expires_in: 86400`, a day. Garmin's prose elsewhere
+says access tokens last three months, which is `refresh_token_expires_in`
+(~90 days) in the wrong sentence — their documentation error, not ours.
+
+**Fixed.** `REFRESH_MARGIN_MS` was five minutes; the spec asks for at least
+600 seconds of safety margin, so it is ten.
+
+**Outstanding: permissions are never checked.** Garmin documents
+`GET /wellness-api/rest/user/permissions`, and an athlete grants permissions
+*individually* — `WORKOUT_IMPORT` for the push, `ACTIVITY_EXPORT` for the
+completions. Nothing here reads that, so a partial grant fails silently on
+whichever half was not authorised instead of saying so. Two things to do: ask
+for both permissions in the portal's app registration, and check the granted
+set at connect time so a half-grant is reported rather than discovered.
+
+**Outstanding: the completion pull is built on the wrong transport.** This is
+the big one, and the section above describes how it *works*, not how Garmin
+works. See the header of `src/garmin/activities.ts`, which spells it out — in
+short, the Activity API is PING/PUSH webhook-based, not pollable, so
+`fetchActivities`, `uploadWindows` and `completableRange` need replacing with a
+receiver plus a connect-time backfill. The matching below the fetch survives
+that unchanged, because pairing an activity with a planned session is the same
+problem whichever way the activity arrived.
+
+**Still unverified**, being behind the portal login: the PING/PUSH payload
+field names, the backfill endpoint's parameters, any signature scheme for
+inbound webhook calls, and the Training API's precise workout schema — that
+last one being the risk the next section is about.
 
 ## Verifying the payload against your own docs
 

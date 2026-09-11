@@ -32,6 +32,11 @@
  * accounts for. That is the half of the sync Garmin is authoritative for —
  * whether a session happened is something only the watch knows — and it only
  * ever sets a completion, never clears one. See that module for why.
+ *
+ * Its *transport* is known to be wrong: Garmin's Activity API is webhook-based
+ * rather than pollable, so `pullCompletions` below will not get answers from
+ * the real API until a receiver replaces it. `activities.ts` explains what
+ * that redesign is and which parts of this survive it.
  */
 
 import * as db from '../db';
@@ -506,9 +511,12 @@ async function run(
 /**
  * Take completions from Garmin: tick off the sessions it accounts for.
  *
- * Best effort by design. This is the optional half of a sync — the plan is
- * already on the calendar — so a refused or unreachable activity query leaves
- * a note rather than failing the run, and never touches `fatal`.
+ * Best effort by design, which is doing more work than intended for now: the
+ * activity query it depends on is built on a polling model Garmin does not
+ * offer (see `activities.ts`), so until the webhook receiver exists this is
+ * expected to leave a note rather than find anything. Being the optional half
+ * of a sync — the plan is already on the calendar — a refused or unreachable
+ * query never touches `fatal` and never fails the run.
  *
  * Only ever sets a completion. See `activities.ts` for why never clearing one
  * is the more important half of that rule.
