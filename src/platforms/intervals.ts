@@ -108,12 +108,13 @@ function authorization(key: string): string {
  * does not become the message on the dashboard.
  */
 async function call(key: string, path: string, init: RequestInit = {}): Promise<Response> {
+  // Built before the try, so a key `authorization` refuses is reported as the
+  // bad key it is rather than as intervals.icu being unreachable.
+  const headers = { Authorization: authorization(key), ...init.headers };
+
   let response: Response;
   try {
-    response = await fetch(`${BASE}${path}`, {
-      ...init,
-      headers: { Authorization: authorization(key), ...init.headers },
-    });
+    response = await fetch(`${BASE}${path}`, { ...init, headers });
   } catch (err) {
     return fail(`could not reach intervals.icu (${(err as Error).message})`);
   }

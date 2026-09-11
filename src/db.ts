@@ -7,8 +7,16 @@
  * `json_valid` check — and the JSON functions still work over it, should a
  * query ever need to reach inside.
  *
- * Retention is deliberately aggressive — a rolling window around today plus a
- * hard per-user cap — so the free tier is never the binding constraint.
+ * Nothing here deletes a workout the athlete did not delete. The limits — a
+ * rolling window around today, and a per-user cap — are enforced on the way
+ * in: a write outside the window or past the cap is refused, and every read is
+ * bounded to the window. A row that drifts out of the window as time moves
+ * past simply stops being visible, and stays in the table.
+ *
+ * That is a deliberate reversal of what this used to do, which was sweep old
+ * rows nightly. Storage is not the binding constraint on the free tier —
+ * 5 GB against a few hundred bytes a workout — and deleting an athlete's
+ * training history to save none of it was the wrong trade.
  */
 
 import type { OAuthHelpers } from '@cloudflare/workers-oauth-provider';
@@ -99,8 +107,9 @@ export function retentionWindow(now: Date = new Date()): { from: string; to: str
  *
  * Every read goes through this, so no caller — a `from`/`to` on the list, a
  * date in a URL, a FIT download — can reach a workout outside the window,
- * whatever it asks for. A row that somehow outlived the sweep is not visible
- * either; it simply waits to be swept.
+ * whatever it asks for. This is the whole of how the window is enforced now
+ * that nothing deletes: an older workout is still in the table, and this is
+ * what stops it being read back.
  */
 export function readWindow(now: Date = new Date()): { from: string; to: string } {
   const day = today(now);
@@ -182,8 +191,8 @@ export async function findByExternalId(
 }
 
 /**
- * Refuse a date the retention sweep would drop again immediately, rather than
- * accepting the write and silently throwing it away.
+ * Refuse a date outside the window, rather than accepting a write that would
+ * land somewhere nothing can read back.
  *
  * Callers that move a workout delete the old row before writing the new one,
  * so they have to ask this *before* deleting: failing in between would answer
@@ -192,8 +201,24 @@ export async function findByExternalId(
 export function assertRetainable(date: string): void {
   const window = retentionWindow();
   if (date < window.from || date > window.to) {
-    fail('date', `only ${window.from} to ${window.to} is kept, so a workout on ${date} would be dropped straight away`);
+    fail('date', `only ${window.from} to ${window.to} is kept, so a workout on ${date} could not be read back`);
   }
+}
+
+/**
+ * Refuse a new workout past the cap, rather than making room by deleting
+ * somebody's older session.
+ *
+ * Counted inside the window rather than over the whole table, which is what
+ * keeps the cap rolling: rows that drift out of the window stop counting, so
+ * an athlete who has trained for a year is not permanently full.
+ */
+async function assertRoomFor(env: Env, userId: string, date: string): Promise<void> {
+  if ((await countInWindow(env, userId)) < MAX_WORKOUTS_PER_USER) return;
+  fail(
+    'date',
+    `only ${MAX_WORKOUTS_PER_USER} workouts are kept at a time, so ${date} would not fit; delete one first`,
+  );
 }
 
 /**
@@ -246,6 +271,11 @@ export async function putWorkout(env: Env, userId: string, input: WorkoutInput, 
     await carryFrom(input.date, workoutId);
   }
 
+  // A row no caller named is a new one. Every path that reuses an id has
+  // checked the row exists first, so this is the only write that adds to the
+  // count — and the only one the cap has anything to say about.
+  if (workoutId === undefined) await assertRoomFor(env, userId, input.date);
+
   const workout: Workout = { id: workoutId ?? newId(), ...input, updated_at: new Date().toISOString() };
   if (completedAt) workout.completed_at = completedAt;
   else delete workout.completed_at;
@@ -272,14 +302,6 @@ export async function putWorkout(env: Env, userId: string, input: WorkoutInput, 
       workout.updated_at,
     )
     .run();
-  await prune(env, userId);
-
-  // The date is inside the window, but the per-user cap keeps the newest and
-  // this write may have been the oldest. Saying so beats handing back an id
-  // and a download URL for a workout that is already gone.
-  if (!(await getWorkout(env, userId, workout.date, workout.id))) {
-    fail('date', `only ${MAX_WORKOUTS_PER_USER} workouts are kept, newest dates first, and ${workout.date} lost out`);
-  }
   return workout;
 }
 
@@ -318,28 +340,13 @@ export async function deleteWorkout(env: Env, userId: string, date: string, id: 
   return (result.meta.changes ?? 0) > 0;
 }
 
-/**
- * Drop anything outside the retention window, then anything past the per-user
- * cap (oldest first). Cheap enough to run on every write.
- */
-export async function prune(env: Env, userId: string, now: Date = new Date()): Promise<number> {
+/** How many workouts an athlete has inside the window, for the cap. */
+export async function countInWindow(env: Env, userId: string, now: Date = new Date()): Promise<number> {
   const { from, to } = retentionWindow(now);
-  const expired = await env.DB.prepare('DELETE FROM workouts WHERE user_id = ? AND (date < ? OR date > ?)')
-    .bind(userId, from, to)
-    .run();
-  const overflow = await env.DB.prepare(
-    `DELETE FROM workouts WHERE user_id = ?1 AND rowid NOT IN (
-       SELECT rowid FROM workouts WHERE user_id = ?1 ORDER BY date DESC, created_at DESC, rowid DESC LIMIT ?2
-     )`,
+  const row = await env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM workouts WHERE user_id = ? AND date >= ? AND date <= ?',
   )
-    .bind(userId, MAX_WORKOUTS_PER_USER)
-    .run();
-  return (expired.meta.changes ?? 0) + (overflow.meta.changes ?? 0);
-}
-
-/** Retention sweep across every user, for the scheduled trigger. */
-export async function pruneAll(env: Env, now: Date = new Date()): Promise<number> {
-  const { from, to } = retentionWindow(now);
-  const result = await env.DB.prepare('DELETE FROM workouts WHERE date < ? OR date > ?').bind(from, to).run();
-  return result.meta.changes ?? 0;
+    .bind(userId, from, to)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
 }

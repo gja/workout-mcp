@@ -2,7 +2,7 @@ import { SELF, env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Decoder, Stream } from '@garmin/fitsdk';
 import { plannedTotals } from '../src/describe';
-import { MAX_WORKOUTS_PER_USER, getWorkout, listWorkouts, prune, putWorkout, readWindow } from '../src/db';
+import { MAX_WORKOUTS_PER_USER, getWorkout, listWorkouts, putWorkout, readWindow } from '../src/db';
 import { shiftDate, today } from '../src/units';
 import { parseWorkout } from '../src/workout';
 import { resetDatabase, seedUser } from './helpers';
@@ -557,21 +557,10 @@ describe('FIT export', () => {
 describe('retention', () => {
   const put = (date: string) => putWorkout(env, userId, parseWorkout({ date, steps: [{ goal_s: 600 }] }));
 
-  it('drops workouts outside the window on write', async () => {
-    const now = new Date('2026-09-10T00:00:00Z');
-    await env.DB.prepare(
-      `INSERT INTO workouts (user_id, date, id, name, sport, steps, created_at, updated_at)
-       VALUES (?, '2026-08-01', 'old00000', 'Old', 'running', '[]', '', '')`,
-    )
-      .bind(userId)
-      .run();
-
-    await prune(env, userId, now);
-    const remaining = await env.DB.prepare('SELECT COUNT(*) AS n FROM workouts WHERE user_id = ?')
-      .bind(userId)
-      .first<{ n: number }>();
-    expect(remaining?.n).toBe(0);
-  });
+  const rowCount = async (id = userId): Promise<number> =>
+    (
+      await env.DB.prepare('SELECT COUNT(*) AS n FROM workouts WHERE user_id = ?').bind(id).first<{ n: number }>()
+    )?.n ?? 0;
 
   it('keeps the window around today', async () => {
     const day = today();
@@ -581,27 +570,74 @@ describe('retention', () => {
     expect(await listWorkouts(env, userId)).toHaveLength(3);
   });
 
-  it('caps a user at the per-user limit, keeping the newest', async () => {
-    const day = today();
-    for (let i = 0; i < MAX_WORKOUTS_PER_USER + 5; i++) await put(day);
-    expect(await listWorkouts(env, userId)).toHaveLength(MAX_WORKOUTS_PER_USER);
+  /**
+   * The window is a read bound, not a sweep. A row that has aged out stops
+   * being visible and stays in the table — deleting an athlete's training
+   * history to reclaim a few hundred bytes is the wrong trade.
+   */
+  it('leaves a workout that has aged out in the table, unreadable', async () => {
+    await env.DB.prepare(
+      `INSERT INTO workouts (user_id, date, id, name, sport, steps, created_at, updated_at)
+       VALUES (?, '2020-08-01', 'old00000', 'Old', 'running', '[]', '', '')`,
+    )
+      .bind(userId)
+      .run();
+
+    // A later write is the moment the old sweep would have taken it.
+    await put(today());
+
+    expect(await rowCount()).toBe(2);
+    expect(await listWorkouts(env, userId)).toHaveLength(1);
+    expect(await getWorkout(env, userId, '2020-08-01', 'old00000')).toBeNull();
   });
 
-  it('refuses a write the cap would drop, rather than losing it quietly', async () => {
+  it('refuses a new workout past the cap rather than deleting an older one', async () => {
     const day = today();
-    // Fill the cap with future dates, then add an older one that should lose.
     for (let i = 0; i < MAX_WORKOUTS_PER_USER; i++) await put(shiftDate(day, 1 + (i % 13)));
 
-    await expect(put(shiftDate(day, -7))).rejects.toThrow(/only 50 workouts are kept/);
+    await expect(put(shiftDate(day, -7))).rejects.toThrow(/only 50 workouts are kept at a time/);
 
-    const remaining = await listWorkouts(env, userId);
-    expect(remaining).toHaveLength(MAX_WORKOUTS_PER_USER);
-    expect(remaining.every((workout) => workout.date > day)).toBe(true);
+    expect(await listWorkouts(env, userId)).toHaveLength(MAX_WORKOUTS_PER_USER);
+    expect(await rowCount()).toBe(MAX_WORKOUTS_PER_USER);
   });
 
-  it('refuses a date outside the window instead of pruning it on the way in', async () => {
+  it('still lets a workout already at the cap be replaced', async () => {
+    const day = today();
+    const ids: Array<{ date: string; id: string }> = [];
+    for (let i = 0; i < MAX_WORKOUTS_PER_USER; i++) ids.push(await put(shiftDate(day, 1 + (i % 13))));
+
+    // An update reuses a row, so it adds nothing to the count and the cap has
+    // nothing to say about it.
+    const [first] = ids;
+    const replaced = await putWorkout(
+      env,
+      userId,
+      parseWorkout({ date: first.date, name: 'Replaced', steps: [{ goal_s: 900 }] }),
+      first.id,
+    );
+    expect(replaced.name).toBe('Replaced');
+    expect(await rowCount()).toBe(MAX_WORKOUTS_PER_USER);
+  });
+
+  /** Rows outside the window do not count, so the cap stays rolling. */
+  it('does not count a workout that has aged out towards the cap', async () => {
+    for (let i = 0; i < MAX_WORKOUTS_PER_USER; i++) {
+      await env.DB.prepare(
+        `INSERT INTO workouts (user_id, date, id, name, sport, steps, created_at, updated_at)
+         VALUES (?1, '2020-08-01', ?2, 'Old', 'running', '[]', '', '')`,
+      )
+        .bind(userId, `old${String(i).padStart(5, '0')}`)
+        .run();
+    }
+
+    const written = await put(today());
+    expect(written.id).toBeTruthy();
+  });
+
+  it('refuses a date outside the window instead of storing what cannot be read', async () => {
     const far = shiftDate(today(), 60);
-    await expect(put(far)).rejects.toThrow(/would be dropped straight away/);
+    await expect(put(far)).rejects.toThrow(/could not be read back/);
+    expect(await rowCount()).toBe(0);
 
     const response = await call('/api/workouts', {
       method: 'POST',
@@ -629,13 +665,13 @@ describe('retention', () => {
     expect(await response.json()).toMatchObject({ error: expect.stringContaining(first.id) });
   });
 
-  it('leaves one athlete\'s workouts alone when another is pruned', async () => {
+  it('counts the cap per athlete, not across the table', async () => {
+    const day = today();
+    for (let i = 0; i < MAX_WORKOUTS_PER_USER; i++) await put(shiftDate(day, 1 + (i % 13)));
+
+    // Another athlete is not out of room because this one is.
     const other = await seedUser('other@example.com');
-    await putWorkout(env, other.id, parseWorkout({ date: today(), steps: [{ goal_s: 600 }] }));
-
-    await put(today());
-    await prune(env, userId);
-
+    await putWorkout(env, other.id, parseWorkout({ date: day, steps: [{ goal_s: 600 }] }));
     expect(await listWorkouts(env, other.id)).toHaveLength(1);
   });
 });

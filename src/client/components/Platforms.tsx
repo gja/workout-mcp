@@ -12,6 +12,7 @@ import {
 function describeSync(report: SyncReport): string {
   const parts: string[] = [];
   if (report.pushed) parts.push(`pushed ${report.pushed}`);
+  if (report.removed) parts.push(`removed ${report.removed}`);
   if (report.completed) parts.push(`marked ${report.completed} done`);
   if (report.remaining) parts.push(`${report.remaining} left for the next run`);
   return parts.length > 0 ? `Synced: ${parts.join(', ')}.` : 'Already up to date.';
@@ -156,7 +157,10 @@ export function Platforms({ onSynced }: { onSynced: () => void }) {
 
   useEffect(reload, []);
 
-  if (platforms === null) return null;
+  // Only the first load is silent. Once it has failed there is something to
+  // say, and returning null here would say nothing at all — including about
+  // an unconfigured Worker, which is the likeliest reason to be looking.
+  if (platforms === null && error === null) return null;
 
   return (
     <section>
@@ -174,7 +178,7 @@ export function Platforms({ onSynced }: { onSynced: () => void }) {
       )}
       {error && <p className="error">{error}</p>}
 
-      {platforms.map((platform) => (
+      {(platforms ?? []).map((platform) => (
         <PlatformCard key={platform.id} platform={platform} onChanged={reload} onSynced={onSynced} />
       ))}
     </section>

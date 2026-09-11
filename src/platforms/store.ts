@@ -13,6 +13,7 @@
  * platform is refused outright rather than quietly falling back to plaintext.
  */
 
+import { retentionWindow } from '../db';
 import type { Env } from '../db';
 import type { PlatformId } from './types';
 
@@ -61,9 +62,11 @@ export async function encryptSecret(env: Env, plaintext: string): Promise<string
 /**
  * The stored credential, or null if it cannot be read back.
  *
- * A rotated `CREDENTIALS_SECRET` makes every row undecryptable, which is a
- * connection the athlete has to make again rather than a crash on every
- * write, so it is reported as a missing credential.
+ * Never throws, including when the secret is missing entirely. A rotated or
+ * removed `CREDENTIALS_SECRET` makes every row undecryptable, and that is a
+ * connection the athlete has to make again — not a reason for every workout
+ * they write from then on to fail. Storing a *new* credential still refuses
+ * outright; see `encryptSecret`.
  */
 export async function decryptSecret(env: Env, stored: string): Promise<string | null> {
   try {
@@ -74,8 +77,7 @@ export async function decryptSecret(env: Env, stored: string): Promise<string | 
       bytes.slice(IV_BYTES),
     );
     return new TextDecoder().decode(plain);
-  } catch (err) {
-    if (err instanceof CredentialsUnavailable) throw err;
+  } catch {
     return null;
   }
 }
@@ -132,6 +134,27 @@ export async function connectionBatch(
   )
     .bind(platform, limit)
     .all<{ user_id: string; secret: string }>();
+  return results ?? [];
+}
+
+/**
+ * Connections carrying a standing error, for the nightly retry.
+ *
+ * A push that failed is not retried by the next workout written — that one
+ * pushes itself — so without this a workout missing from a calendar because
+ * the platform was down that minute stays missing until an athlete notices
+ * and presses Sync now.
+ */
+export async function failedConnections(
+  env: Env,
+  limit: number,
+): Promise<Array<{ user_id: string; platform: PlatformId }>> {
+  const { results } = await env.DB.prepare(
+    `SELECT user_id, platform FROM platform_connections
+     WHERE last_error IS NOT NULL ORDER BY updated_at LIMIT ?`,
+  )
+    .bind(limit)
+    .all<{ user_id: string; platform: PlatformId }>();
   return results ?? [];
 }
 
@@ -196,11 +219,20 @@ export type Link = {
   remote_id: string;
   /** A digest of the plan as it was last pushed. See the migration. */
   fingerprint: string;
+  /** The completion already read back off the platform and applied. */
+  applied_completion: string | null;
   synced_at: string;
 };
 
-const LINK_COLUMNS = 'date, workout_id, remote_id, fingerprint, synced_at';
+const LINK_COLUMNS = 'date, workout_id, remote_id, fingerprint, applied_completion, synced_at';
 
+/**
+ * Record where a workout now lives on a platform.
+ *
+ * `applied_completion` is deliberately untouched: it records what has already
+ * been read back off the platform, which re-pushing the plan neither changes
+ * nor un-does.
+ */
 export async function saveLink(
   env: Env,
   userId: string,
@@ -277,18 +309,49 @@ export async function dropLink(
     .run();
 }
 
-/** A moved workout keeps its remote event; only the date it is filed under changes. */
+/**
+ * A moved workout keeps its remote event; only the date it is filed under
+ * changes.
+ *
+ * The key it is moving onto may already carry a link of its own — a delete
+ * that could not reach the platform leaves one behind to retry from — and the
+ * update alone would collide with it on the primary key. The workout that
+ * link named is gone either way, so it goes first, in the same batch, so a
+ * failure cannot leave the move half done.
+ */
 export async function moveLinks(
   env: Env,
   userId: string,
   from: { date: string; id: string },
   to: { date: string; id: string },
 ): Promise<void> {
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM platform_links WHERE user_id = ? AND date = ? AND workout_id = ?').bind(
+      userId,
+      to.date,
+      to.id,
+    ),
+    env.DB.prepare(
+      `UPDATE platform_links SET date = ?, workout_id = ?
+       WHERE user_id = ? AND date = ? AND workout_id = ?`,
+    ).bind(to.date, to.id, userId, from.date, from.id),
+  ]);
+}
+
+/** Remember the completion just read back, so it is never applied twice. */
+export async function recordAppliedCompletion(
+  env: Env,
+  userId: string,
+  platform: PlatformId,
+  date: string,
+  workoutId: string,
+  completedAt: string,
+): Promise<void> {
   await env.DB.prepare(
-    `UPDATE platform_links SET date = ?, workout_id = ?
-     WHERE user_id = ? AND date = ? AND workout_id = ?`,
+    `UPDATE platform_links SET applied_completion = ?
+     WHERE user_id = ? AND platform = ? AND date = ? AND workout_id = ?`,
   )
-    .bind(to.date, to.id, userId, from.date, from.id)
+    .bind(completedAt, userId, platform, date, workoutId)
     .run();
 }
 
@@ -302,21 +365,26 @@ export async function countLinks(env: Env, userId: string, platform: PlatformId)
 }
 
 /**
- * Drop links whose workout is gone.
+ * Drop links that name no workout and are past being acted on.
  *
- * Retention sweeps rows out from under us — deliberately, since our window is
- * our own storage limit and not a reason to take a session off the athlete's
- * calendar upstream. What is left behind is a link to a workout we no longer
- * have, which nothing can ever match again.
+ * Inside the window, a link with no workout is a delete that did not reach
+ * the platform, and `syncNow` flushes it — deleting the row here would lose
+ * the only record of the event left to remove. Outside the window there is
+ * nothing left to do with it either way: the workout is gone, the athlete's
+ * calendar upstream is theirs, and no read or sync will ever reach that date
+ * again. So that is where this sweeps.
  */
-export async function pruneOrphanedLinks(env: Env): Promise<number> {
+export async function pruneOrphanedLinks(env: Env, now: Date = new Date()): Promise<number> {
+  const { from, to } = retentionWindow(now);
   const result = await env.DB.prepare(
-    `DELETE FROM platform_links WHERE NOT EXISTS (
+    `DELETE FROM platform_links WHERE (date < ? OR date > ?) AND NOT EXISTS (
        SELECT 1 FROM workouts
        WHERE workouts.user_id = platform_links.user_id
          AND workouts.date = platform_links.date
          AND workouts.id = platform_links.workout_id
      )`,
-  ).run();
+  )
+    .bind(from, to)
+    .run();
   return result.meta.changes ?? 0;
 }

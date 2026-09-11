@@ -29,14 +29,19 @@ CREATE TABLE IF NOT EXISTS platform_connections (
 -- written again — recording a completion read back off the platform bumps
 -- `updated_at`, and comparing timestamps would push the plan straight back
 -- out over a change the platform itself told us about.
+-- `applied_completion` is the completion last read back off the platform and
+-- written to the workout. Held so it is only ever applied once: an athlete
+-- who un-ticks a session means it, and without this the next pass would see
+-- the platform still reporting the activity and tick it straight back on.
 CREATE TABLE IF NOT EXISTS platform_links (
-  user_id     TEXT NOT NULL,
-  platform    TEXT NOT NULL,
-  date        TEXT NOT NULL,
-  workout_id  TEXT NOT NULL,
-  remote_id   TEXT NOT NULL,
-  fingerprint TEXT NOT NULL,
-  synced_at   TEXT NOT NULL,
+  user_id            TEXT NOT NULL,
+  platform           TEXT NOT NULL,
+  date               TEXT NOT NULL,
+  workout_id         TEXT NOT NULL,
+  remote_id          TEXT NOT NULL,
+  fingerprint        TEXT NOT NULL,
+  applied_completion TEXT,
+  synced_at          TEXT NOT NULL,
   PRIMARY KEY (user_id, platform, date, workout_id)
 );
 

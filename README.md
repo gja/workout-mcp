@@ -14,16 +14,23 @@ Worker, a D1 database, and a static dashboard.
 - **OAuth 2.1** via `@cloudflare/workers-oauth-provider`, so an MCP client can
   connect with a button rather than a pasted token.
 
-Only a rolling window is kept: **7 days back, 14 days ahead**, capped at 50
-workouts per user. A write outside that is refused rather than accepted and
-swept away a moment later; anything that falls out of the window later is
-pruned on the next write and by a nightly cron trigger.
+Only a rolling window is readable: **7 days back, 14 days ahead**, capped at 50
+workouts per athlete at a time. Both limits are enforced on the way in — a
+write outside the window, or a new workout past the cap, is refused rather than
+accepted and thrown away a moment later.
 
 Reads are bounded by the same window plus a day of slack on each side — 8 back,
 15 ahead — because dates are the athlete's local day while the window is
 computed in UTC. Every read goes through that bound, so no `from`/`to` and no
-hand-written URL reaches a workout outside it, whatever the sweep has yet to
-catch up on.
+hand-written URL reaches a workout outside it.
+
+**Nothing deletes a workout the athlete did not delete.** A session that ages
+out of the window simply stops being visible and stays in the table. There was
+a nightly sweep here once; it went, because storage is not the binding
+constraint on the free tier — 5 GB against a few hundred bytes a workout — and
+throwing away somebody's training history to reclaim none of it was the wrong
+trade. The cap counts only what is inside the window, so it stays a rolling
+limit rather than becoming a wall after a year of training.
 
 ## Quick start
 
@@ -144,7 +151,7 @@ you actually record there comes back here marked done.
 **intervals.icu** is the first, and the layer it sits behind
 (`src/platforms/`) is built for there to be others: an adapter is four
 functions — verify a credential, push a workout, remove one, list completions —
-and knows nothing about our storage, our routing or our retention.
+and knows nothing about our storage, our routing or our window.
 
 Connecting it takes an API key: in intervals.icu open **Settings** and find the
 **Developer Settings** box at the bottom. Paste it into the Training platforms
@@ -172,14 +179,18 @@ A few details worth knowing:
   exactly the structure we encode — nested repeats, open-ended steps, every
   target type — with no second serialiser to keep in step with the first.
 - **A push is an upsert, not an append.** Every workout carries a key of ours
-  that survives edits, moves and the retention sweep, so re-pushing updates the
+  that survives edits, moves and a lost link row, so re-pushing updates the
   event already there instead of piling up duplicates.
 - **A platform never fails your write.** intervals.icu being down, or a key
   having been revoked, is recorded against the connection and shown on the
-  dashboard; creating the workout still succeeds, and the next write or
-  **Sync now** retries. Sync also only pushes what has actually changed.
-- **Retention is ours, not theirs.** A workout ageing out of our 7/14-day
-  window is not taken off your intervals.icu calendar.
+  dashboard; creating the workout still succeeds. Sync pushes only what has
+  actually changed, compared against a digest of the plan as it was last
+  pushed, so a run over a calendar already in step costs nothing.
+- **A delete that missed is retried.** A workout deleted here while
+  intervals.icu was unreachable is taken off the calendar by the next sync,
+  and by a nightly retry of any connection stuck on an error.
+- **Our window is ours, not theirs.** A workout ageing out of the readable
+  7/14-day window is not taken off your intervals.icu calendar.
 - **Completion is polled, not pushed.** intervals.icu delivers webhooks only to
   OAuth applications it has approved, and this integration is a key you pasted
   in, so there is no callback to register. Instead, an hourly cron reads back
@@ -512,7 +523,7 @@ src/workout.ts    the plan: what a caller writes, what gets stored
 src/resolve.ts    plan -> the model FIT needs, and the validator that proves it
 src/fit.ts        FIT encoding, including flattening nested repeats
 src/describe.ts   human-readable rendering, shared by MCP and the dashboard
-src/db.ts         D1 queries and retention
+src/db.ts         D1 queries, the readable window and the per-athlete cap
 src/plan.ts       every write to the plan, and the platforms it tells
 src/platforms/    training platforms: the interface, the store, intervals.icu
 src/identity.ts   signing in with Google or Apple
@@ -588,7 +599,7 @@ the network. The intervals.icu stand-in keeps a calendar, and a test reaches
 into it through a service binding to see what actually landed.
 
 ```bash
-npm test        # 236 tests
+npm test        # 237 tests
 npm run typecheck
 ```
 
@@ -597,7 +608,7 @@ npm run typecheck
 | `migrations.test.ts` | The data-carrying migrations, the `json_valid` check, the external-id index, and querying steps from SQL |
 | `workout.test.ts` | Parsing loose JSON: every duration and target, range semantics, repeats, intensity inference, and the error messages |
 | `fit.test.ts` | FIT encoding, decoded back with the SDK: scaling, offsets, zones, names, intensities, repeat flattening, a full session |
-| `api.test.ts` | The REST API and `/api/tools`, FIT downloads, cross-athlete isolation, bad requests, retention |
+| `api.test.ts` | The REST API and `/api/tools`, FIT downloads, cross-athlete isolation, bad requests, the readable window and the cap |
 | `auth.test.ts` | Google and Apple sign-in, state handling, ID-token checks, sessions, API tokens |
 | `oauth.test.ts` | Discovery, registration, consent, the PKCE code exchange, refresh, connected apps |
 | `mcp.test.ts` | The JSON-RPC protocol and every tool |
@@ -608,7 +619,8 @@ npm run typecheck
 Everything here fits the Cloudflare free plan: Workers (100k requests/day),
 D1 (5 GB, 5M row reads/day), KV, static assets and cron triggers. Encoding a
 30-step workout is well under the free plan's 10 ms CPU limit. Google sign-in
-is free. The only things you pay for are the domain — Cloudflare Registrar
+is free. Keeping every workout forever costs nothing worth counting: a few
+hundred bytes each against 5 GB, which is why nothing sweeps them. The only things you pay for are the domain — Cloudflare Registrar
 sells those at cost — and, if you want the Apple button, an Apple Developer
 membership.
 

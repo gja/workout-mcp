@@ -20,8 +20,14 @@ import * as platforms from './platforms';
 import type { Workout, WorkoutInput } from './workout';
 
 export async function createWorkout(env: Env, user: User, input: WorkoutInput): Promise<Workout> {
+  // A create carrying an `external_id` that is already known is really an
+  // update, and lands on that row even if it is on another date — so where
+  // that row was has to be read before the write, or the platform link is
+  // left pointing at a workout that no longer exists there.
+  const previous = input.external_id ? await db.findByExternalId(env, user.id, input.external_id) : null;
+
   const workout = await db.putWorkout(env, user.id, input);
-  await platforms.onWorkoutSaved(env, user, workout);
+  await platforms.onWorkoutSaved(env, user, workout, previous ?? undefined);
   return workout;
 }
 

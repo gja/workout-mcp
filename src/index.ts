@@ -86,27 +86,40 @@ export default {
    * register — a session recorded there becomes a workout marked done here
    * within the hour instead.
    *
-   * Nightly (`NIGHTLY`): retention, expired logins and stale OAuth data, with
-   * a completion pass first so a session done on a day that is about to age
-   * out is still recorded on its way past, and the orphaned-link sweep after
-   * it, once retention has decided what is gone.
+   * Nightly (`NIGHTLY`): the credential housekeeping — expired sessions,
+   * abandoned sign-ins, stale OAuth grants — plus a retry of any platform
+   * connection stuck on an error, since nothing else picks those up.
+   *
+   * Workouts are deliberately not swept. The window and the per-user cap are
+   * enforced on the way in and on every read, so an older session stops being
+   * visible without anything having to delete it; see `src/db.ts`.
    */
   async scheduled(event: ScheduledController, env: Env): Promise<void> {
-    const completed = await platforms.pullEveryCompletion(env);
+    // Guarded, and first: reading completions means talking to somebody
+    // else's server, and none of the housekeeping below should be skipped
+    // because that went wrong.
+    const completed = await platforms.pullEveryCompletion(env).catch((err: unknown) => {
+      console.error('reading completions back failed', err);
+      return 0;
+    });
+
     if (event.cron !== NIGHTLY) {
       console.log(`hourly pass marked ${completed} workouts done`);
       return;
     }
 
-    const workouts = await db.pruneAll(env);
+    const retried = await platforms.retryFailedConnections(env).catch((err: unknown) => {
+      console.error('retrying stuck platform connections failed', err);
+      return 0;
+    });
     const links = await platforms.pruneOrphanedLinks(env);
     const credentials = await auth.pruneExpired(env);
     const abandoned = await identity.pruneLoginStates(env);
     const purged = await provider.purgeExpiredData(env);
     console.log(
-      `nightly sweep marked ${completed} workouts done, removed ${workouts} workouts, ` +
-        `${links} stale platform links, ${credentials} expired sessions, ` +
-        `${abandoned} abandoned sign-ins, and ${purged.grantsPurged ?? 0} stale grants`,
+      `nightly sweep marked ${completed} workouts done, brought ${retried} platform connections back, ` +
+        `and removed ${links} stale platform links, ${credentials} expired sessions, ` +
+        `${abandoned} abandoned sign-ins and ${purged.grantsPurged ?? 0} stale grants`,
     );
   },
 } satisfies ExportedHandler<Env>;

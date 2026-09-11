@@ -88,6 +88,8 @@ export type Platform = {
 export type SyncReport = {
   platform: string;
   pushed: number;
+  /** Workouts taken off the platform because a delete had not reached it. */
+  removed: number;
   remaining: number;
   completed: number;
   error: string | null;
