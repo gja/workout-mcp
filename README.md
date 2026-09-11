@@ -458,6 +458,7 @@ src/identity.ts   signing in with Google or Apple
 src/auth.ts       sessions, accounts and API tokens
 src/tools.ts      the tool surface shared by MCP and REST
 src/mcp.ts        JSON-RPC over Streamable HTTP
+src/router.ts     a small path router: `:params`, and 405 apart from 404
 src/app.ts        the OAuth provider's defaultHandler: login, consent, REST, assets
 src/index.ts      the provider itself, and the protected /mcp handler
 ```
@@ -465,6 +466,14 @@ src/index.ts      the provider itself, and the protected /mcp handler
 `src/index.ts` constructs the `OAuthProvider`, which wraps everything: it
 claims the OAuth endpoints and `/mcp`, and passes every other request to
 `src/app.ts`.
+
+Routing lives in one table at the bottom of `src/app.ts`. Each route is a
+single handler, and the ones declared through `withUser` are given the athlete
+they are acting for, so no handler has to read a cookie or a bearer token. A
+path the table does not claim is the dashboard — except under `/api/` and
+`/export/`, which answer an unknown or wrongly-addressed path the way they
+would a known one: 401 before 404 or 405, so a caller without a credential
+cannot map the API by reading status codes back.
 
 Nothing is stored in the clear. Session ids and API tokens are SHA-256 hashes
 in D1; OAuth grants and their tokens are the library's problem, in KV. The
@@ -497,7 +506,7 @@ that Miniflare routes all outbound traffic to, so the real `arctic` path runs
 — Apple's signed client secret included — without touching the network.
 
 ```bash
-npm test        # 133 tests
+npm test        # 215 tests
 npm run typecheck
 ```
 
