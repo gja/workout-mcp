@@ -146,7 +146,7 @@ describe('copying a race', () => {
     await connectPlatform();
   });
 
-  it('puts the recording at workouts-mcp/<platform>/yyyy-mm/yyyy-mm-dd-<id>-name.fit', async () => {
+  it('puts the recording at workouts-mcp/<platform>/yyyy-mm/yyyy-mm-dd-<id>-<name>.fit', async () => {
     await control('setup', { activities: [race('i555')] });
 
     const { body } = await connectDrive();

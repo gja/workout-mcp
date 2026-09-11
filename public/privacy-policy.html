@@ -85,10 +85,10 @@
         encryption key configured, a connection is refused rather than stored in the clear.
       </li>
       <li>
-        <strong>Google Drive connections.</strong> If you connect a drive for your race files, its id and name are
-        stored, along with the error from the last failed copy, and one row per race copied recording which race it
-        was and the path the file went to. The recording itself is not stored: it is relayed from the training
-        platform to your drive inside a single request and held nowhere afterwards.
+        <strong>Google Drive connections.</strong> If you connect a drive for your completed workouts, its id and
+        name are stored, along with the error from the last failed copy, and one row per workout copied recording
+        which workout it was and the path the file went to. The recording itself is not stored: it is relayed from
+        the training platform to your drive inside a single request and held nowhere afterwards.
       </li>
     </ul>
 
@@ -114,9 +114,9 @@
         are read back hourly.
       </li>
       <li>
-        <strong>Google Drive</strong>, and only if you connect a drive: the race files copied into it pass through
-        this server on the way, and land in a drive you own and control. Remove this server's service account from
-        that drive and the copying stops; the files already there are yours and stay.
+        <strong>Google Drive</strong>, and only if you connect a drive: the completed workouts copied into it pass
+        through this server on the way, and land in a drive you own and control. Remove this server's service account
+        from that drive and the copying stops; the files already there are yours and stay.
       </li>
       <li>
         <strong>The MCP client you connect</strong> — Claude, or whatever else you authorize — can read and write the

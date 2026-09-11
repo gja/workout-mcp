@@ -45,7 +45,7 @@ const safe = (value: string, limit: number): string =>
     .replace(/^[-.]+|[-.]+$/g, '')
     .slice(0, limit) || 'race';
 
-/** `yyyy-mm-dd-<id>-name.fit`, as docs/drive.md spells the path out. */
+/** `yyyy-mm-dd-<id>-<name>.fit`, as docs/drive.md spells the path out. */
 export const fileName = (race: Competition): string =>
   `${race.date}-${safe(race.remote_id, 40)}-${safe(race.name, 80)}.fit`;
 
@@ -106,7 +106,7 @@ export async function status(env: Env, user: User): Promise<DriveStatus> {
     drive_id: connection?.drive_id ?? null,
     drive_name: connection?.drive_name ?? null,
     last_error: connection?.last_error ?? null,
-    path_template: `${ROOT_FOLDER}/<platform>/yyyy-mm/yyyy-mm-dd-<id>-name.fit`,
+    path_template: `${ROOT_FOLDER}/<platform>/yyyy-mm/yyyy-mm-dd-<id>-<name>.fit`,
     copied: connection ? await store.countCopies(env, user.id) : 0,
     recent: connection ? await store.recentCopies(env, user.id, 5) : [],
     updated_at: connection?.updated_at ?? null,

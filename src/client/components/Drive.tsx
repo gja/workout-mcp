@@ -6,10 +6,10 @@ function describeCopy(report: DriveReport): string {
   const parts: string[] = [];
   if (report.copied) parts.push(`copied ${report.copied}`);
   if (report.remaining) parts.push(`${report.remaining} left for the next run`);
-  return parts.length > 0 ? `Synced: ${parts.join(', ')}.` : 'No new races to copy.';
+  return parts.length > 0 ? `Synced: ${parts.join(', ')}.` : 'No new completed workouts to copy.';
 }
 
-/** The Google Drive panel: where race files go, and whether any have. */
+/** The Google Drive panel: where completed workouts go, and whether any have. */
 export function Drive() {
   const [drive, setDrive] = useState<DriveStatus | null>(null);
   const [pasted, setPasted] = useState('');
@@ -78,9 +78,9 @@ export function Drive() {
   return (
     <>
       <p className="note">
-        Every race you record on a connected training platform is copied to your own Google Drive as the FIT file
-        your watch produced, so you can analyse it wherever you like. It is relayed straight across and never
-        stored here.
+        Every completed workout you record on a connected training platform is copied to your own Google Drive as
+        the FIT file your watch produced, so you can analyse it wherever you like. It is relayed straight across and
+        never stored here.
       </p>
       <p className="note">
         Files land at <code>{drive.path_template}</code>. It has to be a <strong>shared drive</strong>, not a folder —
@@ -99,9 +99,9 @@ export function Drive() {
           <>
             <p className="note">
               {drive.copied === 0
-                ? 'No races copied yet.'
-                : `${drive.copied} race${drive.copied === 1 ? '' : 's'} copied.`}{' '}
-              Only races count — an ordinary session stays where it is.
+                ? 'No completed workouts copied yet.'
+                : `${drive.copied} completed workout${drive.copied === 1 ? '' : 's'} copied.`}{' '}
+              Only the ones you marked as a race on the platform count — an ordinary session stays where it is.
             </p>
             {drive.recent.length > 0 && (
               <ul className="note">
