@@ -77,6 +77,26 @@ reason for every workout they write from then on to fail.
 - **Our window is ours, not theirs.** A workout ageing out of the readable
   7/14-day window is not taken off your intervals.icu calendar.
 
+## Targets arrive absolute, and are shown against your thresholds
+
+The FIT file carries what you wrote: a pace as a speed in m/s, a power target
+in watts, a heart rate in bpm. intervals.icu converts each one into a
+percentage of the matching threshold on your athlete profile as it imports, and
+shows the absolute figure alongside it. So a step planned at 4:35-5:00/km
+displays as `120-131% Pace` against a 6:00/km threshold, and one at 145-152 bpm
+as `83-87% LTHR`.
+
+**If a target reads wrong, or shows as `null-null`, check your thresholds
+first.** intervals.icu Settings holds a threshold pace per sport, an FTP, and a
+threshold heart rate; without the one a target needs there is nothing to
+convert against, and the step arrives with no usable target however correct the
+file is. Nothing here can supply them — they are yours, and they are what every
+percentage on that calendar is measured against.
+
+One thing that conversion costs you is precision. A percentage is stored whole,
+so the bpm intervals.icu shows is re-derived from a rounded percentage and can
+sit a beat off what you planned. The file is right; the round trip is lossy.
+
 ## Completion is polled, not pushed
 
 intervals.icu delivers webhooks only to OAuth applications it has approved, and
