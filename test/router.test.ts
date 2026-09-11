@@ -79,6 +79,16 @@ describe('the router', () => {
     expect((await call(routes, 'PUT', '/auth/apple/callback')).status).toBe(405);
   });
 
+  it('serves HEAD from the GET route', async () => {
+    const routes = router()
+      .get('/api/health', () => text('ok'))
+      .post('/api/tokens', () => text('created', 201));
+
+    expect((await call(routes, 'HEAD', '/api/health')).status).toBe(200);
+    // A path with no GET is still 405, not a HEAD that answers from nowhere.
+    expect((await call(routes, 'HEAD', '/api/tokens')).status).toBe(405);
+  });
+
   it('passes the rest of the context through untouched', async () => {
     const routes = router().get('/x', ({ seen }) => text(String(Array.isArray(seen))));
 

@@ -28,7 +28,7 @@ export const SCOPE = 'workouts';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Authorization, Content-Type, MCP-Protocol-Version',
   'Access-Control-Max-Age': '86400',
 };
@@ -416,16 +416,24 @@ function splitDateId(slug: string): { date: string; id: string } | null {
 
 const WORKOUT: WorkoutRoute = '/api/workouts/:date(\\d{4}-\\d{2}-\\d{2})/:id([0-9a-z]+)';
 
-const routes = new Router<Context>({
-  methodNotAllowed: () => error('method not allowed', 405),
+/**
+ * Under the API prefixes a fallback is answered the way a route would be: the
+ * credential is checked first, so 401 comes before 404 or 405 and a caller
+ * without one cannot map the API by reading status codes back.
+ */
+const guarded = (handler: Handler<Context>): Handler<Context> => {
+  const behindTheDoor = withUser(handler);
+  return (context) => (isApiPath(context.path) ? behindTheDoor(context) : handler(context));
+};
 
-  // Anything the table does not claim is the dashboard — except under the API
-  // prefixes, where an unknown path is answered the way a known one would be:
-  // 401 before 404, so a caller without a credential cannot map the API.
-  notFound: (context) =>
-    isApiPath(context.path)
-      ? withUser(() => error('not found', 404))(context)
-      : context.env.ASSETS.fetch(context.request),
+const routes = new Router<Context>({
+  methodNotAllowed: guarded(() => error('method not allowed', 405)),
+
+  // Anything the table does not claim is the dashboard. Under the API
+  // prefixes there is no dashboard to fall back to, only a 404.
+  notFound: guarded((context) =>
+    isApiPath(context.path) ? error('not found', 404) : context.env.ASSETS.fetch(context.request),
+  ),
 })
   .get('/api/health', ({ env }) => json({ ok: true, name: appName(env) }))
 

@@ -10,6 +10,8 @@
  * Routes are tried in the order they are declared. A path that matches but
  * offers no such method is answered by `methodNotAllowed` rather than falling
  * through to `notFound`, so "no such route" and "not that way" stay distinct.
+ * HEAD is served by the GET route, as the method is defined to be: the runtime
+ * drops the body on the way out.
  *
  * The context is the caller's: this module knows nothing about the app beyond
  * the path it is asked to match.
@@ -62,6 +64,9 @@ function compile(pattern: string): RegExp {
   return new RegExp(`^${source}$`);
 }
 
+const serves = (route: { methods: readonly string[] }, method: string): boolean =>
+  route.methods.includes(method) || (method === 'HEAD' && route.methods.includes('GET'));
+
 export class Router<Context extends Routable> {
   private readonly routes: Route<Context>[] = [];
 
@@ -98,7 +103,7 @@ export class Router<Context extends Routable> {
     for (const route of this.routes) {
       const match = route.pattern.exec(context.path);
       if (!match) continue;
-      if (!route.methods.includes(method)) {
+      if (!serves(route, method)) {
         pathExists = true;
         continue;
       }

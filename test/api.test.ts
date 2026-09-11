@@ -484,6 +484,19 @@ describe('bad requests', () => {
   it('404s an unknown API route', async () => {
     expect((await call('/api/nothing-here')).status).toBe(404);
   });
+
+  it('will not let a caller without a credential tell a real route from a made-up one', async () => {
+    // Both 401, so status codes cannot be read as a map of the API.
+    expect((await SELF.fetch(`${BASE}/api/me`, { method: 'DELETE' })).status).toBe(401);
+    expect((await SELF.fetch(`${BASE}/api/nothing-here`, { method: 'DELETE' })).status).toBe(401);
+  });
+
+  it('answers HEAD wherever it answers GET', async () => {
+    const { date, id } = await createIntervals();
+    expect((await SELF.fetch(`${BASE}/api/health`, { method: 'HEAD' })).status).toBe(200);
+    expect((await call('/api/me', { method: 'HEAD' })).status).toBe(200);
+    expect((await call(`/export/${date}-${id}.fit`, { method: 'HEAD' })).status).toBe(200);
+  });
 });
 
 describe('FIT export', () => {
