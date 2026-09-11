@@ -97,6 +97,12 @@ export class Router<Context extends Routable> {
     return this.on(['DELETE'], pattern, handler);
   }
 
+  /** Add a group of routes declared elsewhere, so the table can span files. */
+  mount(group: (router: this) => void): this {
+    group(this);
+    return this;
+  }
+
   handle(method: string, context: Context): Response | Promise<Response> {
     let pathExists = false;
 
