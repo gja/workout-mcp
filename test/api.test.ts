@@ -282,6 +282,124 @@ describe('an external id', () => {
   });
 });
 
+describe('completing a workout', () => {
+  const complete = (workout: { date: string; id: string }, body?: unknown) =>
+    call(`/api/workouts/${workout.date}/${workout.id}/complete`, {
+      method: 'POST',
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+
+  const read = async (workout: { date: string; id: string }) =>
+    (await (await call(`/api/workouts/${workout.date}/${workout.id}.json`)).json()) as {
+      completed_at?: string;
+      name: string;
+      steps: unknown[];
+    };
+
+  it('records the time it was done, defaulting to now', async () => {
+    const created = await createIntervals();
+    const before = Date.now();
+
+    const response = await complete(created);
+    expect(response.status).toBe(200);
+    const { completed_at: completedAt } = (await response.json()) as { completed_at: string };
+
+    expect(Date.parse(completedAt)).toBeGreaterThanOrEqual(before - 1000);
+    expect(Date.parse(completedAt)).toBeLessThanOrEqual(Date.now() + 1000);
+    expect((await read(created)).completed_at).toBe(completedAt);
+  });
+
+  it('takes a time of its own, for a session logged after the fact', async () => {
+    const created = await createIntervals();
+    await complete(created, { completed_at: `${created.date}T06:30:00Z` });
+    expect((await read(created)).completed_at).toBe(`${created.date}T06:30:00.000Z`);
+  });
+
+  it('reads a bare date as the start of that day', async () => {
+    const created = await createIntervals();
+    await complete(created, { completed_at: created.date });
+    expect((await read(created)).completed_at).toBe(`${created.date}T00:00:00.000Z`);
+  });
+
+  it('refuses a timestamp that is not one', async () => {
+    const created = await createIntervals();
+    const response = await complete(created, { completed_at: 'yesterday afternoon' });
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { error: string }).error).toMatch(/completed_at/);
+  });
+
+  it('clears the record on a DELETE, leaving the plan alone', async () => {
+    const created = await createIntervals();
+    await complete(created);
+
+    const response = await call(`/api/workouts/${created.date}/${created.id}/complete`, { method: 'DELETE' });
+    expect(response.status).toBe(200);
+
+    const after = await read(created);
+    expect(after).not.toHaveProperty('completed_at');
+    expect(after.steps).toHaveLength(3);
+  });
+
+  it('is idempotent, and the last time given wins', async () => {
+    const created = await createIntervals();
+    await complete(created, { completed_at: `${created.date}T06:30:00Z` });
+    await complete(created, { completed_at: `${created.date}T18:00:00Z` });
+    expect((await read(created)).completed_at).toBe(`${created.date}T18:00:00.000Z`);
+  });
+
+  it('404s for a workout that is not there', async () => {
+    const response = await complete({ date: DAY, id: 'nosuchid1' });
+    expect(response.status).toBe(404);
+  });
+
+  it('is scoped to the athlete', async () => {
+    const created = await createIntervals();
+    const other = await seedUser('other@example.com');
+    const response = await SELF.fetch(`${BASE}/api/workouts/${created.date}/${created.id}/complete`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${other.token}`, 'Content-Type': 'application/json' },
+    });
+    expect(response.status).toBe(404);
+  });
+
+  it('survives a rewrite of the plan, and a move to another day', async () => {
+    const created = await createIntervals();
+    await complete(created, { completed_at: `${created.date}T06:30:00Z` });
+
+    const replaced = await call(`/api/workouts/${created.date}/${created.id}.json`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...INTERVALS, name: 'Renamed', date: NEXT_DAY }),
+    });
+    expect(replaced.status).toBe(200);
+
+    const moved = await read({ date: NEXT_DAY, id: created.id });
+    expect(moved.name).toBe('Renamed');
+    expect(moved.completed_at).toBe(`${created.date}T06:30:00.000Z`);
+  });
+
+  it('survives a re-sync under the same external id', async () => {
+    const first = (await (await call('/api/workouts', {
+      method: 'POST',
+      body: JSON.stringify({ ...INTERVALS, external_id: 'plan-7' }),
+    })).json()) as { id: string; date: string };
+    await complete(first, { completed_at: `${first.date}T06:30:00Z` });
+
+    await call('/api/workouts', {
+      method: 'POST',
+      body: JSON.stringify({ ...INTERVALS, external_id: 'plan-7', date: NEXT_DAY }),
+    });
+
+    const after = await read({ date: NEXT_DAY, id: first.id });
+    expect(after.completed_at).toBe(`${first.date}T06:30:00.000Z`);
+  });
+
+  it('refuses a method it does not have', async () => {
+    const created = await createIntervals();
+    const response = await call(`/api/workouts/${created.date}/${created.id}/complete`, { method: 'PUT' });
+    expect(response.status).toBe(405);
+  });
+});
+
 describe('the tools, over plain REST', () => {
   it('runs a tool and returns what MCP would', async () => {
     const created = await call('/api/tools/create_workout', {

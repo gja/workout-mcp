@@ -7,7 +7,7 @@ Worker, a D1 database, and a static dashboard.
 - **MCP** at `POST /mcp` — an assistant can write your training week.
 - **REST** at `/api/*` — for a Garmin Connect IQ app, Watchletic, or curl.
 - **FIT** at `/export/2026-09-12-a1b2c3d4.fit` — drop it on a watch.
-- **Dashboard** at `/` — see the plan, download files, manage tokens.
+- **Dashboard** at `/` — see the plan, tick sessions off, download files.
 - **Sign-in** with Google or Apple. No passwords, and no email to send.
 - **OAuth 2.1** via `@cloudflare/workers-oauth-provider`, so an MCP client can
   connect with a button rather than a pasted token.
@@ -184,7 +184,7 @@ arrive at the MCP handler identically:
 ```
 
 Tools: `list_workouts`, `get_workout`, `create_workout`, `update_workout`,
-`delete_workout`, `export_workout_fit`. Each one is also reachable over REST at
+`delete_workout`, `complete_workout`, `export_workout_fit`. Each one is also reachable over REST at
 `POST /api/tools/<name>` with the same arguments, so a non-MCP client gets the
 identical behaviour.
 
@@ -199,9 +199,10 @@ them.
 Every tool is annotated with whether it only reads. `list_workouts`,
 `get_workout` and `export_workout_fit` carry `readOnlyHint`, which is what
 lets a client group them apart from the writes and allow them without asking
-each time; `update_workout` and `delete_workout` carry `destructiveHint`. The
-hints only shape how a client presents a tool — the server checks everything
-regardless.
+each time; `update_workout` and `delete_workout` carry `destructiveHint`.
+`complete_workout` is a write but not a destructive one — it cannot lose the
+plan it is recorded against. The hints only shape how a client presents a
+tool — the server checks everything regardless.
 
 ## Writing a workout
 
@@ -329,6 +330,7 @@ target, so there is nothing sensible to convert a range into. Use
 | `sub_sport` | How it is done: `treadmill`, `track`, `trail`, `road`, `indoor_cycling`, `lap_swimming`, … |
 | `notes` | Description of the session, written into the FIT file so the watch shows it |
 | `external_id` | Your own key — see below |
+| `completed_at` | Read-only here; set through the completion routes below |
 
 `sub_sport` is worth setting: a watch picks its activity profile from it, so a
 treadmill session will not sit waiting for a GPS fix.
@@ -342,6 +344,29 @@ one.
 A write — create or update — answers with which workout it was and where to
 find it: id, date, name, sport and the two URLs. It does not echo the steps
 back at the caller who just sent them. Reads return the whole thing.
+
+### Marking one done
+
+A workout carries `completed_at`, an ISO instant, once the session has
+actually been done; until then the field is simply absent. It is set by its
+own verb rather than by rewriting the plan:
+
+```
+complete_workout { "date": "2026-09-12", "id": "a1b2c3d4" }
+complete_workout { "date": "2026-09-12", "id": "a1b2c3d4", "completed_at": "2026-09-12T06:30:00Z" }
+complete_workout { "date": "2026-09-12", "id": "a1b2c3d4", "completed": false }
+```
+
+Without a `completed_at` it is now, which is the common case — an athlete
+marking a session done as they finish it. Pass one to log a session after the
+fact; a bare `YYYY-MM-DD` is read as the start of that day. `completed: false`
+clears the record and puts the workout back to merely planned. Over REST that
+is `POST` and `DELETE` on `/api/workouts/:date/:id/complete`, and on the
+dashboard it is the date field on the workout card.
+
+Because it is its own verb, rewriting the plan does not un-do the session:
+`update_workout`, a `PUT`, and a re-sync under the same `external_id` all
+carry the record across, including when the workout moves to another day.
 
 Every read also carries `planned`, computed from the steps with repeats
 resolved:
@@ -406,6 +431,8 @@ session cookie set at login.
 | `GET /api/workouts/:date/:id.json` | Read one |
 | `PUT /api/workouts/:date/:id.json` | Replace one; change `date` to move it |
 | `DELETE /api/workouts/:date/:id.json` | Delete one |
+| `POST /api/workouts/:date/:id/complete` | Mark it done; `{completed_at}` optional, defaults to now |
+| `DELETE /api/workouts/:date/:id/complete` | Clear that, leaving the plan alone |
 | `GET /export/:date-:id.fit` | The FIT file |
 | `POST /api/tools/:name` | Any MCP tool, over REST |
 
