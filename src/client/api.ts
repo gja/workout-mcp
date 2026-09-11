@@ -68,8 +68,8 @@ export const uncompleteWorkout = (workout: Workout): Promise<Workout> =>
 export type Platform = {
   id: string;
   label: string;
-  /** What the athlete is about to be asked for, and where. */
-  connect: { help: string; help_url: string };
+  /** What connecting is for, shown before they do. */
+  connect_help: string;
   /** What the platform still needs from the athlete, once it is connected. */
   connected_note: string | null;
   connected: boolean;

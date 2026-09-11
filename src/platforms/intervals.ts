@@ -121,12 +121,9 @@ function startedAt(activity: Activity): string | null {
 export const intervals: Platform = {
   id: 'intervals',
   label: 'intervals.icu',
-  connect: {
-    help:
-      'You will be sent to intervals.icu to allow access to your calendar and your activities. ' +
-      'Nothing is pasted, and you can withdraw it from their settings at any time.',
-    help_url: 'https://intervals.icu/settings',
-  },
+  connect_help:
+    'Connect intervals.icu to sync your workouts to its calendar, and have the sessions you ' +
+    'record there come back here as done.',
   // They store every target as a percentage of a threshold, so a profile missing one
   // shows the step with no usable target however right the file is. See integrations.md.
   connected_note:
