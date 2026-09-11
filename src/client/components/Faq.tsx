@@ -45,7 +45,7 @@ export function Faq() {
           </p>
         </Section>
 
-        <Section group="faq" title="What about analytics and data?" hint="There is no analytics">
+        <Section group="faq" title="What about analytics and data?" hint="I don’t want your data">
           <p className="note">
             No analytics, no tracking pixels, no third-party scripts on this page. Nothing you do here is measured or
             sold.
@@ -58,8 +58,8 @@ export function Faq() {
             leave it.
           </p>
           <p className="note">
-            There are no plans to store anything beyond that. No heart-rate streams, no GPS tracks, no activity
-            history.
+            Put plainly: I don't want your data. No heart-rate streams, no GPS tracks, no activity history — there is
+            nothing I would do with any of it, and no plans to start collecting it.
           </p>
         </Section>
       </Accordion>
