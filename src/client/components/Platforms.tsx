@@ -86,13 +86,7 @@ function PlatformCard({
         </>
       ) : (
         <>
-          <p className="note">
-            {platform.connect.help}{' '}
-            <a href={platform.connect.help_url} target="_blank" rel="noreferrer">
-              Open {platform.label}
-            </a>
-            .
-          </p>
+          <p className="note">{platform.connect_help}</p>
           {platform.oauth ? (
             // A full-page navigation, like signing in: the round ends at a callback,
             // so there is no fetch whose answer we could wait on.

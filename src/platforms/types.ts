@@ -37,8 +37,8 @@ export type Platform = {
   id: PlatformId;
   /** Shown on the dashboard. */
   label: string;
-  /** Shown on the dashboard before the athlete connects: what the round will ask them for. */
-  connect: { help: string; help_url: string };
+  /** Shown on the dashboard before the athlete connects: what connecting is for. */
+  connect_help: string;
   /** Shown on the dashboard once connected: what the platform still needs from the athlete. */
   connected_note?: string;
 

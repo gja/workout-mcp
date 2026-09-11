@@ -86,7 +86,7 @@ export async function disconnect(env: Env, user: User, platformId: PlatformId): 
 export type PlatformStatus = {
   id: PlatformId;
   label: string;
-  connect: Platform['connect'];
+  connect_help: string;
   connected_note: string | null;
   connected: boolean;
   account: string | null;
@@ -114,7 +114,7 @@ export async function status(env: Env, user: User): Promise<PlatformStatus[]> {
       return {
         id: platform.id,
         label: platform.label,
-        connect: platform.connect,
+        connect_help: platform.connect_help,
         connected_note: platform.connected_note ?? null,
         connected: connection !== undefined,
         account: connection?.account ?? null,
