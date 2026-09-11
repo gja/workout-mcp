@@ -72,14 +72,14 @@ function Dashboard({ me }: { me: Me }) {
       <section>
         <h2>Setup</h2>
         <Accordion>
+          <Section group="setup" title="Connect to Claude" hint="Custom connector">
+            <ConnectToClaude />
+          </Section>
           <Section group="setup" title="Integrations" hint="intervals.icu">
             <Platforms onSynced={reload} />
           </Section>
-          <Section group="setup" title="Google Workspace Drive" hint="Race files">
+          <Section group="setup" title="Google Workspace Drive" hint="Completed workouts">
             <Drive />
-          </Section>
-          <Section group="setup" title="Connect to Claude" hint="Custom connector">
-            <ConnectToClaude />
           </Section>
           <Section group="setup" title="API tokens" hint="Other MCP hosts">
             <ApiTokens />

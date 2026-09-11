@@ -102,7 +102,7 @@ export const disconnectPlatform = (id: string): Promise<unknown> =>
 export const syncPlatform = (id: string): Promise<SyncReport> =>
   request(`/api/sync/${id}`, { method: 'POST' });
 
-/** One race already relayed into the athlete's drive. */
+/** One completed workout already relayed into the athlete's drive. */
 export type DriveCopy = { platform: string; remote_id: string; path: string; copied_at: string };
 
 export type DriveStatus = {
