@@ -53,9 +53,7 @@ export function Faq() {
           <p className="note">
             What gets stored is the workouts you plan and whether you marked them done — nothing else about the
             session, and nothing at all about you beyond what signing in and syncing need: your email address, your
-            login session, and any training-platform key you connect, which is encrypted at rest. Planned workouts
-            only live inside the retention window, 7 days back and 14 ahead, and fall out of the database once they
-            leave it.
+            login session, and any training-platform key you connect, which is encrypted at rest.
           </p>
           <p className="note">
             Put plainly: I don't want your data. No heart-rate streams, no GPS tracks, no activity history — there is
@@ -65,6 +63,10 @@ export function Faq() {
             The one thing that passes through is a race file on its way to your own Google Drive, if you turn that on.
             It is relayed straight across in a single request and never written down here; all that is kept is a note
             that it went, so it is not copied twice.
+          </p>
+          <p className="note">
+            Want it all deleted? Write to <a href="mailto:tejas@gja.in">tejas@gja.in</a> and it goes. The long version,
+            including who else sees what, is in <a href="/privacy-policy">the privacy policy</a>.
           </p>
         </Section>
 

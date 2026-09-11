@@ -15,6 +15,16 @@ import { isCallerError } from './tools';
 
 const appName = (env: Env): string => env.APP_NAME ?? 'Workouts';
 
+/**
+ * A path with no file behind it, answered with the page it belongs to: the client
+ * reads the path back off `location`. Only pages that exist as a file — `/` and
+ * `/privacy-policy` — are served by the assets binding on their own.
+ */
+const page =
+  (asset: string): Handler<Context> =>
+  ({ request, url, env }) =>
+    env.ASSETS.fetch(new Request(new URL(asset, url), request));
+
 /** 401 before 404 or 405, so the API cannot be mapped by reading status codes back. */
 const guarded = (handler: Handler<Context>): Handler<Context> => {
   const behindTheDoor = withUser(handler);
@@ -30,6 +40,10 @@ const routes = new Router<Context>({
   ),
 })
   .get('/api/health', ({ env }) => json({ ok: true, name: appName(env) }))
+
+  // A link straight to one session; the dashboard opens it once the list loads.
+  .get('/workout/:id', page('/'))
+
   .mount(signin.routes)
   .mount(oauth.routes)
   .mount(account.routes)

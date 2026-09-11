@@ -320,3 +320,13 @@ code { background: var(--line); padding: 1px 5px; border-radius: 4px; font-size:
 .complete { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
 .complete label { font-size: 14px; }
 .complete input { flex: 0 1 auto; min-width: 0; padding: 6px 8px; font-size: 14px; }
+
+/* The one thing under the FAQ: quiet, and out of the way. */
+.colophon {
+  margin-top: 40px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+}
+.colophon a { color: inherit; }

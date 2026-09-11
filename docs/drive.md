@@ -108,10 +108,24 @@ file, so there is no quota to charge it to, and the file is unambiguously
 yours: revoking the service account's membership leaves every file already
 there untouched and no longer reachable by us.
 
-A personal folder shared with the service account does work on consumer
-accounts, where Google is more forgiving about ownership. It is not the
-supported path, and the failure if it stops working is a storage quota error
-that reads as though it is about your own Drive being full.
+### A personal folder shared with the service account
+
+It reads fine, it connects fine, and then the first real upload fails. Google
+enforces quota against whoever *owns* a file, a service account owns everything
+it uploads, and it has no quota — so a file in your My Drive folder is charged
+to an account with nowhere to put it. The error says `storageQuotaExceeded`,
+which reads as though your Drive is full, and is not about your Drive at all.
+
+Connecting cannot catch this, and does not pretend to: the check creates the
+`workouts-mcp` folder, and a folder weighs nothing, so it succeeds where an
+upload will not. What it does catch is a missing or too-weak membership. The
+quota error is rewritten into that explanation when it arrives, so at least the
+dashboard says what actually went wrong rather than repeating Google's wording.
+
+If you have a Google Workspace account there is a third option — domain-wide
+delegation, where the service account impersonates a real user and files are
+owned by that user. It needs an admin to grant it, and this integration does not
+implement it. A shared drive is free and takes a minute.
 
 ### Why a service account, not your Google sign-in
 

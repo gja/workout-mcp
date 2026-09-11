@@ -14,15 +14,28 @@ import { SignIn } from './components/SignIn';
 import { WorkoutCard } from './components/WorkoutCard';
 import './styles.css';
 
+/** `/workout/<id>` opens that session. The Worker serves the dashboard there; the path is read back here. */
+const linkedWorkout = (): string | null => /^\/workout\/([^/]+)$/.exec(location.pathname)?.[1] ?? null;
+
 function Dashboard({ me }: { me: Me }) {
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [missing, setMissing] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
+  // Resolved against the first list that arrives, because an id is only unique within a date.
+  const pending = useRef(linkedWorkout());
 
   const reload = useCallback(() => {
     listWorkouts().then(
-      ({ workouts: found }) => setWorkouts(found),
+      ({ workouts: found }) => {
+        setWorkouts(found);
+        if (!pending.current) return;
+        const target = found.find((workout) => workout.id === pending.current);
+        pending.current = null;
+        if (target) setSelected(`${target.date}/${target.id}`);
+        else setMissing(true);
+      },
       (failure: Error) => setError(failure.message),
     );
   }, []);
@@ -40,6 +53,9 @@ function Dashboard({ me }: { me: Me }) {
   return (
     <>
       {error && <p className="error">{error}</p>}
+      {missing && (
+        <p className="note">That workout is not in the current window — it may have been deleted or moved.</p>
+      )}
 
       <Calendar window={me.window} workouts={workouts} selected={selected} onSelect={setSelected} />
 
@@ -106,9 +122,17 @@ function App() {
         )}
       </header>
 
-      {me ? <Dashboard me={me} /> : <SignIn intro="Sign in to see your planned workouts." />}
+      {me ? (
+        <Dashboard me={me} />
+      ) : (
+        <SignIn intro="Sign in to see your planned workouts." returnTo={location.pathname} />
+      )}
 
       <Faq />
+
+      <footer className="colophon">
+        <a href="/privacy-policy">Privacy policy</a>
+      </footer>
     </main>
   );
 }

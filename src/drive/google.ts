@@ -126,7 +126,16 @@ async function call<T>(token: string, url: string, init: RequestInit = {}): Prom
 
   const body = (await response.json().catch(() => ({}))) as T & { error?: { message?: string } };
   if (!response.ok) {
-    return fail(`Google Drive answered ${response.status}${body.error?.message ? `: ${body.error.message}` : ''}`);
+    const detail = body.error?.message ?? '';
+    // Google blames *your* Drive for a quota that is the service account's own — none at all.
+    // It only shows up on a real upload, since a folder weighs nothing, so say what it means.
+    if (/storage quota|storageQuotaExceeded/i.test(detail)) {
+      return fail(
+        'Google refused the upload for lack of storage quota, which means this is a personal Drive folder: ' +
+          'a service account owns what it uploads and has no quota of its own. Use a shared drive instead.',
+      );
+    }
+    return fail(`Google Drive answered ${response.status}${detail ? `: ${detail}` : ''}`);
   }
   return body;
 }
