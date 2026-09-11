@@ -29,7 +29,30 @@ function encodeDuration(duration: Duration): DurationFields {
   }
 }
 
-/** `low`/`high` are absent for an open end: FIT has no value meaning "no limit". */
+/**
+ * What is written for the end of a range the caller left open. FIT has no value
+ * that reads as "no limit", and no shape for half a band either: intervals.icu
+ * rejects a step carrying only one of the two bounds — "Missing
+ * custom_target_value_low and/or custom_target_value_high" — and drops it from
+ * the workout. So both ends are always written, and the open one gets a limit
+ * no athlete reaches.
+ *
+ * Heart rate and power pack two units into one field, so the filler goes in
+ * whatever unit the caller used for the end they did give — a raw 0 under a
+ * ceiling in watts is 0% of FTP under 120 W, two units in one band. Neither is
+ * ever the offset itself (100 for heart rate, 1000 for power): that is the one
+ * value where the two units meet — the SDK's own decoder reads a 100 back as
+ * `bpmOffset` rather than as 100% — so a percentage ceiling stops just under it.
+ */
+const OPEN_ENDED = {
+  hr: { bpm: { low: 1, high: 255 }, percent: { low: 1, high: 99 } },
+  power: { watts: { low: 1, high: 2000 }, percent: { low: 1, high: 999 } },
+  // Speed and cadence carry one unit each, so their plain extremes are unambiguous.
+  speed: { low: 0, high: 25 }, // m/s, ~90 km/h
+  cadence: { low: 0, high: 254 },
+} as const;
+
+/** `low`/`high` are absent only where the target is not a custom range at all. */
 type TargetFields = { type: string; value: number; low?: number; high?: number };
 
 /** FIT target type per zone metric. Pace zones are speed zones. */
@@ -41,33 +64,40 @@ function encodeTarget(target: Target): TargetFields {
       return { type: 'open', value: 0 };
     case 'zone':
       return { type: ZONE_TARGET_TYPE[target.metric], value: target.zone };
-    case 'heart_rate':
+    case 'heart_rate': {
+      // One end is always given, and both share a field, so both take its unit.
+      const unit = (target.low ?? target.high)?.unit ?? 'bpm';
+      const open = OPEN_ENDED.hr[unit];
       return {
         type: 'heartRate',
         value: 0,
-        ...(target.low ? { low: encodeHr(target.low) } : {}),
-        ...(target.high ? { high: encodeHr(target.high) } : {}),
+        low: encodeHr(target.low ?? { unit, value: open.low }),
+        high: encodeHr(target.high ?? { unit, value: open.high }),
       };
+    }
     case 'speed':
       return {
         type: 'speed',
         value: 0,
-        ...(target.low === null ? {} : { low: encodeSpeed(target.low) }),
-        ...(target.high === null ? {} : { high: encodeSpeed(target.high) }),
+        low: encodeSpeed(target.low ?? OPEN_ENDED.speed.low),
+        high: encodeSpeed(target.high ?? OPEN_ENDED.speed.high),
       };
-    case 'power':
+    case 'power': {
+      const unit = (target.low ?? target.high)?.unit ?? 'watts';
+      const open = OPEN_ENDED.power[unit];
       return {
         type: 'power',
         value: 0,
-        ...(target.low ? { low: encodePower(target.low) } : {}),
-        ...(target.high ? { high: encodePower(target.high) } : {}),
+        low: encodePower(target.low ?? { unit, value: open.low }),
+        high: encodePower(target.high ?? { unit, value: open.high }),
       };
+    }
     case 'cadence':
       return {
         type: 'cadence',
         value: 0,
-        ...(target.low === null ? {} : { low: target.low }),
-        ...(target.high === null ? {} : { high: target.high }),
+        low: target.low ?? OPEN_ENDED.cadence.low,
+        high: target.high ?? OPEN_ENDED.cadence.high,
       };
   }
 }
@@ -79,7 +109,7 @@ function targetMesgFields(target: Target, secondary: boolean): Record<string, un
     ? { secondaryTargetType: type, secondaryTargetValue: value }
     : { targetType: type, targetValue: value };
 
-  // Only if it exists: an open end leaves the field out of the step definition entirely.
+  // A zone or an open target has no range at all; a custom range always has both ends.
   if (low !== undefined) fields[secondary ? 'secondaryCustomTargetValueLow' : 'customTargetValueLow'] = low;
   if (high !== undefined) fields[secondary ? 'secondaryCustomTargetValueHigh' : 'customTargetValueHigh'] = high;
   return fields;
