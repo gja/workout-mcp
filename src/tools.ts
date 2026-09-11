@@ -9,9 +9,8 @@ import { encodeWorkoutFit, fitDownloadName } from './fit';
 import { describeWorkout, plannedTotals } from './describe';
 import * as db from './db';
 import type { Env, User } from './db';
-import { GarminAuthError, isConfigured as garminConfigured } from './garmin/oauth';
-import * as garminStore from './garmin/store';
-import { syncAll } from './garmin/sync';
+import { NotConnectedError, SyncBusyError, configuredProviders, syncNow, syncWorkouts } from './sync';
+import type { Background } from './sync';
 import { WorkoutError, parseWorkout } from './workout';
 import type { Workout } from './workout';
 import { parseDate, parseTimestamp } from './units';
@@ -236,39 +235,41 @@ export const TOOLS = [
     },
   },
   {
-    name: 'sync_garmin',
+    name: 'sync_workouts',
     annotations: {
-      title: 'Sync workouts to the Garmin calendar',
+      title: 'Sync workouts to the athlete\'s watch platform',
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: true,
       openWorldHint: true,
     },
     description:
-      'Sync with the athlete\'s Garmin Connect calendar, both ways. Planned workouts in the retention ' +
-      'window are pushed to the calendar, where their watch picks them up; and the activities they have ' +
-      'actually recorded are read back, marking the sessions those account for as completed. Only what ' +
-      'has changed is sent, so calling this twice in a row is free the second time. Workouts deleted ' +
-      'here are removed from the calendar; ones that have aged out of the window are left on it, since ' +
-      'they are training already done. A completion is only ever set from Garmin, never cleared — a ' +
-      'session ticked off by hand stays ticked off. Call with dry_run to see what would be pushed ' +
-      'without sending anything (a preview makes no calls, so it cannot report completions). Linking a ' +
-      'Garmin account is a one-time step the athlete does in a browser, so it is not a tool; if none is ' +
-      'linked, this says where to go.',
+      'Sync with every watch platform the athlete has linked — Garmin Connect today — both ways. ' +
+      'Planned workouts in the retention window are pushed to their calendar, where their watch picks ' +
+      'them up; and the activities they have actually recorded are read back, marking the sessions ' +
+      'those account for as completed. Writing a workout already syncs on its own, so this is for ' +
+      'checking the state of things, retrying after a failure, or forcing a re-send. Only what has ' +
+      'changed is sent, so calling it twice in a row is free the second time. A completion is only ' +
+      'ever set from the platform, never cleared — a session ticked off by hand stays ticked off. ' +
+      'Call with dry_run to see what would be pushed without sending anything (a preview makes no ' +
+      'calls, so it cannot report completions). Linking an account is a one-time step the athlete ' +
+      'does in a browser, so it is not a tool; if none is linked, this says where to go.',
     inputSchema: {
       type: 'object',
       properties: {
         dry_run: {
           type: 'boolean',
-          description: 'Report what would be sent without sending anything. Nothing on Garmin changes.',
+          description: 'Report what would be sent without sending anything. Nothing on the platform changes.',
         },
         force: {
           type: 'boolean',
-          description: 'Re-send every workout, even those Garmin already has unchanged. Rarely needed.',
+          description:
+            'Re-send every workout, even those the platform already has unchanged. Needed only to ' +
+            'recover a session deleted on the platform itself, which an ordinary sync has no reason to notice.',
         },
         include_payloads: {
           type: 'boolean',
-          description: 'On a dry run, include the full Garmin JSON for each workout. Verbose, so off by default.',
+          description: 'On a dry run, include the full payload for each workout. Verbose, so off by default.',
         },
       },
     },
@@ -280,13 +281,17 @@ export type ToolName = (typeof TOOLS)[number]['name'];
 /**
  * The tools this deployment can actually offer.
  *
- * `sync_garmin` is hidden where no Garmin credentials are set, which is the
- * same thing the dashboard panel does and for the same reason: advertising a
- * tool whose every call answers "not configured on this server" only invites
- * an assistant to keep trying it.
+ * `sync_workouts` is hidden where no watch platform is configured at all,
+ * which is the same thing the dashboard panel does and for the same reason:
+ * advertising a tool whose every call answers "nothing is configured on this
+ * server" only invites an assistant to keep trying it. Asked of the provider
+ * registry rather than of Garmin, so the answer stays right when the second
+ * platform arrives.
  */
-export const availableTools = (env: Env): ReadonlyArray<(typeof TOOLS)[number]> =>
-  TOOLS.filter((tool) => tool.name !== 'sync_garmin' || garminConfigured(env));
+export const availableTools = async (env: Env): Promise<ReadonlyArray<(typeof TOOLS)[number]>> => {
+  const providers = await configuredProviders(env);
+  return TOOLS.filter((tool) => tool.name !== 'sync_workouts' || providers.length > 0);
+};
 
 /** Thrown for tool-level problems that are the caller's fault. */
 export class ToolError extends Error {}
@@ -337,7 +342,7 @@ export function presentBrief(workout: Workout, baseUrl?: string) {
 }
 
 /**
- * `origin` is the deployment's own base URL, and only `sync_garmin` uses it.
+ * `origin` is the deployment's own base URL, and only `sync_workouts` uses it.
  *
  * The tools deliberately return no URLs, for the reason `urls` above explains
  * — a link to bytes behind the caller's credential is no use to anyone it is
@@ -352,8 +357,21 @@ export async function callTool(
   env: Env,
   user: User,
   origin?: string,
+  background?: Background,
 ): Promise<unknown> {
   const args = asObject(rawArgs);
+
+  /**
+   * Follow a write with a push to Garmin, after the response has gone.
+   *
+   * Every path that changes the plan calls this, so creating a workout puts
+   * it on the watch without anyone remembering to sync. It never affects what
+   * this call returns — see `syncWorkouts`.
+   */
+  const pushed = <T>(result: T): T => {
+    syncWorkouts(env, user.id, background);
+    return result;
+  };
 
   switch (name) {
     case 'list_workouts': {
@@ -383,7 +401,7 @@ export async function callTool(
 
     case 'create_workout': {
       const workout = await db.putWorkout(env, user.id, parseWorkout(args));
-      return presentBrief(workout);
+      return pushed(presentBrief(workout));
     }
 
     case 'update_workout': {
@@ -402,14 +420,16 @@ export async function callTool(
       // the workout with it.
       db.assertRetainable(input.date);
       if (input.date !== currentDate) await db.deleteWorkout(env, user.id, currentDate, id);
-      return presentBrief(await db.putWorkout(env, user.id, input, id));
+      return pushed(presentBrief(await db.putWorkout(env, user.id, input, id)));
     }
 
     case 'delete_workout': {
       const date = parseDate(requireString(args, 'date'), 'date');
       const id = requireString(args, 'id');
       if (!(await db.deleteWorkout(env, user.id, date, id))) throw new ToolError(`no workout ${id} on ${date}`);
-      return { deleted: true, date, id };
+      // A deleted workout has to come off the calendar too, which is the same
+      // diff seen from the other side.
+      return pushed({ deleted: true, date, id });
     }
 
     case 'complete_workout': {
@@ -452,33 +472,34 @@ export async function callTool(
       };
     }
 
-    case 'sync_garmin': {
-      if (!garminConfigured(env)) throw new ToolError('Garmin sync is not configured on this server');
-
-      // Linking an account needs Garmin's consent screen in a browser, so it
-      // is deliberately not a tool. But a sync that cannot run for want of a
-      // link is exactly when the link is wanted, so the refusal carries it —
-      // the one URL these tools hand back, and a page the athlete is meant to
-      // open rather than bytes behind a credential.
-      if (!(await garminStore.getConnection(env, user.id))) {
-        throw new GarminAuthError(
-          origin
-            ? `no Garmin account is linked — open ${origin}/garmin/connect in a browser to link one. ` +
-              'It is a one-time step, and there is nothing to paste back.'
-            : 'no Garmin account is linked — link one from the dashboard first.',
-        );
+    case 'sync_workouts': {
+      const outcome = await syncNow(
+        env,
+        user.id,
+        { dryRun: args.dry_run === true, force: args.force === true },
+        origin,
+      );
+      if (outcome.providers.length === 0) {
+        return { providers: [], note: 'This server has no watch platform configured, so there is nothing to sync.' };
       }
 
-      const report = await syncAll(env, user.id, {
-        dryRun: args.dry_run === true,
-        force: args.force === true,
-      });
-
-      // The payloads are large and mostly uninteresting, and a window of
-      // fifty workouts would swamp the answer. Kept behind a flag, and only
+      // The payloads are large and mostly uninteresting, and a window of fifty
+      // workouts would swamp the answer. Kept behind a flag, and only
       // meaningful on a dry run, which is the only mode that collects them.
-      if (args.include_payloads === true) return report;
-      return { ...report, workouts: report.workouts.map(({ payload: _payload, ...rest }) => rest) };
+      if (args.include_payloads === true) return outcome;
+      return {
+        providers: outcome.providers.map((entry) =>
+          entry.connected
+            ? {
+                ...entry,
+                report: {
+                  ...entry.report,
+                  workouts: entry.report.workouts.map(({ payload: _payload, ...rest }) => rest),
+                },
+              }
+            : entry,
+        ),
+      };
     }
 
     default:
@@ -495,9 +516,13 @@ export function base64Encode(bytes: Uint8Array): string {
 /**
  * Caller-visible errors get a 400; everything else is ours.
  *
- * `GarminAuthError` is in here so a tool call that needs a connection the
- * athlete has not made comes back as a readable message the model can act on
- * — "send them to connect_url" — rather than as an internal error.
+ * The sync errors are in here so a tool call that needs a connection the
+ * athlete has not made, or that collides with a sync already running, comes
+ * back as a readable message the model can act on rather than as an internal
+ * error.
  */
 export const isCallerError = (error: unknown): error is Error =>
-  error instanceof ToolError || error instanceof WorkoutError || error instanceof GarminAuthError;
+  error instanceof ToolError ||
+  error instanceof WorkoutError ||
+  error instanceof NotConnectedError ||
+  error instanceof SyncBusyError;

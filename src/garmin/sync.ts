@@ -46,96 +46,28 @@ import { GarminAuthError, isConfigured } from './oauth';
 import * as store from './store';
 import type { Connection, Link } from './store';
 
+import {
+  NotConnectedError,
+  SyncBusyError,
+  emptyCounts,
+  emptyReport,
+  newBudget,
+} from '../sync';
+import type { Budget, SyncAction, SyncEntry, SyncOptions, SyncReport } from '../sync';
+
+/** Re-exported so this module stays the one door onto a Garmin sync. */
+export type { Budget, SyncOptions, SyncReport } from '../sync';
+export { newBudget } from '../sync';
+
 /**
- * The most Garmin calls one *Worker invocation* may make.
+ * How many times a run will go round for work that arrived mid-flight.
  *
- * A Worker gets a bounded number of outbound subrequests per invocation — 50
- * on the free plan this app is built to fit — and a workout costs one to four
- * of them, per `costOf`. So a run does what it can within budget and says how
- * much is left,
- * rather than dying partway through with no report. Nothing is lost: the next
- * run picks up exactly where this one stopped, because the diff is computed
- * from stored state rather than from where a cursor got to.
- *
- * The invocation is the unit, not the athlete, which matters for the nightly
- * sweep: five athletes with a budget each would have authorised 150 calls
- * against a limit of 50, and the calls past it fail as unreachable-network
- * errors — reported as the athlete's workouts failing rather than as this
- * server running out of room. `syncEveryone` therefore makes one budget and
- * passes it down, so the sweep degrades into "some athletes wait for tomorrow"
- * instead of "the last four athletes look broken".
+ * Bounded, because a plan being written continuously would otherwise keep one
+ * run going indefinitely. Two extra passes is enough for the case this exists
+ * for — a burst of writes while the first pass is in the air — and anything
+ * still outstanding after that is caught by the next sync or the nightly one.
  */
-export const MAX_CALLS_PER_RUN = 30;
-
-/** How many athletes the nightly sweep will look at, budget permitting. */
-export const MAX_USERS_PER_SWEEP = 5;
-
-/** Tracks the call budget, so every path spends from the same purse. */
-export type Budget = { remaining: number };
-
-export const newBudget = (limit = MAX_CALLS_PER_RUN): Budget => ({ remaining: limit });
-
-export type SyncAction =
-  | 'created'
-  | 'updated'
-  | 'rescheduled'
-  | 'unchanged'
-  | 'removed'
-  | 'untracked'
-  | 'skipped'
-  | 'failed';
-
-export type SyncEntry = {
-  date: string;
-  id: string;
-  name?: string;
-  action: SyncAction;
-  garmin_workout_id?: string;
-  garmin_schedule_id?: string;
-  /** What the Training API could not carry. See `payload.ts`. */
-  notes?: string[];
-  error?: string;
-  /** On a dry run, exactly what would have been sent. */
-  payload?: GarminWorkout;
-};
-
-/** A session Garmin says the athlete did, and the activity that says so. */
-export type CompletedEntry = {
-  date: string;
-  id: string;
-  name?: string;
-  /** ISO instant, taken from when the activity started. */
-  completed_at: string;
-  activity: string;
-};
-
-export type SyncReport = {
-  dry_run: boolean;
-  /** Set when the call budget ran out; run again to finish. */
-  truncated: boolean;
-  counts: Record<SyncAction, number>;
-  workouts: SyncEntry[];
-  /**
-   * Sessions ticked off from what the athlete recorded on Garmin. Empty on a
-   * dry run, which makes no calls and so cannot ask.
-   */
-  completed: CompletedEntry[];
-  /** Why the completion pull did not run, or did not run in full. */
-  completed_note?: string;
-  /** A failure that stopped the run rather than one workout. */
-  error?: string;
-};
-
-const emptyCounts = (): Record<SyncAction, number> => ({
-  created: 0,
-  updated: 0,
-  rescheduled: 0,
-  unchanged: 0,
-  removed: 0,
-  untracked: 0,
-  skipped: 0,
-  failed: 0,
-});
+export const MAX_SYNC_PASSES = 3;
 
 /**
  * A failure that makes the rest of the run pointless.
@@ -150,19 +82,6 @@ const isFatal = (error: unknown): boolean =>
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : 'an unexpected error while syncing';
-
-/**
- * Another sync for this athlete is already in flight.
- *
- * Reported rather than queued: the run already going will push whatever this
- * one would have, so the useful answer is "it is happening" and not a second
- * pass over the same diff.
- */
-export class GarminBusyError extends Error {
-  constructor() {
-    super('a Garmin sync is already running for this account — give it a moment and check again');
-  }
-}
 
 // ---------------------------------------------------------------------------
 // One workout
@@ -339,18 +258,6 @@ async function apply(
 // The run
 // ---------------------------------------------------------------------------
 
-export type SyncOptions = {
-  /** Build and diff everything, call nothing, and show what would be sent. */
-  dryRun?: boolean;
-  /** Push every workout again even where the fingerprint says nothing changed. */
-  force?: boolean;
-  /**
-   * A call budget to spend from, for a caller syncing several athletes in one
-   * Worker invocation. One athlete on their own gets a fresh one.
-   */
-  budget?: Budget;
-};
-
 /**
  * Reconcile the athlete's whole retention window with their Garmin calendar.
  *
@@ -365,17 +272,33 @@ export async function syncAll(env: Env, userId: string, options: SyncOptions = {
 
   const stored = await store.getConnection(env, userId);
   if (!stored) {
-    throw new GarminAuthError('no Garmin account is connected — connect one from the dashboard first');
+    throw new NotConnectedError('no Garmin account is connected — connect one from the dashboard first');
   }
 
   // A dry run changes nothing on either side, so it neither takes the lock
   // nor waits for one: looking at what a sync would do is exactly the thing
   // to be able to do while one is running.
-  if (dryRun) return run(env, stored, options, true);
+  if (dryRun) return run(env, stored, options, true, emptyReport(true));
 
-  if (!(await store.claimSync(env, userId))) throw new GarminBusyError();
+  if (!(await store.claimSync(env, userId))) throw new SyncBusyError('Garmin');
   try {
-    return await run(env, stored, options, false);
+    const report = emptyReport(false);
+
+    // Writes that land while a run is in flight mark the connection, and this
+    // is where that mark is honoured: a plan written a workout at a time — an
+    // assistant filling in a training week — would otherwise have its first
+    // write trigger a sync that pushes what existed at the time and its later
+    // writes refused by the lock, leaving the tail of the plan for the nightly
+    // sweep. Going round again is what makes the push after a write reliable
+    // rather than merely likely.
+    for (let pass = 0; pass < MAX_SYNC_PASSES; pass++) {
+      const startedAt = new Date().toISOString();
+      await run(env, stored, options, false, report);
+      // Nothing more will fit, so another pass would only re-read the plan.
+      if (report.truncated || report.error) break;
+      if (!(await store.takeResyncRequest(env, userId, startedAt))) break;
+    }
+    return report;
   } finally {
     // Released even when the run threw, so one failure does not lock the
     // athlete out until the lock goes stale.
@@ -383,17 +306,38 @@ export async function syncAll(env: Env, userId: string, options: SyncOptions = {
   }
 }
 
-/** The run itself, once the lock question is settled. */
-async function run(env: Env, stored: Connection, options: SyncOptions, dryRun: boolean): Promise<SyncReport> {
+/**
+ * The run itself, once the lock question is settled.
+ *
+ * Appends to the report it is given rather than making one, so a second pass
+ * over a plan that grew mid-run reads as one result: `record` is keyed by
+ * workout, so a workout skipped in the first pass and created in the second
+ * appears once, as created.
+ */
+async function run(
+  env: Env,
+  stored: Connection,
+  options: SyncOptions,
+  dryRun: boolean,
+  report: SyncReport,
+): Promise<SyncReport> {
   const userId = stored.userId;
   const force = options.force === true;
 
   let connection: Connection = dryRun ? stored : await store.withFreshToken(env, stored);
 
-  const report: SyncReport = { dry_run: dryRun, truncated: false, counts: emptyCounts(), workouts: [], completed: [] };
+  // One row per workout, last write winning, so a second pass corrects the
+  // first rather than appending to it. The counts are derived from that at the
+  // end, which is what keeps "48 unchanged" from appearing over 24 workouts.
+  const entries = new Map<string, SyncEntry>();
+  for (const entry of report.workouts) entries.set(`${entry.date}/${entry.id}`, entry);
   const record = (entry: SyncEntry): void => {
-    report.counts[entry.action]++;
-    report.workouts.push(entry);
+    entries.set(`${entry.date}/${entry.id}`, entry);
+  };
+  const publish = (): void => {
+    report.workouts = [...entries.values()];
+    report.counts = emptyCounts();
+    for (const entry of report.workouts) report.counts[entry.action]++;
   };
 
   const workouts = await db.listWorkouts(env, userId);
@@ -440,7 +384,7 @@ async function run(env: Env, stored: Connection, options: SyncOptions, dryRun: b
     const notes = built.notes.length > 0 ? { notes: built.notes } : {};
 
     if (plan.do === 'nothing') {
-      record({ ...base, action: 'unchanged', garmin_workout_id: link?.garminWorkoutId, ...notes });
+      record({ ...base, action: 'unchanged', remote_workout_id: link?.garminWorkoutId, ...notes });
       continue;
     }
 
@@ -449,7 +393,7 @@ async function run(env: Env, stored: Connection, options: SyncOptions, dryRun: b
         ...base,
         // A dry run says what the plan is by naming the action it would take.
         action: plan.do === 'create' ? 'created' : plan.do === 'update' ? 'updated' : 'rescheduled',
-        garmin_workout_id: link?.garminWorkoutId,
+        remote_workout_id: link?.garminWorkoutId,
         payload: built.workout,
         ...notes,
       });
@@ -473,8 +417,8 @@ async function run(env: Env, stored: Connection, options: SyncOptions, dryRun: b
       record({
         ...base,
         action,
-        garmin_workout_id: updated.garminWorkoutId,
-        ...(updated.garminScheduleId ? { garmin_schedule_id: updated.garminScheduleId } : {}),
+        remote_workout_id: updated.garminWorkoutId,
+        ...(updated.garminScheduleId ? { remote_schedule_id: updated.garminScheduleId } : {}),
         ...notes,
       });
     } catch (error) {
@@ -496,7 +440,7 @@ async function run(env: Env, stored: Connection, options: SyncOptions, dryRun: b
       // Training the athlete has already done. It stays on their calendar;
       // we just stop claiming to know about it.
       if (!dryRun) await store.deleteLink(env, userId, link.workoutId);
-      record({ ...base, action: 'untracked', garmin_workout_id: link.garminWorkoutId });
+      record({ ...base, action: 'untracked', remote_workout_id: link.garminWorkoutId });
       continue;
     }
 
@@ -505,7 +449,7 @@ async function run(env: Env, stored: Connection, options: SyncOptions, dryRun: b
       continue;
     }
     if (dryRun) {
-      record({ ...base, action: 'removed', garmin_workout_id: link.garminWorkoutId });
+      record({ ...base, action: 'removed', remote_workout_id: link.garminWorkoutId });
       continue;
     }
     // Clearing the entry, then deleting the workout — one call if there was
@@ -529,13 +473,15 @@ async function run(env: Env, stored: Connection, options: SyncOptions, dryRun: b
         await deleteWorkout(token, link.garminWorkoutId);
       });
       await store.deleteLink(env, userId, link.workoutId);
-      record({ ...base, action: 'removed', garmin_workout_id: link.garminWorkoutId });
+      record({ ...base, action: 'removed', remote_workout_id: link.garminWorkoutId });
     } catch (error) {
       const message = errorMessage(error);
       record({ ...base, action: 'failed', error: message });
       if (isFatal(error)) fatal = message;
     }
   }
+
+  publish();
 
   // Last, and only with the plan already pushed: a run short of budget should
   // spend what it has getting sessions onto the watch before it spends any
@@ -634,55 +580,6 @@ async function pullCompletions(
       activity: activityLabel(activity),
     });
   }
-}
-
-/**
- * The nightly sweep: push for every athlete who asked for it.
- *
- * Bounded, and ordered by how long it has been since each was last synced, so
- * a deployment with more connected athletes than one run can serve works
- * through them over successive nights instead of always starting at the same
- * end of the list.
- */
-export async function syncEveryone(
-  env: Env,
-): Promise<{ users: number; pushed: number; completed: number; failed: number; budgetSpent: boolean }> {
-  if (!isConfigured(env)) return { users: 0, pushed: 0, completed: 0, failed: 0, budgetSpent: false };
-
-  const userIds = await store.autoSyncUserIds(env, MAX_USERS_PER_SWEEP);
-  // One budget for the whole invocation, because the subrequest limit is per
-  // invocation. See `MAX_CALLS_PER_RUN`.
-  const budget = newBudget();
-  let users = 0;
-  let pushed = 0;
-  let completed = 0;
-  let failed = 0;
-
-  for (const userId of userIds) {
-    // Enough to create and schedule one workout, which is the least a turn
-    // for an athlete is worth taking. Below it the remaining athletes are
-    // left untouched rather than half-served; they sort first tomorrow,
-    // since `autoSyncUserIds` orders by how long it has been.
-    if (budget.remaining < 2) break;
-    users++;
-
-    try {
-      const report = await syncAll(env, userId, { budget });
-      pushed += report.counts.created + report.counts.updated + report.counts.rescheduled + report.counts.removed;
-      completed += report.completed.length;
-      failed += report.counts.failed;
-    } catch (error) {
-      // One athlete's expired connection must not stop the sweep for the
-      // rest, and it is already recorded against their own row. A busy
-      // athlete is not a failure at all — someone is already syncing them.
-      if (error instanceof GarminBusyError) continue;
-      console.error(`nightly garmin sync failed for ${userId}`, error);
-      failed++;
-      await store.recordSync(env, userId, errorMessage(error)).catch(() => undefined);
-    }
-  }
-
-  return { users, pushed, completed, failed, budgetSpent: budget.remaining < 2 };
 }
 
 /** What the dashboard and the MCP tools are told, with no token material in it. */

@@ -16,7 +16,7 @@ request, or nightly on its own.
 
 ```
 Connect once   dashboard → Garmin's consent screen → back, with tokens stored
-Then           "Sync now", the sync_garmin tool, or the nightly cron
+Then           every write syncs itself — plus "Sync now", sync_workouts, or cron
 ```
 
 ## Setting it up
@@ -32,7 +32,7 @@ secrets below are set.
 npx wrangler secret put GARMIN_CLIENT_ID
 npx wrangler secret put GARMIN_CLIENT_SECRET
 npx wrangler secret put GARMIN_ENCRYPTION_KEY   # optional, see below
-npm run db:remote                               # migrations 0005 and 0006
+npm run db:remote                               # migrations 0005 to 0007
 ```
 
 Register `https://<your-worker>/garmin/callback` as the app's redirect URI, exactly.
@@ -218,7 +218,9 @@ idempotent, and what makes it cheap — a window of nothing but future sessions
 needs no activity query at all, because a session planned for Thursday cannot
 have been done on Monday.
 
-The pull is the optional half, and is ordered and budgeted as such. It runs
+A write triggers a sync on its own, so this runs whenever the plan changes as
+well as nightly and on request. The pull is the optional half, and is ordered
+and budgeted as such. It runs
 after the push, so a run short of calls spends them getting sessions onto the
 watch before it spends any reading history; and a refused or unreachable
 activity query leaves a note on the report rather than failing the sync, whose
@@ -255,7 +257,7 @@ field name is a one-line change if your portal docs differ:
   activity-type patterns a short list at the top of `src/garmin/activities.ts` — sports,
   sub-sports, intensities, zone target types, the open-range fills;
 - `buildWorkout` is pure, with no clock, network or connection in it, so
-  `sync_garmin` with `dry_run` and `include_payloads` hands back the exact JSON
+  `sync_workouts` with `dry_run` and `include_payloads` hands back the exact JSON
   it would have posted, without posting it;
 - `GarminApiError` carries Garmin's own status and response body, and the sync
   report repeats it verbatim per workout — so a refused payload tells you which
@@ -273,22 +275,16 @@ values in metres per second.
 | `GET /garmin/connect` | Start the flow; redirects to Garmin |
 | `GET /garmin/callback` | Finish it; back to the dashboard |
 | `GET /api/garmin/status` | Connected? last synced? how many tracked? |
-| `POST /api/garmin/sync` | `{dry_run?, force?}` — push, and report what changed |
 | `PUT /api/garmin/settings` | `{auto_sync}` — nightly sync on or off |
 | `POST /api/garmin/disconnect` | Unlink, and tell Garmin |
 
 | `GET /activity-api/rest/activities` | Read back what the athlete recorded (3 slices) |
 
-One MCP tool: `sync_garmin`, taking `dry_run`, `force` and `include_payloads`.
+Syncing itself is not here: it is provider-neutral, at `POST /api/sync` and the
+`sync_workouts` tool, so one action covers every platform the athlete has
+linked. These routes are about the *connection*, which is the part that cannot
+be generalised — see *Adding a platform* in the README.
 
-Only syncing, because only syncing recurs. Linking an account, turning the
-nightly sweep on or off and unlinking are all things an athlete does once, in
-the dashboard, and a tool for each would be four tools an assistant has to read
-past on every call to earn its keep on the day one of them is wanted. A dry run
-doubles as the status check: it reports what is linked and what would change
-without sending anything.
-
-`sync_garmin` is also the one tool in this app that returns a URL, and
-deliberately. Linking needs Garmin's consent screen in a browser, so when
-nothing is linked the refusal says where to go — a page the athlete is meant to
-open, not bytes behind a credential.
+There is no Garmin-named sync tool, and no Garmin-specific sync endpoint, on
+purpose. A write already syncs on its own, and when it does not the athlete
+wants "put my plan where my watch will see it" rather than "talk to Garmin".

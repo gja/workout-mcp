@@ -1,0 +1,11 @@
+-- A note that the plan changed while a sync was in flight.
+--
+-- Every write schedules a push, and a push that finds another run holding the
+-- lock does nothing — which on its own would lose the tail of a plan written a
+-- workout at a time: the first write's sync pushes what exists at the time,
+-- and the writes that follow are all refused.
+--
+-- So a write marks the connection before it tries, and the run holding the
+-- lock checks the mark before releasing. Nothing is lost, and no run waits on
+-- another. Null means there is nothing outstanding, which is the steady state.
+ALTER TABLE garmin_connections ADD COLUMN resync_requested_at TEXT;

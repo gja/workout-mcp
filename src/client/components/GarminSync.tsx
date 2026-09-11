@@ -3,10 +3,10 @@ import {
   disconnectGarmin,
   getGarminStatus,
   setGarminAutoSync,
-  syncGarmin,
+  syncWorkouts,
   type GarminStatus,
-  type GarminSyncAction,
-  type GarminSyncReport,
+  type SyncAction,
+  type SyncReport,
 } from '../api';
 
 /**
@@ -16,7 +16,7 @@ import {
  * and "48 unchanged" is not news. It shows up in the per-workout list below
  * for anyone who wants to check.
  */
-const ACTION_LABELS: Partial<Record<GarminSyncAction, string>> = {
+const ACTION_LABELS: Partial<Record<SyncAction, string>> = {
   created: 'added to the calendar',
   updated: 'updated',
   rescheduled: 'moved',
@@ -30,18 +30,18 @@ const shortDate = (value: string | null | undefined): string =>
   value ? new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : 'never';
 
 /** "3 added to the calendar · 1 moved". Empty when a run changed nothing. */
-function summarize(report: GarminSyncReport): string {
+function summarize(report: SyncReport): string {
   const parts = Object.entries(ACTION_LABELS)
-    .filter(([action]) => report.counts[action as GarminSyncAction] > 0)
-    .map(([action, label]) => `${report.counts[action as GarminSyncAction]} ${label}`);
+    .filter(([action]) => report.counts[action as SyncAction] > 0)
+    .map(([action, label]) => `${report.counts[action as SyncAction]} ${label}`);
   return parts.join(' · ');
 }
 
 /** Only the workouts a reader needs to see: what changed, and what went wrong. */
-const notable = (report: GarminSyncReport) =>
+const notable = (report: SyncReport) =>
   report.workouts.filter((entry) => entry.action !== 'unchanged' || (entry.notes?.length ?? 0) > 0);
 
-function Report({ report, onCompleted }: { report: GarminSyncReport; onCompleted: () => void }) {
+function Report({ report, onCompleted }: { report: SyncReport; onCompleted: () => void }) {
   const changed = summarize(report);
   const rows = notable(report);
 
@@ -121,7 +121,7 @@ type Mode = 'sync' | 'preview' | 'resend';
 export function GarminSync({ onWorkoutsChanged }: { onWorkoutsChanged: () => void }) {
   const [status, setStatus] = useState<GarminStatus | null>(null);
   const [unreachable, setUnreachable] = useState<string | null>(null);
-  const [report, setReport] = useState<GarminSyncReport | null>(null);
+  const [report, setReport] = useState<SyncReport | null>(null);
   const [busy, setBusy] = useState<Mode | null>(null);
   const [error, setError] = useState<string | null>(() =>
     new URLSearchParams(location.search).get('garmin_error'),
@@ -147,7 +147,12 @@ export function GarminSync({ onWorkoutsChanged }: { onWorkoutsChanged: () => voi
     setBusy(mode);
     setError(null);
     try {
-      setReport(await syncGarmin({ dry_run: mode === 'preview', force: mode === 'resend' }));
+      const outcome = await syncWorkouts({ dry_run: mode === 'preview', force: mode === 'resend' });
+      // This card is Garmin's, so it shows Garmin's half of a sync that
+      // covers every linked platform. A second platform gets its own card.
+      const garmin = outcome.providers.find((entry) => entry.provider === 'garmin');
+      setReport(garmin?.connected ? garmin.report : null);
+      if (garmin && !garmin.connected) setError(garmin.note);
       reload();
     } catch (failure) {
       setError((failure as Error).message);

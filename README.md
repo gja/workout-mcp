@@ -8,9 +8,10 @@ Worker, a D1 database, and a static dashboard.
 - **MCP** at `POST /mcp` — an assistant can write your training week.
 - **REST** at `/api/*` — for a Garmin Connect IQ app, Watchletic, or curl.
 - **FIT** at `/export/2026-09-12-a1b2c3d4.fit` — drop it on a watch.
-- **Garmin Connect sync** — link a Garmin account and the plan lands on the
-  athlete's calendar, where the watch picks it up on its own; what the athlete
-  actually did comes back the other way.
+- **Watch platform sync** — link a Garmin account and every workout you write
+  lands on the athlete's calendar by itself, where the watch picks it up; what
+  they actually did comes back the other way. Coros and friends slot in behind
+  the same seam.
 - **Dashboard** at `/` — see the plan, tick sessions off, download files, sync.
 - **Sign-in** with Google or Apple. No passwords, and no email to send.
 - **OAuth 2.1** via `@cloudflare/workers-oauth-provider`, so an MCP client can
@@ -189,7 +190,7 @@ arrive at the MCP handler identically:
 
 Tools: `list_workouts`, `get_workout`, `create_workout`, `update_workout`,
 `delete_workout`, `complete_workout`, `export_workout_fit`, and — once Garmin
-is configured — `sync_garmin`. Each one is also reachable over REST at
+platform is configured — `sync_workouts`. Each one is also reachable over REST at
 `POST /api/tools/<name>` with the same arguments, so a non-MCP client gets the
 identical behaviour.
 
@@ -199,27 +200,33 @@ to save it under — `2026-09-12-8x400m.fit`. An assistant handed a download lin
 tends to pass the link on instead of calling the tool, and the link is no use
 to whoever receives it: the bytes sit behind the caller's own credential. The
 dashboard's own routes below still return links, because a browser can follow
-them. `sync_garmin` is the one exception, and for the opposite reason: when no
-Garmin account is linked it says where to link one, and that is a consent page
-the athlete is meant to open themselves.
+them. `sync_workouts` is the one exception, and for the opposite reason: when a
+platform is configured but unlinked it says where to link it, and that is a
+consent page the athlete is meant to open themselves.
 
 Every tool is annotated with whether it only reads. `list_workouts`,
 `get_workout` and `export_workout_fit` carry `readOnlyHint`, which is what
 lets a client group them apart from the writes and allow them without asking
 each time; `update_workout` and `delete_workout` carry `destructiveHint`.
-`complete_workout` and `sync_garmin` are writes but not destructive ones —
+`complete_workout` and `sync_workouts` are writes but not destructive ones —
 neither can lose the plan it acts on. The hints only shape how a client
 presents a tool — the server checks everything regardless.
 
-## Syncing to Garmin Connect
+## Syncing to a watch platform
 
 A FIT file you drop on a watch is one way to get a session onto it. The other
-is the athlete's own Garmin Connect calendar: put a workout on a date there and
-the watch picks it up on its next sync, with no cable and no file.
+is the athlete's own platform calendar: put a workout on a date there and the
+watch picks it up on its next sync, with no cable and no file. **Garmin
+Connect** is the first platform supported; Coros and the rest work the same
+way, which is why the seam is provider-neutral — see *Adding a platform*
+below.
 
-Link a Garmin account once from the dashboard and every planned workout in the
-retention window is pushed to the calendar — on request, or nightly on its own.
-Syncing is a diff, so the same plan synced twice costs nothing the second time.
+Link an account once from the dashboard and **every write syncs on its own**:
+create a workout and it is on the calendar, without anyone pressing Sync. The
+push runs after the response, so a platform being down can never fail, slow or
+error a write that has already been saved — and the nightly sweep plus an
+explicit sync are there as backstops. Syncing is a diff, so the same plan
+synced twice costs nothing the second time.
 
 It goes both ways. The plan travels out; what the athlete actually recorded
 comes back, ticking off the sessions it accounts for, so a run you have run is
@@ -230,7 +237,7 @@ Garmin has heard of it.
 ```bash
 npx wrangler secret put GARMIN_CLIENT_ID
 npx wrangler secret put GARMIN_CLIENT_SECRET
-npm run db:remote                            # migrations 0005 and 0006
+npm run db:remote                            # migrations 0005 to 0007
 ```
 
 The integration stays hidden until those are set. It needs a
@@ -238,6 +245,31 @@ The integration stays hidden until those are set. It needs a
 app with the **Training API** enabled, which Garmin approves by hand rather
 than by self-service signup — it is the one part of this repo you cannot stand
 up on your own in an afternoon. Nothing else depends on it.
+
+### Adding a platform
+
+`src/sync.ts` owns the vocabulary of a sync — what a report is, what the call
+budget is, what "created" and "unchanged" mean — and the registry of
+providers. Everything platform-specific lives under its own directory behind
+one object:
+
+```ts
+export const garminProvider: WorkoutProvider = {
+  name: 'garmin',
+  label: 'Garmin Connect',
+  isConfigured, isConnected, sync, scheduledUserIds, connectPath,
+};
+```
+
+So a second platform is a sibling of `src/garmin/provider.ts` plus a line in
+the registry. No write path, tool or route changes: `syncWorkouts()` after a
+write, `POST /api/sync`, the `sync_workouts` tool and the nightly sweep all fan
+out over whatever is registered and report per provider.
+
+What is deliberately *not* generalised is connecting an account. Every
+platform's consent flow, token shape and settings differ, and pretending
+otherwise buys nothing — so `/api/garmin/*` stays Garmin's own, as a future
+`/api/coros/*` would be.
 
 **[docs/garmin.md](docs/garmin.md)** has the rest: the OAuth2 PKCE flow and how
 the tokens are stored, what a sync decides case by case, how a recorded
@@ -476,8 +508,8 @@ session cookie set at login.
 | `GET /export/:date-:id.fit` | The FIT file |
 | `GET /garmin/connect` | Start linking a Garmin account |
 | `GET /garmin/callback` | Finish it |
+| `POST /api/sync` | `{dry_run?, force?}` — sync to every linked platform |
 | `GET /api/garmin/status` | The Garmin connection and its last sync |
-| `POST /api/garmin/sync` | `{dry_run?, force?}` — push to the Garmin calendar |
 | `PUT /api/garmin/settings` | `{auto_sync}` — nightly sync on or off |
 | `POST /api/garmin/disconnect` | Unlink the Garmin account |
 | `POST /api/tools/:name` | Any MCP tool, over REST |
@@ -498,9 +530,11 @@ the way out, for `/mcp` and the OAuth metadata, token and registration
 endpoints alike. The headers this app used to send were overwritten a moment
 later, so they bought the appearance of a policy and nothing else.
 
-A Garmin call with no account linked, or one whose connection has lapsed, is a
-**409** rather than a 400 or a 500: it is the athlete's to fix by connecting
-again, and nothing about the request was wrong.
+A sync that collides with one already running, or a connection that has lapsed,
+is a **409** rather than a 400 or a 500: it is a state of the world rather than
+a bad request. A platform that is merely *unlinked* is not an error at all —
+`POST /api/sync` reports it per provider, with the URL to link it, because one
+platform being unlinked should not fail a sync that covers the others.
 
 ## How it is built
 
@@ -518,7 +552,9 @@ src/tools.ts      the tool surface shared by MCP and REST
 src/mcp.ts        JSON-RPC over Streamable HTTP
 src/app.ts        the OAuth provider's defaultHandler: login, consent, REST, assets
 src/index.ts      the provider itself, and the protected /mcp handler
+src/sync.ts       what a sync is, and which platforms to sync to
 
+src/garmin/provider.ts Garmin as the rest of the app sees it: one WorkoutProvider
 src/garmin/oauth.ts    Garmin's OAuth2 PKCE flow: consent, code exchange, refresh
 src/garmin/crypto.ts   sealing the stored tokens, and payload fingerprints
 src/garmin/store.ts    D1 for connections, in-flight flows and workout links
@@ -593,7 +629,7 @@ asserted as one calendar entry on the new date rather than as two API calls in
 some order.
 
 ```bash
-npm test        # 287 tests
+npm test        # 294 tests
 npm run typecheck
 ```
 

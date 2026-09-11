@@ -24,7 +24,7 @@
  * is a partner API whose enum spellings are documented behind a login, and a
  * single wrong name fails the whole request. Keeping them as flat data means
  * correcting one is a one-line change here rather than a hunt through the
- * encoder — and `buildWorkout` is pure, so `sync_garmin` can hand back
+ * encoder — and `buildWorkout` is pure, so `sync_workouts` can hand back
  * exactly what it would have sent without sending it.
  */
 

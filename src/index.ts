@@ -21,7 +21,7 @@ import * as db from './db';
 import * as identity from './identity';
 import type { Env, User } from './db';
 import * as garminStore from './garmin/store';
-import { syncEveryone } from './garmin/sync';
+import { syncEveryone } from './sync';
 import { handleMcp } from './mcp';
 import { ToolError } from './tools';
 import { WorkoutError } from './workout';
@@ -40,7 +40,10 @@ const mcpHandler = {
     // No CORS headers here: the provider wraps every response it routes to
     // this handler and sets its own, echoing the request's origin. Anything
     // we set was overwritten a moment later.
-    return handleMcp(request, env, user);
+    //
+    // `ctx` goes through so a tool that writes can follow itself with a push
+    // to Garmin after this response has been sent.
+    return handleMcp(request, env, user, ctx);
   },
 } satisfies ExportedHandler<Env>;
 

@@ -17,7 +17,9 @@ import { encodeWorkoutFit, fitFilename } from './fit';
 import { error, json } from './http';
 import { handleGarminApi, handleGarminBrowser } from './garmin/routes';
 import { GarminAuthError } from './garmin/oauth';
-import { GarminBusyError } from './garmin/sync';
+import { NotConnectedError } from './sync';
+import { SyncBusyError, syncNow, syncWorkouts } from './sync';
+import type { Background } from './sync';
 import { callTool, isCallerError, present, presentBrief } from './tools';
 import { parseWorkout } from './workout';
 import { parseDate, parseTimestamp } from './units';
@@ -253,9 +255,38 @@ async function handleConnections(request: Request, url: URL, env: Env, user: Use
 // Workouts
 // ---------------------------------------------------------------------------
 
-async function handleApi(request: Request, url: URL, env: Env, user: User, baseUrl: string): Promise<Response> {
+/**
+ * `POST /api/sync` — sync to every platform the athlete has linked.
+ *
+ * Provider-neutral on purpose: the dashboard and the MCP tool both want "put
+ * my plan where my watch will see it", not "talk to Garmin". Connecting an
+ * account stays under the provider's own routes, because every consent flow
+ * differs and pretending otherwise buys nothing.
+ */
+async function handleSync(request: Request, url: URL, env: Env, user: User): Promise<Response> {
+  if (request.method !== 'POST') return error('method not allowed', 405);
+  const body = (await request.json().catch(() => ({}))) as { dry_run?: unknown; force?: unknown };
+  return json(
+    await syncNow(env, user.id, { dryRun: body.dry_run === true, force: body.force === true }, url.origin),
+  );
+}
+
+async function handleApi(
+  request: Request,
+  url: URL,
+  env: Env,
+  user: User,
+  baseUrl: string,
+  background?: Background,
+): Promise<Response> {
   const path = url.pathname;
   const method = request.method;
+
+  /** Follow a write with a push to Garmin, after the response has gone. */
+  const pushed = (response: Response): Response => {
+    syncWorkouts(env, user.id, background);
+    return response;
+  };
 
   // The window comes from the server because it is computed in UTC: a client
   // deriving it from its own local midnight would disagree at the edges and
@@ -276,7 +307,7 @@ async function handleApi(request: Request, url: URL, env: Env, user: User, baseU
     }
     if (method === 'POST') {
       const workout = await db.putWorkout(env, user.id, parseWorkout(await request.json()));
-      return json(presentBrief(workout, baseUrl), 201);
+      return pushed(json(presentBrief(workout, baseUrl), 201));
     }
     return error('method not allowed', 405);
   }
@@ -324,11 +355,13 @@ async function handleApi(request: Request, url: URL, env: Env, user: User, baseU
       // workout the caller was trying to move.
       db.assertRetainable(input.date);
       if (input.date !== date) await db.deleteWorkout(env, user.id, date, id);
-      return json(presentBrief(await db.putWorkout(env, user.id, input, id), baseUrl));
+      return pushed(json(presentBrief(await db.putWorkout(env, user.id, input, id), baseUrl)));
     }
     if (method === 'DELETE') {
       const deleted = await db.deleteWorkout(env, user.id, date, id);
-      return deleted ? json({ deleted: true, date, id }) : error(`no workout ${id} on ${date}`, 404);
+      if (!deleted) return error(`no workout ${id} on ${date}`, 404);
+      // A deleted workout has to come off the calendar too.
+      return pushed(json({ deleted: true, date, id }));
     }
     return error('method not allowed', 405);
   }
@@ -337,7 +370,7 @@ async function handleApi(request: Request, url: URL, env: Env, user: User, baseU
   const tool = path.match(/^\/api\/tools\/([a-z_]+)$/);
   if (tool) {
     if (method !== 'POST') return error('method not allowed', 405);
-    return json(await callTool(tool[1], await request.json(), env, user, baseUrl));
+    return json(await callTool(tool[1], await request.json(), env, user, baseUrl, background));
   }
 
   return error('not found', 404);
@@ -366,7 +399,7 @@ async function handleExport(url: URL, env: Env, user: User): Promise<Response> {
 // ---------------------------------------------------------------------------
 
 /** Every authenticated handler takes the same four arguments. */
-type Handler = (request: Request, url: URL, env: Env, user: User) => Promise<Response>;
+type Handler = (request: Request, url: URL, env: Env, user: User, background?: Background) => Promise<Response>;
 
 /**
  * The routes that need a signed-in athlete, and who serves each.
@@ -386,6 +419,7 @@ const AUTHENTICATED: ReadonlyArray<{ path: string; exact?: boolean; handle: Hand
   { path: '/oauth/authorize', exact: true, handle: (request, _url, env, user) => grantConsent(request, env, user) },
   { path: '/api/tokens', handle: handleTokens },
   { path: '/api/connections', handle: handleConnections },
+  { path: '/api/sync', exact: true, handle: (request, url, env, user) => handleSync(request, url, env, user) },
   { path: '/api/garmin', handle: handleGarminApi },
   // Connecting Garmin happens while already signed in, so both halves of that
   // flow — the hop out and the callback — know which account to attach to.
@@ -393,7 +427,10 @@ const AUTHENTICATED: ReadonlyArray<{ path: string; exact?: boolean; handle: Hand
   // cookie does come back with it.
   { path: '/garmin/', handle: handleGarminBrowser },
   { path: '/export/', handle: (_request, url, env, user) => handleExport(url, env, user) },
-  { path: '/api/', handle: (request, url, env, user) => handleApi(request, url, env, user, url.origin) },
+  {
+    path: '/api/',
+    handle: (request, url, env, user, background) => handleApi(request, url, env, user, url.origin, background),
+  },
 ];
 
 const routeFor = (path: string): Handler | null =>
@@ -422,7 +459,7 @@ function unauthenticated(url: URL, token: string | null): Response {
 }
 
 export const app = {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === '/api/health') return json({ ok: true, name: appName(env) });
@@ -447,13 +484,16 @@ export const app = {
       const user = token ? await auth.findTokenOwner(env, token) : await auth.readSession(env, request);
       if (!user) return unauthenticated(url, token);
 
-      return await handle(request, url, env, user);
+      // `ctx` lets a write schedule its Garmin push for after the response.
+      return await handle(request, url, env, user, ctx);
     } catch (err) {
       // Checked before the generic caller error below, which these are also
       // one of: an account not linked, a connection lapsed, or a sync already
       // in flight are all states of the world rather than bad requests, and
       // 409 says so where 400 would not.
-      if (err instanceof GarminAuthError || err instanceof GarminBusyError) return error(err.message, 409);
+      if (err instanceof GarminAuthError || err instanceof SyncBusyError || err instanceof NotConnectedError) {
+        return error(err.message, 409);
+      }
       if (isCallerError(err)) return error(err.message, 400);
       if (err instanceof SyntaxError) return error('invalid JSON body', 400);
       console.error('unhandled error', err);

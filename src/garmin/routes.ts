@@ -6,15 +6,18 @@
  *   - `/garmin/connect` and `/garmin/callback` are browser routes. The athlete
  *     is walked out to Garmin and back, so a failure has to land them on the
  *     dashboard with something to read, never on a JSON error document.
- *   - `/api/garmin/*` is the ordinary API, reached by the dashboard's fetches,
- *     by an MCP client's bearer token, and by the tools in `src/tools.ts`.
+ *   - `/api/garmin/*` is the ordinary API, reached by the dashboard's fetches
+ *     and by an MCP client's bearer token. It is deliberately about the
+ *     *connection* — status, settings, disconnect — and not about syncing:
+ *     syncing is provider-neutral and lives at `/api/sync`, so one action
+ *     covers every platform the athlete has linked.
  */
 
 import type { Env, User } from '../db';
 import { error, json } from '../http';
 import { GarminAuthError, authorizationUrl, deregister, exchangeCode, fetchGarminUserId, isConfigured, randomVerifier } from './oauth';
 import * as store from './store';
-import { status, syncAll } from './sync';
+import { status } from './sync';
 
 /** Same-origin paths only, so the connect flow cannot become an open redirect. */
 function safeReturnTo(value: string | null): string | null {
@@ -124,13 +127,6 @@ export async function handleGarminApi(request: Request, url: URL, env: Env, user
   if (path === '/api/garmin' || path === '/api/garmin/status') {
     if (request.method !== 'GET') return error('method not allowed', 405);
     return json(await status(env, user.id));
-  }
-
-  if (path === '/api/garmin/sync') {
-    if (request.method !== 'POST') return error('method not allowed', 405);
-    const body = (await request.json().catch(() => ({}))) as { dry_run?: unknown; force?: unknown };
-    const report = await syncAll(env, user.id, { dryRun: body.dry_run === true, force: body.force === true });
-    return json(report);
   }
 
   if (path === '/api/garmin/settings') {

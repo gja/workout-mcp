@@ -265,6 +265,38 @@ export async function releaseSync(env: Env, userId: string): Promise<void> {
   await env.DB.prepare('UPDATE garmin_connections SET sync_locked_at = NULL WHERE user_id = ?').bind(userId).run();
 }
 
+/**
+ * Note that the plan changed and wants pushing.
+ *
+ * Written before a push is attempted rather than after it fails, so the mark
+ * is already there when the push turns out to be refused by the lock. See
+ * `migrations/0007_garmin_resync.sql`.
+ */
+export async function requestResync(env: Env, userId: string, now: Date = new Date()): Promise<void> {
+  await env.DB.prepare('UPDATE garmin_connections SET resync_requested_at = ? WHERE user_id = ?')
+    .bind(iso(now), userId)
+    .run();
+}
+
+/**
+ * Claim an outstanding resync request newer than `since`, if there is one.
+ *
+ * Clears it in the same statement it tests, so two runs cannot both decide the
+ * request is theirs. A request that arrives after this returns stays for the
+ * next run, which is the conservative direction: an extra pass over an
+ * unchanged plan costs no Garmin calls, whereas a dropped request costs a
+ * workout its place on the calendar.
+ */
+export async function takeResyncRequest(env: Env, userId: string, since: string): Promise<boolean> {
+  const result = await env.DB.prepare(
+    `UPDATE garmin_connections SET resync_requested_at = NULL
+     WHERE user_id = ? AND resync_requested_at IS NOT NULL AND resync_requested_at > ?`,
+  )
+    .bind(userId, since)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
 export async function recordSync(env: Env, userId: string, error: string | null): Promise<void> {
   await env.DB.prepare(
     'UPDATE garmin_connections SET last_sync_at = ?1, last_sync_error = ?2, updated_at = ?1 WHERE user_id = ?3',

@@ -1,17 +1,19 @@
 import { SELF, env } from 'cloudflare:test';
-import { beforeEach, describe, expect, it } from 'vitest';
-import { getWorkout, putWorkout } from '../src/db';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { deleteWorkout, getWorkout, putWorkout, setCompleted } from '../src/db';
 import { buildWorkout } from '../src/garmin/payload';
 import type { GarminExecutableStep, GarminRepeatStep } from '../src/garmin/payload';
 import { fingerprint, keyId, seal, unseal } from '../src/garmin/crypto';
 import { challengeFor, randomVerifier } from '../src/garmin/oauth';
 import * as store from '../src/garmin/store';
-import { GarminBusyError, newBudget, planFor, syncAll, syncEveryone } from '../src/garmin/sync';
+import { MAX_SYNC_PASSES, planFor, syncAll } from '../src/garmin/sync';
+import { SyncBusyError, newBudget, syncEveryone } from '../src/sync';
 import { localDateOf, matchCompletions, sportOf, uploadWindows } from '../src/garmin/activities';
 import type { GarminActivity } from '../src/garmin/activities';
 import { shiftDate, today } from '../src/units';
 import { parseWorkout } from '../src/workout';
 import type { Workout } from '../src/workout';
+import { issueToken } from '../src/auth';
 import { resetDatabase, seedUser, sessionCookieFor } from './helpers';
 
 const BASE = 'https://workouts.example';
@@ -57,6 +59,17 @@ const activity = (over: Partial<GarminActivity> & { hoursAgo?: number } = {}): G
 
 /** Just the calls that would change the athlete's calendar. */
 const training = (state: StubState) => state.calls.filter((entry) => entry.what?.includes('training-api'));
+
+/**
+ * Wait for the push a write scheduled.
+ *
+ * A write returns before its Garmin push runs — that is the point of doing it
+ * in `waitUntil`, and it is what keeps a Garmin outage from failing a write —
+ * so a test that asserts the push happened has to wait for it rather than
+ * assume the response meant it was done.
+ */
+const eventually = (check: (state: StubState) => void): Promise<void> =>
+  vi.waitFor(async () => check(await stub.state()), { timeout: 5_000, interval: 25 });
 
 beforeEach(async () => {
   await resetDatabase();
@@ -518,12 +531,22 @@ describe('connecting an account', () => {
     expect(redirectParam(response, 'error')).toContain('please sign in');
   });
 
-  it('says a Garmin call needs a connection first', async () => {
-    const response = await call('/api/garmin/sync', { method: 'POST', body: '{}' });
-    expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ error: expect.stringContaining('no Garmin account') });
+  it('reports an unlinked platform rather than failing the sync', async () => {
+    // A sync covers every platform, so one of them being unlinked is a state
+    // to report per provider, not an error for the whole call.
+    const response = await call('/api/sync', { method: 'POST', body: '{}' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      providers: [{ provider: 'garmin', connected: false, connect_url: `${BASE}/garmin/connect` }],
+    });
   });
 });
+
+/** An API token for one athlete, so the MCP transport can act as them. */
+async function tokenFor(athlete: string): Promise<string> {
+  const { token: issued } = await issueToken(env, athlete, 'test');
+  return issued;
+}
 
 /** The id of the athlete the session cookie belongs to, as Google signed them in. */
 async function currentUserId(): Promise<string | null> {
@@ -537,22 +560,39 @@ describe('syncing to the calendar', () => {
   let cookie: string;
   let athlete: string;
 
+  /**
+   * Sync over the provider-neutral endpoint, and read Garmin's half of it.
+   *
+   * `/api/sync` covers every platform the athlete has linked, so its result is
+   * a list of outcomes; these tests are about what Garmin was told.
+   */
   const sync = async (body: Record<string, unknown> = {}) => {
-    const response = await SELF.fetch(`${BASE}/api/garmin/sync`, {
+    const response = await SELF.fetch(`${BASE}/api/sync`, {
       method: 'POST',
       headers: { Cookie: cookie, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     expect(response.status).toBe(200);
-    return (await response.json()) as Awaited<ReturnType<typeof syncAll>>;
+    const outcome = (await response.json()) as {
+      providers: Array<{ provider: string; connected: boolean; report?: Awaited<ReturnType<typeof syncAll>> }>;
+    };
+    const garmin = outcome.providers.find((entry) => entry.provider === 'garmin');
+    if (!garmin?.connected || !garmin.report) throw new Error(`garmin was not synced: ${JSON.stringify(garmin)}`);
+    return garmin.report;
   };
 
-  const write = (input: Record<string, unknown>) =>
-    SELF.fetch(`${BASE}/api/workouts`, {
-      method: 'POST',
-      headers: { Cookie: cookie, 'Content-Type': 'application/json' },
-      body: JSON.stringify(input),
-    }).then((r) => r.json() as Promise<{ date: string; id: string }>);
+  /**
+   * A workout in place, written straight to D1.
+   *
+   * Not through the API on purpose: a write there pushes to Garmin on its own
+   * now, which is the right behaviour and the wrong thing for these tests —
+   * they are about what a sync decides, so they need to be the ones deciding
+   * when one happens. `pushing after a write` below covers the other path.
+   */
+  const write = (input: Record<string, unknown> = INTERVALS) => putWorkout(env, athlete, parseWorkout(input));
+
+  /** Replace a workout in place, same reasoning. */
+  const rewrite = (id: string, input: Record<string, unknown>) => putWorkout(env, athlete, parseWorkout(input), id);
 
   beforeEach(async () => {
     cookie = await connectGarmin();
@@ -596,11 +636,7 @@ describe('syncing to the calendar', () => {
     await sync();
     const before = await stub.state();
 
-    await SELF.fetch(`${BASE}/api/workouts/${created.date}/${created.id}`, {
-      method: 'PUT',
-      headers: { Cookie: cookie, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...INTERVALS, name: '10x400m' }),
-    });
+    await rewrite(created.id, { ...INTERVALS, name: '10x400m' });
 
     const report = await sync();
     expect(report.counts.updated).toBe(1);
@@ -618,11 +654,9 @@ describe('syncing to the calendar', () => {
     await sync();
     const before = await stub.state();
 
-    await SELF.fetch(`${BASE}/api/workouts/${created.date}/${created.id}`, {
-      method: 'PUT',
-      headers: { Cookie: cookie, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...INTERVALS, date: OTHER_DAY }),
-    });
+    // Moved day, keeping its id, which is what `update_workout` does.
+    await deleteWorkout(env, athlete, created.date, created.id);
+    await rewrite(created.id, { ...INTERVALS, date: OTHER_DAY });
 
     const report = await sync();
     expect(report.counts.rescheduled).toBe(1);
@@ -641,10 +675,7 @@ describe('syncing to the calendar', () => {
     const created = await write(INTERVALS);
     await sync();
 
-    await SELF.fetch(`${BASE}/api/workouts/${created.date}/${created.id}`, {
-      method: 'DELETE',
-      headers: { Cookie: cookie },
-    });
+    await deleteWorkout(env, athlete, created.date, created.id);
 
     const report = await sync();
     expect(report.counts.removed).toBe(1);
@@ -751,11 +782,7 @@ describe('syncing to the calendar', () => {
 
     // Change it here too, so the sync has a reason to reach for the stale id
     // rather than reporting it unchanged.
-    await SELF.fetch(`${BASE}/api/workouts/${created.date}/${created.id}`, {
-      method: 'PUT',
-      headers: { Cookie: cookie, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...INTERVALS, name: 'Back again' }),
-    });
+    await rewrite(created.id, { ...INTERVALS, name: 'Back again' });
 
     const report = await sync();
     expect(report.counts.failed).toBe(0);
@@ -808,7 +835,7 @@ describe('syncing to the calendar', () => {
     // Claimed as another run would claim it, and not released.
     expect(await store.claimSync(env, athlete)).toBe(true);
 
-    const response = await SELF.fetch(`${BASE}/api/garmin/sync`, {
+    const response = await SELF.fetch(`${BASE}/api/sync`, {
       method: 'POST',
       headers: { Cookie: cookie, 'Content-Type': 'application/json' },
       body: '{}',
@@ -969,11 +996,7 @@ describe('syncing to the calendar', () => {
     const yesterday = shiftDate(today(), -1);
     const created = await write({ ...INTERVALS, date: yesterday, name: 'Treadmill, logged by hand' });
     // Ticked off here, and Garmin knows nothing about it.
-    await SELF.fetch(`${BASE}/api/tools/complete_workout`, {
-      method: 'POST',
-      headers: { Cookie: cookie, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date: yesterday, id: created.id }),
-    });
+    await setCompleted(env, athlete, yesterday, created.id, new Date().toISOString());
     await stub.activities([]);
 
     await sync();
@@ -1022,7 +1045,7 @@ describe('syncing to the calendar', () => {
       .bind(new Date(Date.now() - 60_000).toISOString(), athlete)
       .run();
 
-    const response = await SELF.fetch(`${BASE}/api/garmin/sync`, {
+    const response = await SELF.fetch(`${BASE}/api/sync`, {
       method: 'POST',
       headers: { Cookie: cookie, 'Content-Type': 'application/json' },
       body: '{}',
@@ -1032,21 +1055,136 @@ describe('syncing to the calendar', () => {
   });
 });
 
-describe('the nightly sweep', () => {
+describe('pushing after a write', () => {
   let cookie: string;
   let athlete: string;
+
+  const post = (path: string, body: unknown) =>
+    SELF.fetch(`${BASE}${path}`, {
+      method: 'POST',
+      headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
 
   beforeEach(async () => {
     cookie = await connectGarmin();
     athlete = (await currentUserId())!;
   });
 
-  it('pushes for an athlete who asked for it', async () => {
-    await SELF.fetch(`${BASE}/api/workouts`, {
-      method: 'POST',
-      headers: { Cookie: cookie, 'Content-Type': 'application/json' },
-      body: JSON.stringify(INTERVALS),
+  it('puts a workout on the calendar without being asked to sync', async () => {
+    const response = await post('/api/workouts', INTERVALS);
+    expect(response.status).toBe(201);
+
+    await eventually((state) => {
+      expect(state.workouts).toHaveLength(1);
+      expect(state.schedules).toHaveLength(1);
+      expect(state.schedules[0].date).toBe(DAY);
     });
+    expect(await store.listLinks(env, athlete)).toHaveLength(1);
+  });
+
+  it('pushes a workout created over MCP too', async () => {
+    // The same tool an assistant calls, over the same transport.
+    const response = await SELF.fetch(`${BASE}/mcp`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${await tokenFor(athlete)}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'create_workout', arguments: INTERVALS },
+      }),
+    });
+    expect(response.status).toBe(200);
+    await eventually((state) => expect(state.schedules).toHaveLength(1));
+  });
+
+  it('takes a workout off the calendar when it is deleted', async () => {
+    const created = (await post('/api/workouts', INTERVALS).then((r) => r.json())) as { date: string; id: string };
+    await eventually((state) => expect(state.schedules).toHaveLength(1));
+
+    await SELF.fetch(`${BASE}/api/workouts/${created.date}/${created.id}`, {
+      method: 'DELETE',
+      headers: { Cookie: cookie },
+    });
+
+    await eventually((state) => {
+      expect(state.schedules).toHaveLength(0);
+      expect(state.workouts).toHaveLength(0);
+    });
+  });
+
+  it('pushes the whole plan when it is written a workout at a time', async () => {
+    // The case the resync mark exists for: an assistant filling in a week.
+    // Whichever push wins the lock must end up having pushed all of them, not
+    // just the ones that existed when it started.
+    const days = [0, 1, 2, 3, 4].map((offset) => shiftDate(today(), offset + 1));
+    await Promise.all(days.map((date, index) => post('/api/workouts', { ...INTERVALS, date, name: `Day ${index}` })));
+
+    await eventually((state) => {
+      expect(state.workouts).toHaveLength(days.length);
+      expect(state.schedules.map((entry) => entry.date).sort()).toEqual([...days].sort());
+      // And nothing was pushed twice: one calendar entry per workout.
+      expect(new Set(state.schedules.map((entry) => entry.workoutId)).size).toBe(days.length);
+    });
+
+    // A sync afterwards has nothing left to do, which is the real assertion:
+    // the plan is entirely on the calendar.
+    const report = await syncAll(env, athlete);
+    expect(report.counts.unchanged).toBe(days.length);
+    expect(report.counts.created).toBe(0);
+  });
+
+  it('never lets Garmin break a write', async () => {
+    // Every Garmin call refused. The workout still saves, and the athlete is
+    // told nothing about Garmin on the way.
+    await stub.fail({ rejectNamed: '8x400m' });
+
+    const response = await post('/api/workouts', INTERVALS);
+    expect(response.status).toBe(201);
+    const created = (await response.json()) as { date: string; id: string };
+    expect(created.date).toBe(DAY);
+
+    // Saved here regardless, which is the whole reason the push is scheduled
+    // rather than awaited.
+    expect(await getWorkout(env, athlete, DAY, created.id)).toMatchObject({ name: '8x400m' });
+    // And the failure is on the connection row for the dashboard to show,
+    // not on the response the athlete just got.
+    await vi.waitFor(async () =>
+      expect((await store.getConnection(env, athlete))?.lastSyncError).toContain('could not be synced'),
+    );
+  });
+
+  it('does not push for an athlete who has not connected Garmin', async () => {
+    await SELF.fetch(`${BASE}/api/garmin/disconnect`, { method: 'POST', headers: { Cookie: cookie } });
+    await stub.reset();
+
+    const response = await post('/api/workouts', INTERVALS);
+    expect(response.status).toBe(201);
+
+    // An explicit sync refusing for want of a connection proves the state,
+    // and by the time it has run the background push has had its chance.
+    await expect(syncAll(env, athlete)).rejects.toThrow(/no Garmin account/);
+    expect(training(await stub.state())).toHaveLength(0);
+  });
+
+  it('bounds how many times a run goes round for late writes', () => {
+    // A plan being written continuously must not keep one run going forever.
+    expect(MAX_SYNC_PASSES).toBeGreaterThan(1);
+    expect(MAX_SYNC_PASSES).toBeLessThanOrEqual(5);
+  });
+});
+
+describe('the nightly sweep', () => {
+  let athlete: string;
+
+  beforeEach(async () => {
+    await connectGarmin();
+    athlete = (await currentUserId())!;
+  });
+
+  it('pushes for an athlete who asked for it', async () => {
+    await putWorkout(env, athlete, parseWorkout(INTERVALS));
 
     expect(await syncEveryone(env)).toMatchObject({ users: 1, pushed: 1, failed: 0, budgetSpent: false });
     expect((await stub.state()).schedules).toHaveLength(1);
@@ -1065,7 +1203,7 @@ describe('the nightly sweep', () => {
 
   it('reports a busy sync as its own kind of outcome', async () => {
     expect(await store.claimSync(env, athlete)).toBe(true);
-    await expect(syncAll(env, athlete)).rejects.toBeInstanceOf(GarminBusyError);
+    await expect(syncAll(env, athlete)).rejects.toBeInstanceOf(SyncBusyError);
   });
 });
 
@@ -1089,7 +1227,7 @@ describe('status, settings and disconnecting', () => {
   it('reports the connection and what it has synced', async () => {
     await connectGarmin(cookie);
     await get('/api/workouts', { method: 'POST', body: JSON.stringify(INTERVALS) });
-    await get('/api/garmin/sync', { method: 'POST', body: '{}' });
+    await get('/api/sync', { method: 'POST', body: '{}' });
 
     expect(await get('/api/garmin/status').then((r) => r.json())).toMatchObject({
       connected: true,
@@ -1116,7 +1254,7 @@ describe('status, settings and disconnecting', () => {
   it('disconnects, tells Garmin, and leaves the calendar as it is', async () => {
     await connectGarmin(cookie);
     await get('/api/workouts', { method: 'POST', body: JSON.stringify(INTERVALS) });
-    await get('/api/garmin/sync', { method: 'POST', body: '{}' });
+    await get('/api/sync', { method: 'POST', body: '{}' });
 
     const response = await get('/api/garmin/disconnect', { method: 'POST' });
     expect(await response.json()).toMatchObject({ disconnected: true, deregistered: true });
@@ -1159,16 +1297,28 @@ describe('the MCP tools', () => {
     const { result } = (await response.json()) as { result: { tools: Array<{ name: string }> } };
     const names = result.tools.map((t) => t.name);
 
-    expect(names).toContain('sync_garmin');
-    expect(names.filter((name) => name.includes('garmin'))).toEqual(['sync_garmin']);
+    expect(names).toContain('sync_workouts');
+    // Nothing Garmin-named at all: the tool surface is provider-neutral.
+    expect(names.filter((name) => name.includes('garmin'))).toEqual([]);
   });
 
   it('answers a sync with nothing linked by saying where to link it', async () => {
-    const { result } = await tool('sync_garmin');
-    expect(result.isError).toBe(true);
-    // The one URL these tools hand back, because it is a page to open rather
-    // than bytes behind a credential.
-    expect(result.content?.[0]?.text).toContain(`${BASE}/garmin/connect`);
+    const { result } = await tool('sync_workouts');
+    // Not an error: with more than one platform possible, one being unlinked
+    // is a state to report rather than a failure of the whole call.
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      providers: [
+        {
+          provider: 'garmin',
+          label: 'Garmin Connect',
+          connected: false,
+          // The one URL these tools hand back, because it is a page to open
+          // rather than bytes behind a credential.
+          connect_url: `${BASE}/garmin/connect`,
+        },
+      ],
+    });
   });
 
   it('leaves the payloads out of a dry run unless asked', async () => {
@@ -1187,13 +1337,15 @@ describe('the MCP tools', () => {
     );
     await store_workout();
 
-    const lean = await tool('sync_garmin', { dry_run: true });
-    const entries = (lean.result.structuredContent as { workouts: Array<Record<string, unknown>> }).workouts;
-    expect(entries).toHaveLength(1);
-    expect(entries[0].payload).toBeUndefined();
+    type Outcome = { providers: Array<{ report: { workouts: Array<Record<string, unknown>> } }> };
+    const workoutsOf = (result: { structuredContent?: Record<string, unknown> }) =>
+      (result.structuredContent as unknown as Outcome).providers[0].report.workouts;
 
-    const full = await tool('sync_garmin', { dry_run: true, include_payloads: true });
-    const withPayload = (full.result.structuredContent as { workouts: Array<Record<string, unknown>> }).workouts;
-    expect(withPayload[0].payload).toMatchObject({ workoutName: '8x400m' });
+    const lean = await tool('sync_workouts', { dry_run: true });
+    expect(workoutsOf(lean.result)).toHaveLength(1);
+    expect(workoutsOf(lean.result)[0].payload).toBeUndefined();
+
+    const full = await tool('sync_workouts', { dry_run: true, include_payloads: true });
+    expect(workoutsOf(full.result)[0].payload).toMatchObject({ workoutName: '8x400m' });
   });
 });

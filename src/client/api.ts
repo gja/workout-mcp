@@ -86,7 +86,7 @@ export const approveAuthorization = (query: string): Promise<{ redirect: string 
 
 export const signOut = (): Promise<unknown> => request('/api/auth/logout', { method: 'POST' });
 
-// --- Garmin ---------------------------------------------------------------
+// --- Syncing to a watch platform ------------------------------------------
 
 export type GarminStatus = {
   /** Whether this deployment has Garmin credentials at all. */
@@ -101,7 +101,7 @@ export type GarminStatus = {
   synced_workouts?: number;
 };
 
-export type GarminSyncAction =
+export type SyncAction =
   | 'created'
   | 'updated'
   | 'rescheduled'
@@ -111,18 +111,18 @@ export type GarminSyncAction =
   | 'skipped'
   | 'failed';
 
-export type GarminSyncEntry = {
+export type SyncEntry = {
   date: string;
   id: string;
   name?: string;
-  action: GarminSyncAction;
-  /** What the Training API could not carry, e.g. a dropped secondary target. */
+  action: SyncAction;
+  /** What the platform could not carry, e.g. a dropped secondary target. */
   notes?: string[];
   error?: string;
 };
 
-/** A session Garmin says was done, and the activity that says so. */
-export type GarminCompletedEntry = {
+/** A session the platform says was done, and the activity that says so. */
+export type CompletedEntry = {
   date: string;
   id: string;
   name?: string;
@@ -130,14 +130,14 @@ export type GarminCompletedEntry = {
   activity: string;
 };
 
-export type GarminSyncReport = {
+export type SyncReport = {
   dry_run: boolean;
   /** The call budget ran out; syncing again finishes the job. */
   truncated: boolean;
-  counts: Record<GarminSyncAction, number>;
-  workouts: GarminSyncEntry[];
-  /** Sessions ticked off from what the athlete recorded on Garmin. */
-  completed: GarminCompletedEntry[];
+  counts: Record<SyncAction, number>;
+  workouts: SyncEntry[];
+  /** Sessions ticked off from what the athlete recorded on the platform. */
+  completed: CompletedEntry[];
   /** Why the completion pull did not run, or did not run in full. */
   completed_note?: string;
   error?: string;
@@ -145,8 +145,20 @@ export type GarminSyncReport = {
 
 export const getGarminStatus = (): Promise<GarminStatus> => request('/api/garmin/status');
 
-export const syncGarmin = (options: { dry_run?: boolean; force?: boolean } = {}): Promise<GarminSyncReport> =>
-  request('/api/garmin/sync', { method: 'POST', body: options });
+/** One provider's outcome from a sync. */
+export type ProviderOutcome =
+  | { provider: string; label: string; connected: true; report: SyncReport }
+  | { provider: string; label: string; connected: false; connect_url?: string; note: string };
+
+/**
+ * Sync to every platform the athlete has linked.
+ *
+ * Provider-neutral, so the panel does not have to grow a button per platform
+ * when the next one is added: one action, a result per provider.
+ */
+export const syncWorkouts = (options: { dry_run?: boolean; force?: boolean } = {}): Promise<{
+  providers: ProviderOutcome[];
+}> => request('/api/sync', { method: 'POST', body: options });
 
 export const setGarminAutoSync = (autoSync: boolean): Promise<GarminStatus> =>
   request('/api/garmin/settings', { method: 'PUT', body: { auto_sync: autoSync } });
