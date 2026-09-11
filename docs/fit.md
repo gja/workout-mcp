@@ -37,11 +37,25 @@ step chokes on the one record missing it. With
 (the profile's `repeatSteps` subfield), which resolves off `durationType` and
 so is unaffected by the `targetType` above.
 
-## 3. An open range end is an absent field
+## 3. An open range end is filled, not left out
 
-Not a stand-in value. FIT has no value that reads as "no limit" — a 0 floor on
-a power range is read as 0% of FTP, not as "no floor" — so each bound is
-written only if it exists.
+FIT has no shape for half a band — every custom target is a low *and* a high —
+and an importer given one of the two may reject the step outright.
+intervals.icu does: a cooldown written as `target_heart_rate: ["-", 133]`
+came back as *"Missing custom_target_value_low and/or custom_target_value_high"*
+and the step was dropped from the calendar entry altogether.
+
+So both ends are always written, and the open one gets a limit no athlete
+reaches: 0 to 25 m/s for speed, 0 to 254 rpm for cadence, 1 to 255 bpm for
+heart rate, 1 to 2000 W for power.
+
+Heart rate and power pack two units into one field, so the filler is written in
+whatever unit the caller used for the end they did give — a raw 0 under a
+ceiling in watts reads as 0% of FTP under 120 W, two units in one band, which
+is what an importer rejected before. A percentage range is filled with a
+percentage: 1-99% of max HR, 1-999% of FTP. Neither filler is ever the offset
+itself (100 for heart rate, 1000 for power), the one value where the two units
+meet — the SDK's own decoder reads a 100 back as `bpmOffset`, not as 100%.
 
 ## 4. The encoder's buffer has to be clamped
 

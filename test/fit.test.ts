@@ -161,26 +161,36 @@ describe('targets', () => {
   });
 
   /**
-   * An open end leaves the field out entirely. FIT has no value meaning "no
-   * limit" — a 0 power floor reads as 0% of FTP, not as "no floor" — and a
-   * step carrying an invented bound was what Watchletic refused to import.
+   * Both ends are always written. FIT has no shape for half a band, and
+   * intervals.icu drops a step that carries only one bound — so the open end
+   * gets a limit no athlete reaches, in the unit the caller used for the end
+   * they did give.
    */
-  it('writes no field at all for an open end', () => {
+  it('fills the open end of a range, in the caller\'s unit', () => {
     const faster = roundTrip(build([{ goal_s: 60, target_pace_km: ['6:30', '-'] }])).workoutStepMesgs[0];
     expect(faster.customTargetSpeedLow as number).toBeCloseTo(1000 / 390, 2);
-    expect(faster.customTargetSpeedHigh).toBeUndefined();
+    expect(faster.customTargetSpeedHigh).toBe(25);
 
     const under = roundTrip(build([{ goal_s: 60, target_heart_rate: ['-', 150] }])).workoutStepMesgs[0];
-    expect(under.customTargetHeartRateLow).toBeUndefined();
+    expect(under.customTargetHeartRateLow).toBe(101);
     expect(under.customTargetHeartRateHigh).toBe(250);
 
     const capped = roundTrip(build([{ goal_s: 60, target_watts: ['-', 120] }])).workoutStepMesgs[0];
-    expect(capped.customTargetPowerLow).toBeUndefined();
+    expect(capped.customTargetPowerLow).toBe(1001);
     expect(capped.customTargetPowerHigh).toBe(1120);
 
     const spun = roundTrip(build([{ goal_s: 60, target_cadence: [85, '-'] }])).workoutStepMesgs[0];
     expect(spun.customTargetCadenceLow).toBe(85);
-    expect(spun.customTargetCadenceHigh).toBeUndefined();
+    expect(spun.customTargetCadenceHigh).toBe(254);
+  });
+
+  /** The filler never crosses into the other unit the field carries. */
+  it('fills a percentage range with a percentage, not an absolute', () => {
+    const hr = roundTrip(build([{ goal_s: 60, target_heart_rate: ['75%', '-'] }])).workoutStepMesgs[0];
+    expect(hr).toMatchObject({ customTargetHeartRateLow: 75, customTargetHeartRateHigh: 99 });
+
+    const ftp = roundTrip(build([{ goal_s: 60, target_watts: ['-', '80%'] }])).workoutStepMesgs[0];
+    expect(ftp).toMatchObject({ customTargetPowerLow: 1, customTargetPowerHigh: 80 });
   });
 
   it('still writes both ends when both were given', () => {
@@ -188,11 +198,11 @@ describe('targets', () => {
     expect(step).toMatchObject({ customTargetPowerLow: 1152, customTargetPowerHigh: 1180 });
   });
 
-  it('leaves the open end out of a secondary target too', () => {
+  it('fills the open end of a secondary target too', () => {
     const step = roundTrip(
       build([{ goal_s: 60, target_watts: [152, 180], target_cadence: ['-', 95] }]),
     ).workoutStepMesgs[0];
-    expect(step.secondaryCustomTargetCadenceLow).toBeUndefined();
+    expect(step.secondaryCustomTargetCadenceLow).toBe(0);
     expect(step.secondaryCustomTargetCadenceHigh).toBe(95);
   });
 
