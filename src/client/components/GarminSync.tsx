@@ -41,9 +41,15 @@ function summarize(report: GarminSyncReport): string {
 const notable = (report: GarminSyncReport) =>
   report.workouts.filter((entry) => entry.action !== 'unchanged' || (entry.notes?.length ?? 0) > 0);
 
-function Report({ report }: { report: GarminSyncReport }) {
+function Report({ report, onCompleted }: { report: GarminSyncReport; onCompleted: () => void }) {
   const changed = summarize(report);
   const rows = notable(report);
+
+  // A session ticked off from Garmin changes the calendar behind this panel,
+  // so the plan above has to be told rather than left showing it as planned.
+  useEffect(() => {
+    if (report.completed.length > 0) onCompleted();
+  }, [report, onCompleted]);
 
   return (
     <>
@@ -51,6 +57,21 @@ function Report({ report }: { report: GarminSyncReport }) {
         {report.dry_run ? 'Preview — nothing was sent. ' : ''}
         {changed || (report.dry_run ? 'Nothing would change.' : 'Everything was already up to date.')}
       </p>
+
+      {report.completed.length > 0 && (
+        <>
+          <p className="done-note">
+            {report.completed.length} session{report.completed.length === 1 ? '' : 's'} ticked off from what you
+            recorded on Garmin.
+          </p>
+          <pre>
+            {report.completed
+              .map((entry) => `${entry.date}  ${entry.name ?? entry.id} — done (${entry.activity})`)
+              .join('\n')}
+          </pre>
+        </>
+      )}
+      {report.completed_note && <p className="note">{report.completed_note}</p>}
 
       {report.error && <p className="error">{report.error}</p>}
       {report.truncated && (
@@ -84,16 +105,20 @@ type Mode = 'sync' | 'preview' | 'resend';
  * Connecting is a full-page navigation out to Garmin's consent screen and back
  * — the same shape as signing in, and for the same reason: only Garmin can ask
  * the athlete to approve it. The callback lands back here with
- * `?garmin_connected` or `?garmin_error`, which is what `fromCallback` below
- * is reading.
+ * `?garmin_connected` or `?garmin_error`, which is what the two `useState`
+ * initialisers below read off the URL.
  *
  * Renders nothing when the deployment has no Garmin credentials, so a
  * self-hosted install that has not set them up does not show a dead panel —
  * but a *failure* to find that out is shown rather than swallowed, because a
  * panel that silently vanishes on a failed request looks identical to one that
  * was never configured.
+ *
+ * `onWorkoutsChanged` is called when a sync ticks a session off from Garmin:
+ * that changes the plan the calendar above is drawing, and this is the only
+ * thing on the page that knows it happened.
  */
-export function GarminSync() {
+export function GarminSync({ onWorkoutsChanged }: { onWorkoutsChanged: () => void }) {
   const [status, setStatus] = useState<GarminStatus | null>(null);
   const [unreachable, setUnreachable] = useState<string | null>(null);
   const [report, setReport] = useState<GarminSyncReport | null>(null);
@@ -170,7 +195,8 @@ export function GarminSync() {
     <section>
       <h2>Garmin Connect</h2>
       <p className="note">
-        Push planned workouts onto your Garmin calendar, where your watch picks them up on its next sync.
+        Push planned workouts onto your Garmin calendar, where your watch picks them up on its next sync — and take
+        back what you actually did, so a session you have run is ticked off here without you saying so twice.
       </p>
 
       {error && <p className="error">{error}</p>}
@@ -179,8 +205,8 @@ export function GarminSync() {
         <article className="card">
           <h3>Not connected</h3>
           <p className="note">
-            Connecting opens Garmin's own consent screen. Nothing is read from your Garmin account — this only writes
-            planned workouts to your calendar.
+            Connecting opens Garmin's own consent screen. Planned workouts are written to your calendar, and the
+            activities you record are read back — only to tick off the sessions they account for.
           </p>
           <div className="row">
             {/* A plain link, not a fetch: the browser has to leave for Garmin. */}
@@ -224,7 +250,7 @@ export function GarminSync() {
             </button>
           </div>
 
-          {report && <Report report={report} />}
+          {report && <Report report={report} onCompleted={onWorkoutsChanged} />}
 
           <div className="actions">
             {/*

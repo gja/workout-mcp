@@ -245,13 +245,16 @@ export const TOOLS = [
       openWorldHint: true,
     },
     description:
-      'Push every planned workout in the retention window to the athlete\'s Garmin Connect calendar, ' +
-      'where their watch picks them up. Only what has actually changed is sent, so calling this twice ' +
-      'in a row is free the second time. Workouts deleted here are removed from the calendar; ones ' +
-      'that have aged out of the window are left on it, since they are training already done. ' +
-      'Call with dry_run to see the state of things — what is connected, what would change — without ' +
-      'sending anything. Linking a Garmin account is a one-time step the athlete does in a browser, ' +
-      'so it is not a tool; if none is linked, this says where to go.',
+      'Sync with the athlete\'s Garmin Connect calendar, both ways. Planned workouts in the retention ' +
+      'window are pushed to the calendar, where their watch picks them up; and the activities they have ' +
+      'actually recorded are read back, marking the sessions those account for as completed. Only what ' +
+      'has changed is sent, so calling this twice in a row is free the second time. Workouts deleted ' +
+      'here are removed from the calendar; ones that have aged out of the window are left on it, since ' +
+      'they are training already done. A completion is only ever set from Garmin, never cleared — a ' +
+      'session ticked off by hand stays ticked off. Call with dry_run to see what would be pushed ' +
+      'without sending anything (a preview makes no calls, so it cannot report completions). Linking a ' +
+      'Garmin account is a one-time step the athlete does in a browser, so it is not a tool; if none is ' +
+      'linked, this says where to go.',
     inputSchema: {
       type: 'object',
       properties: {

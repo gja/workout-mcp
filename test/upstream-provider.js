@@ -86,12 +86,15 @@ const garmin = {
   nextId: 9000,
   /** Access tokens the token endpoint has handed out, newest last. */
   issued: [],
+  /** Activities the athlete has recorded, as the Activity API would report them. */
+  activities: [],
   /**
    * Test knobs:
    *  rejectNamed     — refuse any workout whose name contains this
    *  expireTokens    — answer every Training API call with 401 until refreshed
    *  failSchedule    — refuse the next schedule call
    *  refuseRefresh   — refuse the refresh grant
+   *  refuseActivities — answer the activity query with a 403
    */
   fail: {},
 };
@@ -102,6 +105,7 @@ function resetGarmin() {
   garmin.calls = [];
   garmin.nextId = 9000;
   garmin.issued = [];
+  garmin.activities = [];
   garmin.fail = {};
 }
 
@@ -159,6 +163,23 @@ async function garminApi(request, url) {
   const bearer = (request.headers.get('Authorization') ?? '').replace('Bearer ', '');
 
   if (path === '/wellness-api/rest/user/id') return Response.json({ userId: 'garmin-athlete-1' });
+
+  // What the athlete recorded. Sliced by upload time, as Garmin slices it, so
+  // the Worker's day-at-a-time querying is exercised rather than assumed.
+  if (path === '/activity-api/rest/activities') {
+    garmin.calls.push({ what: 'GET /activity-api/rest/activities' });
+    if (!bearer || garmin.fail.expireTokens) return unauthorized();
+    if (garmin.fail.refuseActivities) return Response.json({ errorMessage: 'no' }, { status: 403 });
+
+    const from = Number(url.searchParams.get('uploadStartTimeInSeconds'));
+    const to = Number(url.searchParams.get('uploadEndTimeInSeconds'));
+    return Response.json(
+      garmin.activities.filter((activity) => {
+        const uploaded = activity.uploadTimeInSeconds ?? activity.startTimeInSeconds;
+        return uploaded > from && uploaded <= to;
+      }),
+    );
+  }
   if (path === '/wellness-api/rest/user/registration') {
     garmin.calls.push({ what: 'deregister' });
     return new Response(null, { status: 204 });
@@ -244,6 +265,11 @@ export default {
     }
     // Stands in for the athlete deleting a synced workout in the Connect app:
     // the workout and its calendar entries go, and our stored ids go stale.
+    // Seeds what the athlete recorded, for the completion pull to find.
+    if (url.pathname === '/__stub/activities') {
+      garmin.activities = await request.json();
+      return Response.json({ ok: true });
+    }
     if (url.pathname === '/__stub/forget') {
       for (const id of garmin.workouts.keys()) {
         garmin.workouts.delete(id);

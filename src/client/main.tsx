@@ -59,7 +59,7 @@ function Dashboard({ me }: { me: Me }) {
         </div>
       )}
 
-      <GarminSync />
+      <GarminSync onWorkoutsChanged={reload} />
 
       <ConnectToClaude />
     </>

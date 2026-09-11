@@ -101,7 +101,8 @@ export default {
       if (garmin.users > 0) {
         console.log(
           `nightly garmin sync covered ${garmin.users} athlete(s): ` +
-            `${garmin.pushed} calendar change(s), ${garmin.failed} failure(s)` +
+            `${garmin.pushed} calendar change(s), ${garmin.completed} session(s) ticked off, ` +
+            `${garmin.failed} failure(s)` +
             // Worth saying out loud: the athletes it did not reach are not
             // broken, they are first in the queue tomorrow.
             (garmin.budgetSpent ? ', and stopped on its call budget' : ''),

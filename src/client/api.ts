@@ -121,12 +121,25 @@ export type GarminSyncEntry = {
   error?: string;
 };
 
+/** A session Garmin says was done, and the activity that says so. */
+export type GarminCompletedEntry = {
+  date: string;
+  id: string;
+  name?: string;
+  completed_at: string;
+  activity: string;
+};
+
 export type GarminSyncReport = {
   dry_run: boolean;
   /** The call budget ran out; syncing again finishes the job. */
   truncated: boolean;
   counts: Record<GarminSyncAction, number>;
   workouts: GarminSyncEntry[];
+  /** Sessions ticked off from what the athlete recorded on Garmin. */
+  completed: GarminCompletedEntry[];
+  /** Why the completion pull did not run, or did not run in full. */
+  completed_note?: string;
   error?: string;
 };
 

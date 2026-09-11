@@ -1,12 +1,14 @@
 import { SELF, env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { putWorkout } from '../src/db';
+import { getWorkout, putWorkout } from '../src/db';
 import { buildWorkout } from '../src/garmin/payload';
 import type { GarminExecutableStep, GarminRepeatStep } from '../src/garmin/payload';
 import { fingerprint, keyId, seal, unseal } from '../src/garmin/crypto';
 import { challengeFor, randomVerifier } from '../src/garmin/oauth';
 import * as store from '../src/garmin/store';
 import { GarminBusyError, newBudget, planFor, syncAll, syncEveryone } from '../src/garmin/sync';
+import { localDateOf, matchCompletions, sportOf, uploadWindows } from '../src/garmin/activities';
+import type { GarminActivity } from '../src/garmin/activities';
 import { shiftDate, today } from '../src/units';
 import { parseWorkout } from '../src/workout';
 import type { Workout } from '../src/workout';
@@ -33,6 +35,24 @@ const stub = {
     env.GARMIN_STUB.fetch('https://stub/__stub/fail', { method: 'POST', body: JSON.stringify(knobs) }),
   /** As if the athlete had deleted everything in the Garmin Connect app. */
   forget: () => env.GARMIN_STUB.fetch('https://stub/__stub/forget', { method: 'POST' }),
+  /** What the athlete recorded, for the completion pull to find. */
+  activities: (activities: unknown[]) =>
+    env.GARMIN_STUB.fetch('https://stub/__stub/activities', { method: 'POST', body: JSON.stringify(activities) }),
+};
+
+/** An activity summary as the Activity API reports one. */
+const activity = (over: Partial<GarminActivity> & { hoursAgo?: number } = {}): GarminActivity => {
+  const { hoursAgo = 2, ...rest } = over;
+  return {
+    activityId: 555,
+    activityName: 'Morning Run',
+    activityType: 'RUNNING',
+    startTimeInSeconds: Math.floor(Date.now() / 1000) - hoursAgo * 3600,
+    startTimeOffsetInSeconds: 0,
+    durationInSeconds: 2820,
+    distanceInMeters: 8000,
+    ...rest,
+  };
 };
 
 /** Just the calls that would change the athlete's calendar. */
@@ -278,6 +298,106 @@ describe('building the Garmin payload', () => {
   it('is pure, so the same workout builds the same payload twice', async () => {
     const workout = await store_workout();
     expect(await fingerprint(buildWorkout(workout).workout)).toBe(await fingerprint(buildWorkout(workout).workout));
+  });
+});
+
+describe('reading activities back', () => {
+  it('places an activity on the local day the athlete would name, not on UTC', () => {
+    // 06:30 in Auckland (UTC+12) is the previous day in UTC, and the athlete
+    // would say they ran on the 12th.
+    const morning = Date.parse('2026-09-11T18:30:00Z') / 1000;
+    expect(localDateOf({ startTimeInSeconds: morning, startTimeOffsetInSeconds: 12 * 3600 })).toBe('2026-09-12');
+    expect(localDateOf({ startTimeInSeconds: morning, startTimeOffsetInSeconds: 0 })).toBe('2026-09-11');
+  });
+
+  it('skips an activity it cannot place', () => {
+    expect(localDateOf({})).toBeNull();
+  });
+
+  it('recognises a sport by family rather than by an exhaustive list', () => {
+    expect(sportOf('RUNNING')).toBe('running');
+    expect(sportOf('TRAIL_RUNNING')).toBe('running');
+    expect(sportOf('VIRTUAL_RUN')).toBe('running');
+    expect(sportOf('GRAVEL_CYCLING')).toBe('cycling');
+    expect(sportOf('MOUNTAIN_BIKING')).toBe('cycling');
+    expect(sportOf('OPEN_WATER_SWIMMING')).toBe('swimming');
+    expect(sportOf('INDOOR_ROWING')).toBe('rowing');
+    expect(sportOf('STRENGTH_TRAINING')).toBe('training');
+    expect(sportOf('MOUNTAINEERING')).toBe('hiking');
+    expect(sportOf('SPEED_WALKING')).toBe('walking');
+    expect(sportOf('SOMETHING_NEW')).toBeNull();
+    expect(sportOf(undefined)).toBeNull();
+  });
+
+  it('asks for one day of upload time at a time, newest first', () => {
+    const windows = uploadWindows(new Date('2026-09-12T00:00:00Z'), 3);
+    expect(windows).toHaveLength(3);
+    expect(windows[0][1] - windows[0][0]).toBe(86400);
+    // Contiguous, so nothing between two slices is missed.
+    expect(windows[1][1]).toBe(windows[0][0]);
+    expect(windows[2][1]).toBe(windows[1][0]);
+  });
+
+  const planned = (over: Partial<Workout> = {}): Workout =>
+    ({
+      id: 'w1',
+      date: DAY,
+      name: 'Easy run',
+      sport: 'running',
+      steps: [{ goal_s: 2700 }],
+      updated_at: 'now',
+      ...over,
+    }) as Workout;
+
+  it('matches a same-day activity of the same sport', () => {
+    const matches = matchCompletions([planned()], [activity({ hoursAgo: 0, startTimeOffsetInSeconds: 0 })]);
+    expect(matches).toHaveLength(0); // today, not DAY
+
+    const onTheDay = activity({ startTimeInSeconds: Date.parse(`${DAY}T06:30:00Z`) / 1000 });
+    expect(matchCompletions([planned()], [onTheDay])).toHaveLength(1);
+  });
+
+  it('leaves an already-completed workout alone', () => {
+    const onTheDay = activity({ startTimeInSeconds: Date.parse(`${DAY}T06:30:00Z`) / 1000 });
+    expect(matchCompletions([planned({ completed_at: 'yesterday' })], [onTheDay])).toHaveLength(0);
+  });
+
+  it('will not tick off a run with a swim', () => {
+    const swim = activity({ activityType: 'LAP_SWIMMING', startTimeInSeconds: Date.parse(`${DAY}T06:30:00Z`) / 1000 });
+    expect(matchCompletions([planned()], [swim])).toHaveLength(0);
+    // A generic plan is the one that accepts anything, because that is what
+    // generic means.
+    expect(matchCompletions([planned({ sport: 'generic' })], [swim])).toHaveLength(1);
+  });
+
+  it('spends each activity once, so two sessions need two activities', () => {
+    const start = Date.parse(`${DAY}T06:30:00Z`) / 1000;
+    const one = activity({ activityId: 1, startTimeInSeconds: start });
+    const matches = matchCompletions([planned({ id: 'a' }), planned({ id: 'b' })], [one]);
+    expect(matches).toHaveLength(1);
+    expect(matches[0].workout.id).toBe('a');
+  });
+
+  it('pairs two same-day sessions by how long each was planned to be', () => {
+    const start = Date.parse(`${DAY}T06:30:00Z`) / 1000;
+    const short = activity({ activityId: 1, durationInSeconds: 1200, startTimeInSeconds: start });
+    const long = activity({ activityId: 2, durationInSeconds: 5400, startTimeInSeconds: start + 7200 });
+
+    // Listed long-first, so order alone cannot be what pairs them correctly.
+    const matches = matchCompletions(
+      [planned({ id: 'intervals', steps: [{ goal_s: 1200 }] }), planned({ id: 'long', steps: [{ goal_s: 5400 }] })],
+      [long, short],
+    );
+    expect(matches.map((m) => [m.workout.id, m.activity.activityId])).toEqual([
+      ['intervals', 1],
+      ['long', 2],
+    ]);
+  });
+
+  it('records the start of the activity as the completion time', () => {
+    const start = Date.parse(`${DAY}T06:30:00Z`) / 1000;
+    const [match] = matchCompletions([planned()], [activity({ startTimeInSeconds: start })]);
+    expect(match.completedAt).toBe(new Date(start * 1000).toISOString());
   });
 });
 
@@ -734,23 +854,34 @@ describe('syncing to the calendar', () => {
   });
 
   it('stops on the shared call budget rather than pushing past it', async () => {
-    // Three workouts at two calls each, with room for one.
+    // Three workouts at two calls each — a create and a schedule — and a
+    // budget for two of them with one call to spare.
     await write(INTERVALS);
     await write({ ...INTERVALS, date: OTHER_DAY, name: 'Second' });
     await write({ ...INTERVALS, date: shiftDate(today(), 6), name: 'Third' });
 
     const report = await syncAll(env, athlete, { budget: newBudget(5) });
-    expect(report.counts.created).toBe(1);
-    expect(report.counts.skipped).toBe(2);
+    expect(report.counts.created).toBe(2);
+    expect(report.counts.skipped).toBe(1);
     expect(report.truncated).toBe(true);
     // Skipped is not failed: nothing is wrong, there was just no room.
     expect(report.counts.failed).toBe(0);
     expect(report.error).toBeUndefined();
+    // And the run spent what it had rather than stopping short of it: the
+    // odd call left over could not have paid for a third workout.
+    expect(training(await stub.state())).toHaveLength(4);
 
     // The next run finishes the job, because the diff comes from stored state.
     const rest = await syncAll(env, athlete);
-    expect(rest.counts.created).toBe(2);
-    expect(rest.counts.unchanged).toBe(1);
+    expect(rest.counts.created).toBe(1);
+    expect(rest.counts.unchanged).toBe(2);
+  });
+
+  it('affords a single create on a budget of exactly two', async () => {
+    await write(INTERVALS);
+    const report = await syncAll(env, athlete, { budget: newBudget(2) });
+    expect(report.counts.created).toBe(1);
+    expect(report.truncated).toBe(false);
   });
 
   it('puts a workout deleted on Garmin back when everything is re-sent', async () => {
@@ -772,6 +903,117 @@ describe('syncing to the calendar', () => {
     expect(after.workouts).toHaveLength(1);
     expect(after.workouts[0].id).not.toBe(before.workouts[0].id);
     expect(after.schedules).toHaveLength(1);
+  });
+
+  it('ticks off a session Garmin says was done', async () => {
+    // Yesterday, so it is a session that could plausibly have happened.
+    const yesterday = shiftDate(today(), -1);
+    const created = await write({ ...INTERVALS, date: yesterday, name: 'Yesterday run' });
+    await stub.activities([
+      activity({
+        activityName: 'Evening Run',
+        startTimeInSeconds: Date.parse(`${yesterday}T18:00:00Z`) / 1000,
+      }),
+    ]);
+
+    const report = await sync();
+    expect(report.completed).toHaveLength(1);
+    expect(report.completed[0]).toMatchObject({
+      date: yesterday,
+      id: created.id,
+      name: 'Yesterday run',
+      activity: 'Evening Run',
+    });
+
+    // Recorded through the same write the dashboard's tick uses, so it reads
+    // back as an ordinary completion.
+    const stored = await getWorkout(env, athlete, yesterday, created.id);
+    expect(stored?.completed_at).toBe(new Date(Date.parse(`${yesterday}T18:00:00Z`)).toISOString());
+  });
+
+  it('does not ask about sessions that cannot have happened yet', async () => {
+    // The fixture plan is two days out, so there is nothing to complete and
+    // no reason to spend three calls finding that out.
+    await write(INTERVALS);
+    await sync();
+
+    const state = await stub.state();
+    expect(state.calls.filter((c) => c.what?.includes('activity-api'))).toHaveLength(0);
+  });
+
+  it('does not tick a session off with an activity from another sport', async () => {
+    const yesterday = shiftDate(today(), -1);
+    await write({ ...INTERVALS, date: yesterday, name: 'Run' });
+    await stub.activities([
+      activity({ activityType: 'LAP_SWIMMING', startTimeInSeconds: Date.parse(`${yesterday}T18:00:00Z`) / 1000 }),
+    ]);
+
+    expect((await sync()).completed).toHaveLength(0);
+  });
+
+  it('is idempotent: a second sync does not re-complete or re-ask', async () => {
+    const yesterday = shiftDate(today(), -1);
+    await write({ ...INTERVALS, date: yesterday, name: 'Run' });
+    await stub.activities([activity({ startTimeInSeconds: Date.parse(`${yesterday}T18:00:00Z`) / 1000 })]);
+
+    expect((await sync()).completed).toHaveLength(1);
+    const after = (await stub.state()).calls.length;
+
+    const again = await sync();
+    expect(again.completed).toHaveLength(0);
+    // Nothing outstanding, so it does not even ask.
+    expect((await stub.state()).calls).toHaveLength(after);
+  });
+
+  it('never clears a completion Garmin has no activity for', async () => {
+    const yesterday = shiftDate(today(), -1);
+    const created = await write({ ...INTERVALS, date: yesterday, name: 'Treadmill, logged by hand' });
+    // Ticked off here, and Garmin knows nothing about it.
+    await SELF.fetch(`${BASE}/api/tools/complete_workout`, {
+      method: 'POST',
+      headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: yesterday, id: created.id }),
+    });
+    await stub.activities([]);
+
+    await sync();
+    expect((await getWorkout(env, athlete, yesterday, created.id))?.completed_at).toBeTruthy();
+  });
+
+  it('still reports the push when Garmin will not talk about history', async () => {
+    const yesterday = shiftDate(today(), -1);
+    await write({ ...INTERVALS, date: yesterday, name: 'Run' });
+    await stub.fail({ refuseActivities: true });
+
+    const report = await sync();
+    // The half that matters worked, and the half that did not says so.
+    expect(report.counts.created).toBe(1);
+    expect(report.counts.failed).toBe(0);
+    expect(report.completed).toHaveLength(0);
+    expect(report.completed_note).toContain('would not say');
+  });
+
+  it('says a preview cannot ask what was completed', async () => {
+    const yesterday = shiftDate(today(), -1);
+    await write({ ...INTERVALS, date: yesterday, name: 'Run' });
+
+    const report = await sync({ dry_run: true });
+    expect(report.completed).toHaveLength(0);
+    expect(report.completed_note).toContain('makes no calls');
+    expect((await stub.state()).calls).toHaveLength(1); // the connect token only
+  });
+
+  it('spends its budget on the plan before on history', async () => {
+    const yesterday = shiftDate(today(), -1);
+    await write({ ...INTERVALS, date: yesterday, name: 'Run' });
+    await stub.activities([activity({ startTimeInSeconds: Date.parse(`${yesterday}T18:00:00Z`) / 1000 })]);
+
+    // Two calls: exactly enough to create and schedule, and nothing over.
+    const report = await syncAll(env, athlete, { budget: newBudget(2) });
+    expect(report.counts.created).toBe(1);
+    expect(report.completed).toHaveLength(0);
+    expect(report.completed_note).toContain('Ran out of calls');
+    expect(report.truncated).toBe(true);
   });
 
   it('asks the athlete to reconnect when the refresh is refused', async () => {

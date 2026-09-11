@@ -2,6 +2,10 @@
 
 [← back to the README](../README.md)
 
+The plan goes out; what the athlete actually did comes back. Those are the two
+halves, and they are not symmetrical — see **Taking completions back** below
+for why completion only travels one way.
+
 A FIT file you drop on a watch is one way to get a session onto it. The other
 is the athlete's own Garmin Connect calendar: put a workout on a date there and
 the watch picks it up on its next sync, with no cable and no file.
@@ -28,7 +32,7 @@ secrets below are set.
 npx wrangler secret put GARMIN_CLIENT_ID
 npx wrangler secret put GARMIN_CLIENT_SECRET
 npx wrangler secret put GARMIN_ENCRYPTION_KEY   # optional, see below
-npm run db:remote                               # migrations 0004 and 0005
+npm run db:remote                               # migrations 0005 and 0006
 ```
 
 Register `https://<your-worker>/garmin/callback` as the app's redirect URI, exactly.
@@ -168,6 +172,60 @@ minutes out. A dry run neither takes the lock nor waits for one — looking at
 what a running sync is doing is exactly the thing to be able to do while it
 runs.
 
+## Taking completions back
+
+Whether a session happened is not something this server can know. The watch
+knows, and Garmin's calendar takes no "done" flag from us — so there is nothing
+to push in that direction and no point pretending otherwise. What there is, is
+the Activity API: a record of what the athlete recorded. Every sync finishes by
+reading it and ticking off the sessions it accounts for.
+
+| | |
+| --- | --- |
+| Endpoint | `GET apis.garmin.com/activity-api/rest/activities` |
+| Windowed by | `uploadStartTimeInSeconds` / `uploadEndTimeInSeconds`, 24 hours per request |
+| Lookback | 3 days of upload time, so 3 calls — uploads lag the activity |
+
+**Matching.** An activity completes a workout when it falls on the same day and
+is the same sport. The day is the athlete's *local* day —
+`startTimeInSeconds + startTimeOffsetInSeconds` — because a 06:30 run in
+Auckland is the previous day in UTC and the plan was written for the day they
+would name. Sports are recognised by family rather than by an exhaustive
+table: `TRAIL_RUNNING`, `VIRTUAL_RUN` and `TREADMILL_RUNNING` are all running,
+and Garmin keeps adding entries to that enum, so a list would silently fail to
+match whatever it omits. A `generic` plan accepts any sport, since that is what
+generic means.
+
+Each activity completes at most one workout and each workout takes at most one
+activity, so two sessions on a day need two activities. Where a day holds more
+than one candidate the closest by planned duration wins — otherwise an easy
+hour and a hard twenty minutes on the same Tuesday would be ticked off by
+whichever came back first.
+
+**Two rules matter more than the matching.**
+
+*Only ever set, never clear.* A workout Garmin has no activity for is left
+exactly as it is. Garmin not knowing about a session is not evidence it did not
+happen — a treadmill run logged by hand here has no activity behind it — and
+erasing the athlete's own tick because a third party has not heard of it would
+be indefensible. The corollary is worth stating: clearing a completion by hand
+while Garmin still holds the activity that justified it will see it come back
+on the next sync. Garmin is authoritative for *done*; this server is
+authoritative for the plan.
+
+*Already-completed workouts are skipped.* That is what makes the pull
+idempotent, and what makes it cheap — a window of nothing but future sessions
+needs no activity query at all, because a session planned for Thursday cannot
+have been done on Monday.
+
+The pull is the optional half, and is ordered and budgeted as such. It runs
+after the push, so a run short of calls spends them getting sessions onto the
+watch before it spends any reading history; and a refused or unreachable
+activity query leaves a note on the report rather than failing the sync, whose
+real work is already done. A completion is written through `db.setCompleted` —
+the same write the dashboard's tick uses — so a session completed from Garmin
+is indistinguishable from one ticked by hand. There is one notion of done.
+
 ## What does not survive the trip
 
 The Training API cannot express everything a FIT file can, and the mapping in
@@ -193,7 +251,8 @@ login, which is not something a repo can vendor. The mapping here follows that
 schema as publicly described, and the code is arranged so that correcting a
 field name is a one-line change if your portal docs differ:
 
-- every enum is a flat `Record` at the top of `src/garmin/payload.ts` — sports,
+- every enum is a flat `Record` at the top of `src/garmin/payload.ts`, and the
+  activity-type patterns a short list at the top of `src/garmin/activities.ts` — sports,
   sub-sports, intensities, zone target types, the open-range fills;
 - `buildWorkout` is pure, with no clock, network or connection in it, so
   `sync_garmin` with `dry_run` and `include_payloads` hands back the exact JSON
@@ -217,6 +276,8 @@ values in metres per second.
 | `POST /api/garmin/sync` | `{dry_run?, force?}` — push, and report what changed |
 | `PUT /api/garmin/settings` | `{auto_sync}` — nightly sync on or off |
 | `POST /api/garmin/disconnect` | Unlink, and tell Garmin |
+
+| `GET /activity-api/rest/activities` | Read back what the athlete recorded (3 slices) |
 
 One MCP tool: `sync_garmin`, taking `dry_run`, `force` and `include_payloads`.
 

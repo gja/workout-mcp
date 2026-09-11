@@ -221,10 +221,16 @@ Link a Garmin account once from the dashboard and every planned workout in the
 retention window is pushed to the calendar — on request, or nightly on its own.
 Syncing is a diff, so the same plan synced twice costs nothing the second time.
 
+It goes both ways. The plan travels out; what the athlete actually recorded
+comes back, ticking off the sessions it accounts for, so a run you have run is
+marked done here without you saying so twice. Completion only ever arrives —
+never departs: a session ticked off by hand stays ticked off whether or not
+Garmin has heard of it.
+
 ```bash
 npx wrangler secret put GARMIN_CLIENT_ID
 npx wrangler secret put GARMIN_CLIENT_SECRET
-npm run db:remote                            # migrations 0004 and 0005
+npm run db:remote                            # migrations 0005 and 0006
 ```
 
 The integration stays hidden until those are set. It needs a
@@ -234,8 +240,9 @@ than by self-service signup — it is the one part of this repo you cannot stand
 up on your own in an afternoon. Nothing else depends on it.
 
 **[docs/garmin.md](docs/garmin.md)** has the rest: the OAuth2 PKCE flow and how
-the tokens are stored, what a sync decides case by case, what the Training API
-cannot carry, and how to check the payload against your own portal docs.
+the tokens are stored, what a sync decides case by case, how a recorded
+activity is matched to a planned session, what the Training API cannot carry,
+and how to check the payload against your own portal docs.
 
 ## Writing a workout
 
@@ -517,6 +524,7 @@ src/garmin/crypto.ts   sealing the stored tokens, and payload fingerprints
 src/garmin/store.ts    D1 for connections, in-flight flows and workout links
 src/garmin/payload.ts  plan -> the Training API's workout JSON (pure, and lossy)
 src/garmin/api.ts      the Training API itself: workouts, and calendar entries
+src/garmin/activities.ts  what the athlete recorded, matched back to the plan
 src/garmin/sync.ts     the diff, and what to do about each side of it
 src/garmin/routes.ts   /garmin/* and /api/garmin/*
 ```
@@ -585,7 +593,7 @@ asserted as one calendar entry on the new date rather than as two API calls in
 some order.
 
 ```bash
-npm test        # 251 tests
+npm test        # 287 tests
 npm run typecheck
 ```
 
@@ -598,7 +606,7 @@ npm run typecheck
 | `auth.test.ts` | Google and Apple sign-in, state handling, ID-token checks, sessions, API tokens |
 | `oauth.test.ts` | Discovery, registration, consent, the PKCE code exchange, refresh, connected apps |
 | `mcp.test.ts` | The JSON-RPC protocol and every tool |
-| `garmin.test.ts` | Token sealing, the PKCE flow, the payload mapping and its lossy edges, every branch of the sync diff, token refresh and mid-run invalidation, the one-sync-at-a-time lock, the shared call budget, the nightly sweep, and partial failure |
+| `garmin.test.ts` | Token sealing, the PKCE flow, the payload mapping and its lossy edges, every branch of the sync diff, matching recorded activities to planned sessions, token refresh and mid-run invalidation, the one-sync-at-a-time lock, the shared call budget, the nightly sweep, and partial failure |
 
 ## Cost
 

@@ -26,6 +26,12 @@
  * indefensible. So a link whose date is still inside the window and has no
  * workout was deleted, and is removed from Garmin; one whose date has fallen
  * outside it is left alone on Garmin and merely stops being tracked here.
+ *
+ * Once the plan is pushed, a run finishes by looking the other way: `activities.ts`
+ * reads what the athlete actually recorded and ticks off the sessions it
+ * accounts for. That is the half of the sync Garmin is authoritative for —
+ * whether a session happened is something only the watch knows — and it only
+ * ever sets a completion, never clears one. See that module for why.
  */
 
 import * as db from '../db';
@@ -33,6 +39,7 @@ import type { Env } from '../db';
 import type { Workout } from '../workout';
 import { fingerprint } from './crypto';
 import { GarminApiError, createWorkout, deleteWorkout, scheduleWorkout, unscheduleWorkout, updateWorkout } from './api';
+import { UPLOAD_LOOKBACK_DAYS, activityLabel, completableRange, fetchActivities, matchCompletions, uploadWindows } from './activities';
 import { buildWorkout } from './payload';
 import type { GarminWorkout } from './payload';
 import { GarminAuthError, isConfigured } from './oauth';
@@ -43,8 +50,9 @@ import type { Connection, Link } from './store';
  * The most Garmin calls one *Worker invocation* may make.
  *
  * A Worker gets a bounded number of outbound subrequests per invocation — 50
- * on the free plan this app is built to fit — and a workout costs up to four
- * of them. So a run does what it can within budget and says how much is left,
+ * on the free plan this app is built to fit — and a workout costs one to four
+ * of them, per `costOf`. So a run does what it can within budget and says how
+ * much is left,
  * rather than dying partway through with no report. Nothing is lost: the next
  * run picks up exactly where this one stopped, because the diff is computed
  * from stored state rather than from where a cursor got to.
@@ -91,12 +99,29 @@ export type SyncEntry = {
   payload?: GarminWorkout;
 };
 
+/** A session Garmin says the athlete did, and the activity that says so. */
+export type CompletedEntry = {
+  date: string;
+  id: string;
+  name?: string;
+  /** ISO instant, taken from when the activity started. */
+  completed_at: string;
+  activity: string;
+};
+
 export type SyncReport = {
   dry_run: boolean;
   /** Set when the call budget ran out; run again to finish. */
   truncated: boolean;
   counts: Record<SyncAction, number>;
   workouts: SyncEntry[];
+  /**
+   * Sessions ticked off from what the athlete recorded on Garmin. Empty on a
+   * dry run, which makes no calls and so cannot ask.
+   */
+  completed: CompletedEntry[];
+  /** Why the completion pull did not run, or did not run in full. */
+  completed_note?: string;
   /** A failure that stopped the run rather than one workout. */
   error?: string;
 };
@@ -171,6 +196,30 @@ export function planFor(workout: Workout, link: Link | undefined, current: strin
   if (contentStale) return { do: 'update', link };
   if (dateStale) return { do: 'reschedule', link };
   return { do: 'nothing' };
+}
+
+/**
+ * How many Garmin calls a plan costs.
+ *
+ * "Costs" nominally: the update paths can discover the workout is gone from
+ * Garmin and spend up to three more calls putting it back. That is rare, and
+ * `MAX_CALLS_PER_RUN` sits far enough below the real subrequest limit to
+ * absorb it — whereas reserving for it on every workout stops a run several
+ * calls early *every* time, to stand ready for something that almost never
+ * happens. Being exact here is what lets a budget of two do the one create it
+ * can afford instead of declining it.
+ */
+function costOf(plan: Exclude<Plan, { do: 'nothing' }>): number {
+  switch (plan.do) {
+    case 'create':
+      return 2; // create, then schedule
+    case 'update':
+      return 1;
+    case 'reschedule':
+      return plan.link.garminScheduleId ? 2 : 1; // clear the old entry, if there is one
+    case 'update-and-reschedule':
+      return 1 + (plan.link.garminScheduleId ? 2 : 1);
+  }
 }
 
 /**
@@ -341,7 +390,7 @@ async function run(env: Env, stored: Connection, options: SyncOptions, dryRun: b
 
   let connection: Connection = dryRun ? stored : await store.withFreshToken(env, stored);
 
-  const report: SyncReport = { dry_run: dryRun, truncated: false, counts: emptyCounts(), workouts: [] };
+  const report: SyncReport = { dry_run: dryRun, truncated: false, counts: emptyCounts(), workouts: [], completed: [] };
   const record = (entry: SyncEntry): void => {
     report.counts[entry.action]++;
     report.workouts.push(entry);
@@ -407,11 +456,10 @@ async function run(env: Env, stored: Connection, options: SyncOptions, dryRun: b
       continue;
     }
 
-    // Four calls is the most a single workout can cost — an update that turns
-    // out to be gone, then clearing its entry, then creating and scheduling
-    // it again. Stopping while that much is left means no workout is ever
-    // half-applied for want of budget, only for want of Garmin's cooperation.
-    if (budget.remaining < 4) {
+    // Stopping while this workout's own calls are still affordable means no
+    // workout is ever half-applied for want of budget, only for want of
+    // Garmin's cooperation.
+    if (budget.remaining < costOf(plan)) {
       report.truncated = true;
       record({ ...base, action: 'skipped' });
       continue;
@@ -460,7 +508,9 @@ async function run(env: Env, stored: Connection, options: SyncOptions, dryRun: b
       record({ ...base, action: 'removed', garmin_workout_id: link.garminWorkoutId });
       continue;
     }
-    if (budget.remaining < 2) {
+    // Clearing the entry, then deleting the workout — one call if there was
+    // never an entry to clear.
+    if (budget.remaining < (link.garminScheduleId ? 2 : 1)) {
       report.truncated = true;
       record({ ...base, action: 'skipped' });
       continue;
@@ -487,6 +537,11 @@ async function run(env: Env, stored: Connection, options: SyncOptions, dryRun: b
     }
   }
 
+  // Last, and only with the plan already pushed: a run short of budget should
+  // spend what it has getting sessions onto the watch before it spends any
+  // reading history back.
+  await pullCompletions(env, userId, workouts, report, { dryRun, fatal, budget, attempt });
+
   if (fatal) report.error = fatal;
 
   if (!dryRun) {
@@ -503,6 +558,85 @@ async function run(env: Env, stored: Connection, options: SyncOptions, dryRun: b
 }
 
 /**
+ * Take completions from Garmin: tick off the sessions it accounts for.
+ *
+ * Best effort by design. This is the optional half of a sync — the plan is
+ * already on the calendar — so a refused or unreachable activity query leaves
+ * a note rather than failing the run, and never touches `fatal`.
+ *
+ * Only ever sets a completion. See `activities.ts` for why never clearing one
+ * is the more important half of that rule.
+ */
+async function pullCompletions(
+  env: Env,
+  userId: string,
+  workouts: Workout[],
+  report: SyncReport,
+  context: {
+    dryRun: boolean;
+    fatal: string | undefined;
+    budget: Budget;
+    attempt: <T>(work: (token: string) => Promise<T>) => Promise<T>;
+  },
+): Promise<void> {
+  const { dryRun, fatal, budget, attempt } = context;
+
+  if (dryRun) {
+    report.completed_note = 'A preview makes no calls, so it cannot ask Garmin what was completed.';
+    return;
+  }
+  if (fatal) return;
+
+  // Only sessions that could plausibly have happened and have not been ticked
+  // off — which is what makes the pull idempotent, and what makes a settled
+  // plan of future workouts cost nothing to sync.
+  const range = completableRange();
+  const outstanding = workouts.filter(
+    (workout) => !workout.completed_at && workout.date >= range.from && workout.date <= range.to,
+  );
+  if (outstanding.length === 0) return;
+
+  if (budget.remaining < UPLOAD_LOOKBACK_DAYS) {
+    report.truncated = true;
+    report.completed_note = 'Ran out of calls before reading what was completed; the next sync will.';
+    return;
+  }
+
+  const activities = [];
+  let refused = 0;
+  for (const window of uploadWindows()) {
+    budget.remaining--;
+    // `attempt` gives this the same one-401-retry the pushes get, so a token
+    // invalidated mid-run does not cost the pull.
+    const slice = await attempt((token) => fetchActivities(token, window)).catch(() => null);
+    if (slice === null) refused++;
+    else activities.push(...slice);
+  }
+
+  if (refused > 0) {
+    report.completed_note =
+      refused === UPLOAD_LOOKBACK_DAYS
+        ? 'Garmin would not say what was completed; the plan was still pushed.'
+        : `Garmin answered ${UPLOAD_LOOKBACK_DAYS - refused} of ${UPLOAD_LOOKBACK_DAYS} days of history.`;
+  }
+
+  for (const { workout, activity, completedAt } of matchCompletions(outstanding, activities)) {
+    // `setCompleted` is the same write the dashboard's tick uses, so a session
+    // completed from Garmin is indistinguishable from one ticked by hand —
+    // which is the point: there is one notion of done.
+    const updated = await db.setCompleted(env, userId, workout.date, workout.id, completedAt);
+    if (!updated) continue;
+    report.completed.push({
+      date: workout.date,
+      id: workout.id,
+      name: workout.name,
+      completed_at: completedAt,
+      activity: activityLabel(activity),
+    });
+  }
+}
+
+/**
  * The nightly sweep: push for every athlete who asked for it.
  *
  * Bounded, and ordered by how long it has been since each was last synced, so
@@ -512,8 +646,8 @@ async function run(env: Env, stored: Connection, options: SyncOptions, dryRun: b
  */
 export async function syncEveryone(
   env: Env,
-): Promise<{ users: number; pushed: number; failed: number; budgetSpent: boolean }> {
-  if (!isConfigured(env)) return { users: 0, pushed: 0, failed: 0, budgetSpent: false };
+): Promise<{ users: number; pushed: number; completed: number; failed: number; budgetSpent: boolean }> {
+  if (!isConfigured(env)) return { users: 0, pushed: 0, completed: 0, failed: 0, budgetSpent: false };
 
   const userIds = await store.autoSyncUserIds(env, MAX_USERS_PER_SWEEP);
   // One budget for the whole invocation, because the subrequest limit is per
@@ -521,18 +655,21 @@ export async function syncEveryone(
   const budget = newBudget();
   let users = 0;
   let pushed = 0;
+  let completed = 0;
   let failed = 0;
 
   for (const userId of userIds) {
-    // Four is the most one workout can cost, so stopping here leaves the
-    // remaining athletes untouched rather than half-synced. They sort first
-    // tomorrow: `autoSyncUserIds` orders by how long it has been.
-    if (budget.remaining < 4) break;
+    // Enough to create and schedule one workout, which is the least a turn
+    // for an athlete is worth taking. Below it the remaining athletes are
+    // left untouched rather than half-served; they sort first tomorrow,
+    // since `autoSyncUserIds` orders by how long it has been.
+    if (budget.remaining < 2) break;
     users++;
 
     try {
       const report = await syncAll(env, userId, { budget });
       pushed += report.counts.created + report.counts.updated + report.counts.rescheduled + report.counts.removed;
+      completed += report.completed.length;
       failed += report.counts.failed;
     } catch (error) {
       // One athlete's expired connection must not stop the sweep for the
@@ -545,7 +682,7 @@ export async function syncEveryone(
     }
   }
 
-  return { users, pushed, failed, budgetSpent: budget.remaining < 4 };
+  return { users, pushed, completed, failed, budgetSpent: budget.remaining < 2 };
 }
 
 /** What the dashboard and the MCP tools are told, with no token material in it. */
