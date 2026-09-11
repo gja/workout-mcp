@@ -100,3 +100,12 @@ carrying the server's own message.
 Workout dates are plain `YYYY-MM-DD` — a day on a calendar, not an instant — so
 every conversion in `src/client/dates.ts` goes through *local* midnight.
 `toISOString` would push the date back a day for anyone west of Greenwich.
+
+One page, in a fixed order: masthead, calendar, a **Setup** accordion, then the
+FAQ. Setup holds the four panels — Integrations, Connect to Claude, API tokens,
+Connected apps — and each is a component that fetches its own slice, so opening
+one does not wait on the others. The accordion is `<details>` elements sharing a
+`name`, which is what makes a browser close the siblings: there is no open-panel
+state in React, and the panels still work with JavaScript half-loaded. The FAQ
+uses the same pair and renders signed out as well, which is the only part of the
+page a first-time visitor sees.

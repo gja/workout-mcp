@@ -90,7 +90,7 @@ describe('dashboard', () => {
     const response = await SELF.fetch(`${BASE}/`);
     expect(response.status).toBe(200);
     expect(response.headers.get('Content-Type')).toContain('text/html');
-    expect(await response.text()).toContain('<title>Workouts</title>');
+    expect(await response.text()).toContain('<title>WorkoutsMCP</title>');
   });
 });
 

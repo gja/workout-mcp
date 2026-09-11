@@ -46,7 +46,7 @@ where nothing has been validated; reached that way it refuses to follow a
 ## With a static token
 
 For a client that only takes a header — mint one on the dashboard under
-*Tokens*. These are not OAuth tokens, so the provider would normally reject
+*API tokens*. These are not OAuth tokens, so the provider would normally reject
 them; the Worker registers a `resolveExternalToken` callback that resolves a
 `wk_` token to the same identity, and both kinds arrive at the MCP handler
 identically:

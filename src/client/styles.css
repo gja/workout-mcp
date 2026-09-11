@@ -41,7 +41,7 @@ h1 { font-size: 20px; margin: 0 0 4px; }
 h2 { font-size: 16px; margin: 32px 0 10px; }
 h3 { font-size: 15px; margin: 24px 0 8px; }
 
-.sub { color: var(--muted); margin: 0 0 24px; font-size: 14px; }
+.sub { color: var(--muted); margin: 0; font-size: 14px; max-width: 56ch; }
 .note, .empty { color: var(--muted); font-size: 14px; }
 .error { color: var(--danger); font-size: 14px; }
 
@@ -76,6 +76,99 @@ a.button {
 }
 a.button:hover { border-color: var(--accent); }
 .providers { display: flex; flex-direction: column; gap: 10px; margin: 16px 0; }
+
+/* --- Masthead ----------------------------------------------------------- */
+
+.masthead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 28px;
+}
+.whoami { display: flex; gap: 12px; align-items: baseline; }
+
+/* --- Accordion ---------------------------------------------------------- */
+
+/* One border per group rather than per section, so the closed stack reads as a list. */
+.accordion {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--card);
+}
+.section + .section { border-top: 1px solid var(--line); }
+
+/* Deliberately not wrapping: the hint truncates so the chevron stays on the title's line. */
+.section > summary {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 13px 16px;
+  cursor: pointer;
+  /* The marker is drawn below, so the default triangle would be a second one. */
+  list-style: none;
+}
+.section > summary::-webkit-details-marker { display: none; }
+.section > summary:hover .section-title { color: var(--accent); }
+
+.section-title { flex: 0 0 auto; font-weight: 600; }
+.section-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* A chevron that turns, rather than a glyph that swaps: no font dependency. */
+.section > summary::after {
+  content: '';
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  align-self: center;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg) translate(-2px, -2px);
+  transition: transform 120ms ease;
+}
+.section[open] > summary::after { transform: rotate(-135deg) translate(-2px, -2px); }
+
+.section-body { padding: 0 16px 16px; }
+.section-body > p { margin: 0 0 12px; }
+.section-body > p:last-child { margin-bottom: 0; }
+.section-body h3 { margin-top: 16px; }
+.section-body .card h3 { margin-top: 0; }
+.section-body .card:last-child { margin-bottom: 0; }
+/* A card already sits on the panel's ground, so a second fill would only hide the snippet inside it. */
+.section-body .card { background: none; }
+
+/* --- Badges ------------------------------------------------------------- */
+
+.badges { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 14px 0 0; }
+
+.badge {
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: 4px;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 500;
+  text-decoration: none;
+}
+.badge > span { display: flex; align-items: center; gap: 4px; padding: 6px 7px; }
+.badge-label { background: #4c4c53; color: #fff; }
+.badge-value { background: #1f6feb; color: #fff; }
+.badge svg { width: 12px; height: 12px; fill: currentColor; }
+/* Only the repo badge carries the mark; the second one would read as a second link to it. */
+.badge + .badge svg { display: none; }
+.badge:hover .badge-value { filter: brightness(1.15); }
 
 /* --- Calendar ----------------------------------------------------------- */
 

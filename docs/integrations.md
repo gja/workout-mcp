@@ -14,8 +14,8 @@ in that directory and a line in `PLATFORMS`, not another call site.
 ## Connecting intervals.icu
 
 It takes an API key: in intervals.icu open **Settings** and find the
-**Developer Settings** box at the bottom. Paste it into the Training platforms
-section of the dashboard. The key is checked against intervals.icu before it is
+**Developer Settings** box at the bottom. Paste it into the **Integrations**
+panel on the dashboard. The key is checked against intervals.icu before it is
 stored, so a typo fails there and then, and whatever is already planned is
 pushed straight away rather than trickling out as you next happen to edit
 something.

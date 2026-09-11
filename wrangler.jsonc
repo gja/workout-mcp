@@ -16,7 +16,7 @@
 		"binding": "ASSETS"
 	},
 	"vars": {
-		"APP_NAME": "Workouts"
+		"APP_NAME": "WorkoutsMCP"
 		// Sign-in is configured with secrets, not here. Google alone is enough:
 		//   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 		// Apple is optional and needs a paid developer account:
