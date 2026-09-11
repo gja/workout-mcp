@@ -162,6 +162,13 @@ async function garminApi(request, url) {
   const path = url.pathname;
   const bearer = (request.headers.get('Authorization') ?? '').replace('Bearer ', '');
 
+  // Drained before anything else can answer early. A workerd handler that
+  // sends a response while a request body is still unread — which is exactly
+  // what the 401 paths below do — logs an uncaught exception for it, and a
+  // fixture that shouts during a test it is passing is a fixture nobody
+  // believes the next time it shouts.
+  const sent = request.method === 'POST' || request.method === 'PUT' ? await request.json().catch(() => null) : null;
+
   if (path === '/wellness-api/rest/user/id') return Response.json({ userId: 'garmin-athlete-1' });
 
   // What the athlete recorded. Sliced by upload time, as Garmin slices it, so
@@ -191,7 +198,7 @@ async function garminApi(request, url) {
   if (!bearer) return unauthorized();
   if (garmin.fail.expireTokens) return unauthorized();
 
-  const body = request.method === 'POST' || request.method === 'PUT' ? await request.json() : null;
+  const body = sent;
   garmin.calls.push({ what: `${request.method} ${path}`, body });
 
   // Workouts
