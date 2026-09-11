@@ -1130,7 +1130,13 @@ describe('pushing after a write', () => {
 
     // A sync afterwards has nothing left to do, which is the real assertion:
     // the plan is entirely on the calendar.
-    const report = await syncAll(env, athlete);
+    //
+    // Retried, because the push that won the lock is still holding it at this
+    // point: it has done the work the assertions above just checked, and is
+    // going round once more for the resync mark before releasing. A
+    // `SyncBusyError` here would be that timing rather than a verdict on the
+    // plan, so this waits for the lock instead of racing it.
+    const report = await vi.waitFor(() => syncAll(env, athlete), { timeout: 5_000, interval: 25 });
     expect(report.counts.unchanged).toBe(days.length);
     expect(report.counts.created).toBe(0);
   });
