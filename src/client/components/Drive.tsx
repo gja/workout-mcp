@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { configureDrive, disconnectDrive, getDrive, syncDrive, type DriveReport, type DriveStatus } from '../api';
+import { configureDrive, disconnectDrive, getConfig, syncDrive, type DriveReport, type DriveStatus } from '../api';
 
 /** What a finished run amounts to, in one line. */
 function describeCopy(report: DriveReport): string {
@@ -18,7 +18,7 @@ export function Drive() {
   const [note, setNote] = useState<string | null>(null);
 
   const reload = () => {
-    getDrive().then(setDrive, (failure: Error) => setError(failure.message));
+    getConfig().then((config) => setDrive(config.drive), (failure: Error) => setError(failure.message));
   };
 
   useEffect(reload, []);
@@ -69,7 +69,7 @@ export function Drive() {
   if (!drive.configured) {
     return (
       <p className="error">
-        Google Drive is disabled until <code>GOOGLE_DRIVE_CLIENT_EMAIL</code> and{' '}
+        Drive copying is disabled until <code>GOOGLE_DRIVE_CLIENT_EMAIL</code> and{' '}
         <code>GOOGLE_DRIVE_PRIVATE_KEY</code> are set on the Worker.
       </p>
     );
@@ -91,7 +91,7 @@ export function Drive() {
 
       <article className="card">
         <header>
-          <h3>Google Drive</h3>
+          <h3>Google Workspace Drive</h3>
           <span className="id">{drive.connected ? (drive.drive_name ?? 'connected') : 'not connected'}</span>
         </header>
 

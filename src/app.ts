@@ -6,9 +6,8 @@ import { CORS_HEADERS, error, isApiPath, json, routablePath, withUser } from './
 import { Router } from './router';
 import type { Handler } from './router';
 import * as account from './routes/account';
-import * as drive from './routes/drive';
+import * as integrations from './routes/integrations';
 import * as oauth from './routes/oauth';
-import * as platforms from './routes/platforms';
 import * as signin from './routes/signin';
 import * as workouts from './routes/workouts';
 import { isCallerError } from './tools';
@@ -47,8 +46,7 @@ const routes = new Router<Context>({
   .mount(signin.routes)
   .mount(oauth.routes)
   .mount(account.routes)
-  .mount(platforms.routes)
-  .mount(drive.routes)
+  .mount(integrations.routes)
   .mount(workouts.routes);
 
 export const app = {

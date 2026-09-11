@@ -75,7 +75,7 @@ function Dashboard({ me }: { me: Me }) {
           <Section group="setup" title="Integrations" hint="intervals.icu">
             <Platforms onSynced={reload} />
           </Section>
-          <Section group="setup" title="Google Drive" hint="Race files">
+          <Section group="setup" title="Google Workspace Drive" hint="Race files">
             <Drive />
           </Section>
           <Section group="setup" title="Connect to Claude" hint="Custom connector">

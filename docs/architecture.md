@@ -20,8 +20,7 @@ src/routes/       one module per group of routes, each declaring its own paths
   signin.ts         /auth/* and /api/auth/logout
   oauth.ts          /oauth/authorize and /oauth/client: how an MCP client gets in
   account.ts        /api/me, /api/tokens, /api/connections
-  platforms.ts      /api/platforms: connecting a training platform, and syncing
-  drive.ts          /api/drive: where race files are copied to
+  integrations.ts   /api/config and /api/sync: training platforms and the drive
   workouts.ts       /api/workouts, /api/tools and /export
 src/app.ts        the OAuth provider's defaultHandler: the table the rest mount onto
 src/index.ts      the provider itself, and the protected /mcp handler
@@ -105,8 +104,8 @@ every conversion in `src/client/dates.ts` goes through *local* midnight.
 `toISOString` would push the date back a day for anyone west of Greenwich.
 
 One page, in a fixed order: masthead, calendar, a **Setup** accordion, then the
-FAQ. Setup holds the five panels — Integrations, Google Drive, Connect to
-Claude, API tokens, Connected apps — and each is a component that fetches its
+FAQ. Setup holds the five panels — Integrations, Google Workspace Drive, Connect
+to Claude, API tokens, Connected apps — and each is a component that fetches its
 own slice, so opening one does not wait on the others. The accordion is `<details>` elements sharing a
 `name`, which is what makes a browser close the siblings: there is no open-panel
 state in React, and the panels still work with JavaScript half-loaded. The FAQ

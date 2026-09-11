@@ -1,4 +1,4 @@
-# Google Drive
+# Google Workspace Drive
 
 Nothing here keeps your training data. That is the point of the project, and it
 is also the limit of it: there is no heart-rate stream to look at, no GPS track,

@@ -70,7 +70,7 @@ export function Faq() {
           </p>
         </Section>
 
-        <Section group="faq" title="How do I analyse my data?" hint="Sync it to your own Drive">
+        <Section group="faq" title="How do I analyse my data?" hint="Sync it to your own Workspace Drive">
           <p className="note">
             Connect a Google shared drive under <strong>Setup</strong>, and every race you record on a connected
             training platform is copied into it as the FIT file your watch produced, filed as{' '}

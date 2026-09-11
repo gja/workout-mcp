@@ -88,17 +88,19 @@ export type SyncReport = {
   error: string | null;
 };
 
-export const listPlatforms = (): Promise<{ configured: boolean; platforms: Platform[] }> =>
-  request('/api/platforms');
+/** Every integration's state in one read: each Setup panel takes its own slice. */
+export type Config = { credentials_configured: boolean; platforms: Platform[]; drive: DriveStatus };
+
+export const getConfig = (): Promise<Config> => request('/api/config');
 
 export const connectPlatform = (id: string, key: string): Promise<{ account: string; sync: SyncReport }> =>
-  request(`/api/platforms/${id}`, { method: 'PUT', body: { key } });
+  request(`/api/config/${id}`, { method: 'PUT', body: { key } });
 
 export const disconnectPlatform = (id: string): Promise<unknown> =>
-  request(`/api/platforms/${id}`, { method: 'DELETE' });
+  request(`/api/config/${id}`, { method: 'DELETE' });
 
 export const syncPlatform = (id: string): Promise<SyncReport> =>
-  request(`/api/platforms/${id}/sync`, { method: 'POST' });
+  request(`/api/sync/${id}`, { method: 'POST' });
 
 /** One race already relayed into the athlete's drive. */
 export type DriveCopy = { platform: string; remote_id: string; path: string; copied_at: string };
@@ -121,14 +123,12 @@ export type DriveStatus = {
 /** `remaining` is what the per-run cap left behind. */
 export type DriveReport = { copied: number; remaining: number; paths: string[]; error: string | null };
 
-export const getDrive = (): Promise<DriveStatus> => request('/api/drive');
-
 export const configureDrive = (drive: string): Promise<{ drive_name: string; sync: DriveReport }> =>
-  request('/api/drive', { method: 'PUT', body: { drive } });
+  request('/api/config/drive', { method: 'PUT', body: { drive } });
 
-export const disconnectDrive = (): Promise<unknown> => request('/api/drive', { method: 'DELETE' });
+export const disconnectDrive = (): Promise<unknown> => request('/api/config/drive', { method: 'DELETE' });
 
-export const syncDrive = (): Promise<DriveReport> => request('/api/drive/sync', { method: 'POST' });
+export const syncDrive = (): Promise<DriveReport> => request('/api/sync/drive', { method: 'POST' });
 
 export const listTokens = (): Promise<{ tokens: ApiToken[] }> => request('/api/tokens');
 export const createToken = (name: string): Promise<IssuedToken> => request('/api/tokens', { method: 'POST', body: { name } });

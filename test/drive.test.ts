@@ -37,28 +37,31 @@ const call = (path: string, init: RequestInit = {}) =>
   });
 
 const connectPlatform = () =>
-  call('/api/platforms/intervals', { method: 'PUT', body: JSON.stringify({ key: KEY }) });
+  call('/api/config/intervals', { method: 'PUT', body: JSON.stringify({ key: KEY }) });
 
 type Report = { copied: number; remaining: number; paths: string[]; error: string | null };
 
 const connectDrive = async (drive = `https://drive.google.com/drive/folders/${DRIVE}`) => {
-  const response = await call('/api/drive', { method: 'PUT', body: JSON.stringify({ drive }) });
+  const response = await call('/api/config/drive', { method: 'PUT', body: JSON.stringify({ drive }) });
   return { response, body: (await response.json()) as { drive_name?: string; sync?: Report; error?: string } };
 };
 
 const copyNow = async (): Promise<Report> =>
-  (await (await call('/api/drive/sync', { method: 'POST' })).json()) as Report;
+  (await (await call('/api/sync/drive', { method: 'POST' })).json()) as Report;
 
+/** The drive's slice of the one config read every Setup panel uses. */
 const driveStatus = async () =>
-  (await (await call('/api/drive')).json()) as {
-    configured: boolean;
-    service_account: string | null;
-    connected: boolean;
-    drive_name: string | null;
-    last_error: string | null;
-    copied: number;
-    recent: Array<{ path: string }>;
-  };
+  ((await (await call('/api/config')).json()) as { drive: DriveStatus }).drive;
+
+type DriveStatus = {
+  configured: boolean;
+  service_account: string | null;
+  connected: boolean;
+  drive_name: string | null;
+  last_error: string | null;
+  copied: number;
+  recent: Array<{ path: string }>;
+};
 
 const RACE_DAY = shiftDate(today(), -2);
 const MONTH = RACE_DAY.slice(0, 7);
@@ -124,7 +127,7 @@ describe('configuring a drive', () => {
 
   it('forgets the drive, leaving what was copied where it is', async () => {
     await connectDrive();
-    expect((await call('/api/drive', { method: 'DELETE' })).status).toBe(200);
+    expect((await call('/api/config/drive', { method: 'DELETE' })).status).toBe(200);
     expect((await driveStatus()).connected).toBe(false);
   });
 
@@ -133,8 +136,8 @@ describe('configuring a drive', () => {
     expect(report).toMatchObject({ copied: 0, error: 'no Google Drive is configured for this account' });
   });
 
-  it('needs a session: the drive is not readable without one', async () => {
-    expect((await SELF.fetch(`${BASE}/api/drive`)).status).toBe(401);
+  it('needs a session: the config is not readable without one', async () => {
+    expect((await SELF.fetch(`${BASE}/api/config`)).status).toBe(401);
   });
 });
 

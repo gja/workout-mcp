@@ -1,12 +1,5 @@
 import { useEffect, useState } from 'react';
-import {
-  connectPlatform,
-  disconnectPlatform,
-  listPlatforms,
-  syncPlatform,
-  type Platform,
-  type SyncReport,
-} from '../api';
+import { connectPlatform, disconnectPlatform, getConfig, syncPlatform, type Platform, type SyncReport } from '../api';
 
 /** What a finished run amounts to, in one line. */
 function describeSync(report: SyncReport): string {
@@ -139,10 +132,10 @@ export function Platforms({ onSynced }: { onSynced: () => void }) {
   const [error, setError] = useState<string | null>(null);
 
   const reload = () => {
-    listPlatforms().then(
-      (result) => {
-        setPlatforms(result.platforms);
-        setConfigured(result.configured);
+    getConfig().then(
+      (config) => {
+        setPlatforms(config.platforms);
+        setConfigured(config.credentials_configured);
       },
       (failure: Error) => setError(failure.message),
     );
