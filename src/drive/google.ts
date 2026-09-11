@@ -127,14 +127,6 @@ async function call<T>(token: string, url: string, init: RequestInit = {}): Prom
   const body = (await response.json().catch(() => ({}))) as T & { error?: { message?: string } };
   if (!response.ok) {
     const detail = body.error?.message ?? '';
-    // Google blames *your* Drive for a quota that is the service account's own — none at all.
-    // It only shows up on a real upload, since a folder weighs nothing, so say what it means.
-    if (/storage quota|storageQuotaExceeded/i.test(detail)) {
-      return fail(
-        'Google refused the upload for lack of storage quota, which means this is a personal Drive folder: ' +
-          'a service account owns what it uploads and has no quota of its own. Use a shared drive instead.',
-      );
-    }
     return fail(`Google Drive answered ${response.status}${detail ? `: ${detail}` : ''}`);
   }
   return body;
@@ -152,11 +144,21 @@ export function readDriveId(pasted: string): string | null {
 
 export type Drive = { id: string; name: string };
 
+/** Why a folder is refused outright rather than used. See "Only a shared drive" in docs/drive.md. */
+const NOT_A_SHARED_DRIVE =
+  'that is a folder, not a shared drive. A service account owns whatever it uploads and has no ' +
+  'storage of its own, so a folder in someone’s Drive has no quota to charge the file to. Make a ' +
+  'shared drive — New › Shared drive — and paste that instead.';
+
 /**
- * Prove the service account can see the drive, and say what it is called.
+ * The shared drive behind an id, or a refusal saying why it is not one.
  *
- * A shared drive is asked about as a drive; the same id is also its root folder,
- * which is what an athlete who pasted a plain folder link will have given us.
+ * Only `drives.get` is consulted, and a folder is not accepted as a substitute
+ * even though its link looks identical: the upload would fail later on quota,
+ * long after the form said yes. A subfolder of a shared drive would in fact
+ * work, and is refused too — "paste the drive" is a rule an athlete can follow,
+ * where "paste the drive, or a folder in one, but not a folder in your own
+ * Drive" is not.
  */
 export async function findDrive(token: string, driveId: string): Promise<Drive> {
   try {
@@ -165,17 +167,19 @@ export async function findDrive(token: string, driveId: string): Promise<Drive> 
       `${DRIVE}/drives/${encodeURIComponent(driveId)}?fields=id,name`,
     );
     if (drive.id) return { id: drive.id, name: drive.name ?? 'Shared drive' };
+    return fail(NOT_A_SHARED_DRIVE);
   } catch (err) {
     if (!(err instanceof DriveError) || !/ 40[34]\b/.test(err.message)) throw err;
   }
 
-  const folder = await call<{ id?: string; name?: string; mimeType?: string }>(
+  // Not a drive. Ask what it actually is, so the refusal names it rather than guessing.
+  const found = await call<{ mimeType?: string }>(
     token,
-    `${DRIVE}/files/${encodeURIComponent(driveId)}?fields=id,name,mimeType&${new URLSearchParams(SHARED_DRIVE_PARAMS)}`,
-  );
-  const id = folder.id ?? fail('Google Drive did not recognise that drive');
-  if (folder.mimeType !== FOLDER_TYPE) fail('that link points at a file, not a drive or a folder');
-  return { id, name: folder.name ?? 'Folder' };
+    `${DRIVE}/files/${encodeURIComponent(driveId)}?fields=mimeType&${new URLSearchParams(SHARED_DRIVE_PARAMS)}`,
+  ).catch(() => null);
+
+  if (!found) fail('Google Drive does not recognise that link, or it is not shared with the service account');
+  return fail(found?.mimeType === FOLDER_TYPE ? NOT_A_SHARED_DRIVE : 'that link points at a file, not a shared drive');
 }
 
 /** A Drive query string literal: single quotes and backslashes have to be escaped. */

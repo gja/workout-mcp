@@ -83,7 +83,10 @@ export function Drive() {
         stored here.
       </p>
       <p className="note">
-        Files land at <code>{drive.path_template}</code>.
+        Files land at <code>{drive.path_template}</code>. It has to be a <strong>shared drive</strong>, not a folder —
+        a service account owns what it uploads and has no storage of its own, so a folder in your own Drive has no
+        quota to charge the file to. Shared drives are a Google Workspace feature, so a free Gmail account cannot use
+        this.
       </p>
 
       <article className="card">

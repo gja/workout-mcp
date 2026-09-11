@@ -138,12 +138,12 @@ only a run that finds nothing left to do clears a standing error.
 ### [docs/drive.md](docs/drive.md)
 
 Copying the races you record into your own Google shared drive, so there is
-somewhere to analyse data that this server deliberately does not keep. Walks
-through creating the service account and sharing a drive with it, and explains
-why a service account rather than your Google sign-in, and why a shared drive
-rather than a folder. Then the path each file lands at and why, that a race is
-copied exactly once, and that the recording is relayed without ever being
-stored here.
+somewhere to analyse data this server deliberately does not keep. Walks through
+creating the service account and sharing a drive with it, and explains why a
+service account rather than your Google sign-in, and why only a shared drive
+will do — which makes this Workspace-only. Then the path each file lands at, that
+a race is copied exactly once, and that the recording is relayed without ever
+being stored here.
 
 ### [docs/database.md](docs/database.md)
 

@@ -86,6 +86,12 @@ export function Faq() {
             panel shows you which address, and it writes a folder there to prove it can before storing anything. Only
             races are copied — an ordinary session stays where it is.
           </p>
+          <p className="note">
+            It has to be a shared drive, and those are a Google Workspace feature — so on a free Gmail account this
+            one is not available. A folder in your own Drive is refused rather than accepted and then quietly failing:
+            a service account owns whatever it uploads and has no storage of its own, so there is no quota to charge
+            the file to.
+          </p>
         </Section>
       </Accordion>
     </section>

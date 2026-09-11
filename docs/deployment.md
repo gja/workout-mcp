@@ -38,7 +38,7 @@ does not, so that button is only usable on a real domain.
 | `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY` | Apple sign-in |
 | `ALLOWED_EMAILS` | Restricting who may sign up |
 | `CREDENTIALS_SECRET` | Connecting a training platform |
-| `GOOGLE_DRIVE_CLIENT_EMAIL`, `GOOGLE_DRIVE_PRIVATE_KEY` | Copying races to an athlete's Google Drive |
+| `GOOGLE_DRIVE_CLIENT_EMAIL`, `GOOGLE_DRIVE_PRIVATE_KEY` | Copying races to an athlete's Google shared drive |
 
 `APP_NAME` is an optional plain variable, shown on the dashboard and the
 consent page.

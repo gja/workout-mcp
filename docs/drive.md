@@ -20,6 +20,11 @@ Only races are copied. An ordinary Tuesday evening session stays where it is; a
 race is a session you marked as one on the platform, which is a decision you
 already made for your own reasons.
 
+> **This needs a Google Workspace account.** It writes into a *shared drive*,
+> and shared drives are a Workspace feature — a free Gmail account cannot
+> create one, so it cannot use this integration. The reason is not a policy
+> choice; it is [what a service account can own](#only-a-shared-drive).
+
 ## Setting up the service account
 
 This is the deployment's side of it, done once. Skip to [Connecting a
@@ -67,8 +72,8 @@ justify to Google. A service account authenticates as itself.
 What an athlete does, once:
 
 1. In Google Drive, make a **shared drive** — *New* → *Shared drive* in the
-   left-hand column. An ordinary My Drive folder will also work, but see
-   [Why a shared drive](#why-a-shared-drive) first.
+   left-hand column. This is the Workspace-only part; a folder will not do, and
+   is refused. See [Only a shared drive](#only-a-shared-drive).
 2. Open it, **Manage members**, and add the service account's address (the
    dashboard shows it) as a **Contributor** — see [What it is allowed to
    do](#what-it-is-allowed-to-do).
@@ -98,34 +103,36 @@ Content manager also works and is what you want if you would rather *we* could
 tidy up, but nothing here ever will. Commenter and Viewer cannot create the
 folder, so connecting fails.
 
-### Why a shared drive
+### Only a shared drive
 
-A service account has no Drive storage of its own — no Google Workspace
-licence, so no quota. A file it creates in *your* My Drive folder is owned by
-the service account and counts against a quota that does not exist, which
-Google refuses with a storage error. In a shared drive the *drive* owns the
-file, so there is no quota to charge it to, and the file is unambiguously
-yours: revoking the service account's membership leaves every file already
-there untouched and no longer reachable by us.
+A folder is refused, and the refusal says why. It is the one restriction here
+worth understanding, because the link looks the same either way:
+`drive.google.com/drive/folders/<id>` is what you copy for a shared drive's root
+*and* for a folder in your own Drive.
 
-### A personal folder shared with the service account
+Google charges storage against whoever **owns** a file. A service account owns
+everything it uploads and has no storage of its own — no Workspace licence, no
+quota — so a file in your My Drive folder is charged to an account with nowhere
+to put it, and Google refuses it with `storageQuotaExceeded`. That reads as
+though *your* Drive is full and has nothing to do with your Drive. In a shared
+drive the **drive** owns the file, so there is no quota to charge, and the file
+is unambiguously yours: revoking the service account's membership leaves
+everything already there untouched and no longer reachable by us.
 
-It reads fine, it connects fine, and then the first real upload fails. Google
-enforces quota against whoever *owns* a file, a service account owns everything
-it uploads, and it has no quota — so a file in your My Drive folder is charged
-to an account with nowhere to put it. The error says `storageQuotaExceeded`,
-which reads as though your Drive is full, and is not about your Drive at all.
+So the check at connect time asks `drives.get` and accepts nothing else. A
+folder answers 404 there, and rather than guess, the code asks what the id
+actually is and names it in the refusal. A folder that would have connected
+cleanly and then failed every upload is worse than one that fails at the form.
 
-Connecting cannot catch this, and does not pretend to: the check creates the
-`workouts-mcp` folder, and a folder weighs nothing, so it succeeds where an
-upload will not. What it does catch is a missing or too-weak membership. The
-quota error is rewritten into that explanation when it arrives, so at least the
-dashboard says what actually went wrong rather than repeating Google's wording.
+A *subfolder of a shared drive* would in fact work — the drive still owns the
+file — and is refused all the same. "Paste the shared drive" is a rule an
+athlete can follow; "paste the drive, or a folder inside a shared drive, but not
+a folder in your own Drive" is not.
 
-If you have a Google Workspace account there is a third option — domain-wide
-delegation, where the service account impersonates a real user and files are
-owned by that user. It needs an admin to grant it, and this integration does not
-implement it. A shared drive is free and takes a minute.
+There is a third arrangement that works on a personal folder: **domain-wide
+delegation**, where the service account impersonates a real user and that user
+owns the files. It needs a Workspace admin to grant it — so it does not help a
+free account either — and this integration does not implement it.
 
 ### Why a service account, not your Google sign-in
 

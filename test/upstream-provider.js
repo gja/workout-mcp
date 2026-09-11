@@ -228,8 +228,15 @@ const freshState = () => ({
   failing: {},
   /** Every intervals.icu request seen, so a test can assert the call was made. */
   requests: [],
-  /** Google Drive: the files put there, the calls that put them, and arranged failures. */
-  drive: { files: new Map(), nextId: 1, requests: [], failing: {} },
+  /** Google Drive: the files put there, the calls that put them, and arranged failures.
+   *  Seeded with a folder in someone's own Drive, which is a thing a link can name
+   *  and this integration has to refuse. */
+  drive: {
+    files: new Map([['personal-folder-1', { name: 'Races', mimeType: FOLDER_TYPE, parents: ['root'] }]]),
+    nextId: 1,
+    requests: [],
+    failing: {},
+  },
 });
 
 let state = freshState();

@@ -95,8 +95,16 @@ describe('configuring a drive', () => {
   });
 
   it('refuses a drive the service account cannot see, and stores nothing', async () => {
-    const { response } = await connectDrive('https://drive.google.com/drive/folders/somebody-elses-drive');
+    const { response, body } = await connectDrive('https://drive.google.com/drive/folders/somebody-elses-drive');
     expect(response.status).toBe(400);
+    expect(body.error).toContain('does not recognise');
+    expect((await driveStatus()).connected).toBe(false);
+  });
+
+  it('refuses a folder, even one it can see, because a service account has no quota there', async () => {
+    const { response, body } = await connectDrive('https://drive.google.com/drive/u/2/folders/personal-folder-1');
+    expect(response.status).toBe(400);
+    expect(body.error).toContain('not a shared drive');
     expect((await driveStatus()).connected).toBe(false);
   });
 
