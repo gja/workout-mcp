@@ -6,13 +6,13 @@ import type { Env, User } from '../db';
 import type { Workout } from '../workout';
 import { intervals } from './intervals';
 import * as store from './store';
-import type { Account, Completion, Platform, PlatformId } from './types';
+import type { Account, Competition, Completion, Platform, PlatformId, RecordedFile } from './types';
 import { PlatformError } from './types';
 
 export { CredentialsUnavailable, credentialsConfigured } from './store';
 export type { Connection } from './store';
 export { PlatformError } from './types';
-export type { PlatformId } from './types';
+export type { Competition, PlatformId, RecordedFile } from './types';
 
 export const PLATFORMS: Record<PlatformId, Platform> = { intervals };
 
@@ -294,3 +294,30 @@ export async function retryFailedConnections(env: Env): Promise<number> {
 
 /** Drop links to workouts gone for good. Outside the window only; inside, `syncNow` has them. */
 export const pruneOrphanedLinks = store.pruneOrphanedLinks;
+
+// --- Races, for anything that wants the recording itself ---------------------
+
+/** One platform's races, credential already in hand. What `src/drive/` is handed. */
+export type RaceSource = {
+  platform: PlatformId;
+  /** Names the folder a race lands in, so the destination never learns a platform id. */
+  label: string;
+  races(from: string, to: string): Promise<Competition[]>;
+  recording(competition: Competition): Promise<RecordedFile>;
+};
+
+/** Only platforms that offer races, and only where the athlete's key still reads back. */
+export async function raceSources(env: Env, userId: string): Promise<RaceSource[]> {
+  const sources: RaceSource[] = [];
+  for (const { platform: platformId, key } of await store.usableConnections(env, userId)) {
+    const platform = PLATFORMS[platformId] as Platform | undefined;
+    if (!platform?.competitions || !platform.recording) continue;
+    sources.push({
+      platform: platformId,
+      label: platform.label,
+      races: platform.competitions.bind(platform, key),
+      recording: platform.recording.bind(platform, key),
+    });
+  }
+  return sources;
+}

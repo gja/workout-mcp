@@ -37,6 +37,11 @@ export type Env = {
 
   /** Any passphrase. Without it, connecting a training platform is refused outright. */
   CREDENTIALS_SECRET?: string;
+
+  /** The Google service account race files are copied as. Both are needed. See docs/drive.md. */
+  GOOGLE_DRIVE_CLIENT_EMAIL?: string;
+  /** Its private key, PEM PKCS#8, straight out of the JSON Google downloads. */
+  GOOGLE_DRIVE_PRIVATE_KEY?: string;
 };
 
 export type User = { id: string; email: string | null };

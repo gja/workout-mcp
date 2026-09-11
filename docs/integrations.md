@@ -11,6 +11,10 @@ credential, push a workout, remove one, list completions — and knows nothing
 about our storage, our routing or our window. Adding a platform is a new file
 in that directory and a line in `PLATFORMS`, not another call site.
 
+An adapter may offer two more, `competitions` and `recording`, which is how the
+races an athlete records get copied to their own Google Drive. Both are
+optional, and only `src/drive/` asks; see [drive.md](drive.md).
+
 ## Connecting intervals.icu
 
 It takes an API key: in intervals.icu open **Settings** and find the

@@ -7,6 +7,7 @@ import { ApiTokens } from './components/ApiTokens';
 import { Calendar } from './components/Calendar';
 import { ConnectedApps } from './components/ConnectedApps';
 import { ConnectToClaude } from './components/ConnectToClaude';
+import { Drive } from './components/Drive';
 import { Faq } from './components/Faq';
 import { Platforms } from './components/Platforms';
 import { SignIn } from './components/SignIn';
@@ -73,6 +74,9 @@ function Dashboard({ me }: { me: Me }) {
         <Accordion>
           <Section group="setup" title="Integrations" hint="intervals.icu">
             <Platforms onSynced={reload} />
+          </Section>
+          <Section group="setup" title="Google Workspace Drive" hint="Race files">
+            <Drive />
           </Section>
           <Section group="setup" title="Connect to Claude" hint="Custom connector">
             <ConnectToClaude />

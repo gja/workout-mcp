@@ -23,12 +23,24 @@ session cookie set at login.
 | `DELETE /api/workouts/:date/:id.json` | Delete one |
 | `POST /api/workouts/:date/:id/complete` | Mark it done; `{completed_at}` optional, defaults to now |
 | `DELETE /api/workouts/:date/:id/complete` | Clear that, leaving the plan alone |
-| `GET /api/platforms` | Training platforms and where each one stands |
-| `PUT /api/platforms/:platform` | `{key}` — verify a credential, store it, and sync |
-| `DELETE /api/platforms/:platform` | Disconnect, forgetting the key and the links |
-| `POST /api/platforms/:platform/sync` | Push what has changed, read completions back |
+| `GET /api/config` | Every integration and where each one stands |
+| `PUT /api/config/:integration` | Verify a credential or a drive, store it, and sync |
+| `DELETE /api/config/:integration` | Disconnect, forgetting what was stored for it |
+| `POST /api/sync/:integration` | Run that integration's sync now |
 | `GET /export/:date-:id.fit` | The FIT file |
 | `POST /api/tools/:name` | Any MCP tool, over REST |
+
+`:integration` is a training platform's id (`intervals`) or `drive`. One read
+covers the lot, and each Setup panel takes its own slice; the three verbs are
+the same shape whatever is behind them, except for the body `PUT` takes — a
+platform wants `{key}`, the drive wants `{drive}`, a shared drive link or id.
+
+Syncing is under `/api/sync`, not `/api/config`: configuring an integration and
+telling it to run now are different things, and only the first is a setting.
+Nothing has to call it — every integration syncs on its own schedule (see
+[integrations.md](integrations.md) and [drive.md](drive.md)) — it is the
+dashboard's "Sync now" and "Copy now" buttons, for when waiting for the next
+pass is not what you want.
 
 A date may hold several workouts; each gets its own short id.
 

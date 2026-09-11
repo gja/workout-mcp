@@ -60,8 +60,37 @@ export function Faq() {
             nothing I would do with any of it, and no plans to start collecting it.
           </p>
           <p className="note">
+            The one thing that passes through is a race file on its way to your own Google Drive, if you turn that on.
+            It is relayed straight across in a single request and never written down here; all that is kept is a note
+            that it went, so it is not copied twice.
+          </p>
+          <p className="note">
             Want it all deleted? Write to <a href="mailto:tejas@gja.in">tejas@gja.in</a> and it goes. The long version,
             including who else sees what, is in <a href="/privacy-policy">the privacy policy</a>.
+          </p>
+        </Section>
+
+        <Section group="faq" title="How do I analyse my data?" hint="Sync it to your own Workspace Drive">
+          <p className="note">
+            Connect a Google shared drive under <strong>Setup</strong>, and every race you record on a connected
+            training platform is copied into it as the FIT file your watch produced, filed as{' '}
+            <code>workouts-mcp/intervals.icu/yyyy-mm/yyyy-mm-dd-id-name.fit</code>.
+          </p>
+          <p className="note">
+            Then analyse it there. That is the honest answer to "where are my charts?" — there are none here, because
+            keeping the data needed to draw them is exactly what this doesn't do. Once the file is in your Drive it is
+            yours: point an assistant at the folder, open it in whatever tool you like, keep it as long as you want.
+          </p>
+          <p className="note">
+            You will need to add this server's service account to the drive as a <strong>Contributor</strong>; the
+            panel shows you which address, and it writes a folder there to prove it can before storing anything. Only
+            races are copied — an ordinary session stays where it is.
+          </p>
+          <p className="note">
+            It has to be a shared drive, and those are a Google Workspace feature — so on a free Gmail account this
+            one is not available. A folder in your own Drive is refused rather than accepted and then quietly failing:
+            a service account owns whatever it uploads and has no storage of its own, so there is no quota to charge
+            the file to.
           </p>
         </Section>
       </Accordion>

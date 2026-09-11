@@ -4,7 +4,7 @@
 import { base64Encode, encodeWorkoutFit, fitFilename } from '../fit';
 import type { Sport, SubSport, Workout } from '../workout';
 import { PlatformError } from './types';
-import type { Account, Completion, Outbound, Platform } from './types';
+import type { Account, Competition, Completion, Outbound, Platform, RecordedFile } from './types';
 
 const BASE = 'https://intervals.icu/api/v1';
 
@@ -106,6 +106,20 @@ type Athlete = { id?: string; name?: string };
 type Event = { id?: number; push_errors?: unknown[] };
 type Activity = { paired_event_id?: number | null; start_date?: string | null; start_date_local?: string | null };
 
+type RaceActivity = Activity & {
+  id?: string | null;
+  name?: string | null;
+  /** Two spellings of the same thing: the flag on the activity, and the lap-level sub-type. */
+  race?: boolean | null;
+  sub_type?: string | null;
+  /** What the athlete uploaded — `fit`, `gpx`, `tcx` — or absent for Strava and manual entries. */
+  file_type?: string | null;
+};
+
+/** The athlete's own day, which is the day a race belongs to however far east they flew. */
+const localDay = (activity: RaceActivity): string =>
+  (activity.start_date_local ?? activity.start_date ?? '').slice(0, 10);
+
 /** `start_date` is UTC; the local fallback carries no offset, so it is read as UTC too. */
 function startedAt(activity: Activity): string | null {
   const raw = activity.start_date ?? activity.start_date_local;
@@ -183,5 +197,49 @@ export const intervals: Platform = {
       if (completedAt) completions.push({ remote_id: String(activity.paired_event_id), completed_at: completedAt });
     }
     return completions;
+  },
+
+  async competitions(key, from, to) {
+    const query = new URLSearchParams({
+      oldest: from,
+      newest: to,
+      fields: 'id,name,start_date,start_date_local,race,sub_type,file_type',
+    });
+    const activities = await readJson<RaceActivity[]>(await call(key, `/athlete/${ATHLETE}/activities?${query}`));
+    if (!Array.isArray(activities)) fail('intervals.icu returned an unexpected activity list');
+
+    const races: Competition[] = [];
+    for (const activity of activities) {
+      // Two ways an athlete marks a race there, and either one means it.
+      if (activity?.race !== true && activity?.sub_type !== 'RACE') continue;
+      const date = localDay(activity);
+      if (!activity.id || !date) continue;
+      races.push({
+        remote_id: String(activity.id),
+        date,
+        name: activity.name?.trim() || 'race',
+        original_type: activity.file_type ?? null,
+      });
+    }
+    return races;
+  },
+
+  // `/file` is the athlete's own upload; `/fit-file` is one intervals.icu builds from the
+  // streams, which is the only FIT there is when they uploaded a GPX or came via Strava.
+  async recording(key, competition) {
+    const id = encodeURIComponent(competition.remote_id);
+    const path = /^\.?fit$/i.test(competition.original_type ?? '')
+      ? `/activity/${id}/file`
+      : `/activity/${id}/fit-file`;
+
+    const response = await call(key, path);
+    const body = response.body ?? fail(`intervals.icu sent no file for activity ${competition.remote_id}`);
+
+    const length = Number(response.headers.get('Content-Length'));
+    return {
+      body,
+      content_type: 'application/vnd.ant.fit',
+      content_length: Number.isFinite(length) && length > 0 ? length : null,
+    } satisfies RecordedFile;
   },
 };

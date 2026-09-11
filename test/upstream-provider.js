@@ -10,6 +10,10 @@
  *   - intervals.icu, which does need state: a test pushes a workout and then
  *     asks what landed on the calendar. That state is reachable from a test
  *     through the `INTERVALS` service binding, under `/__control`.
+ *
+ *   - Google Drive, which needs state for the same reason: a test copies a race
+ *     and then asks what path it landed at. The service account's own token
+ *     exchange is the `jwt-bearer` grant on the same Google host as sign-in.
  */
 
 const base64url = (value) => btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -34,6 +38,12 @@ const APPLE = {
 async function signIn(request, url) {
   const provider = url.hostname === 'oauth2.googleapis.com' ? GOOGLE : APPLE;
   const body = await request.formData();
+
+  // The service account's token exchange shares this endpoint with sign-in.
+  if (body.get('grant_type') === 'urn:ietf:params:oauth:grant-type:jwt-bearer') {
+    return serviceAccountToken(body.get('assertion') ?? '');
+  }
+
   const code = body.get('code') ?? '';
 
   // Apple authenticates with a signed JWT rather than a static secret;
@@ -68,6 +78,137 @@ async function signIn(request, url) {
 }
 
 // ---------------------------------------------------------------------------
+// Google Drive
+// ---------------------------------------------------------------------------
+
+/** The one shared drive the service account is a member of. */
+const SHARED_DRIVE = 'shared-drive-1';
+
+const FOLDER_TYPE = 'application/vnd.google-apps.folder';
+
+const ACCESS_TOKEN = 'drive-access-token';
+
+/**
+ * Check the assertion the Worker signed itself.
+ *
+ * The signature is not verified — the stand-in has no public key — but the
+ * claims are, which is what catches a wrong audience, a missing scope or a key
+ * that failed to import before the request was ever built.
+ */
+function serviceAccountToken(assertion) {
+  const segments = assertion.split('.');
+  if (segments.length !== 3) {
+    return Response.json({ error: 'invalid_grant', error_description: 'not a JWT' }, { status: 400 });
+  }
+
+  let claims;
+  try {
+    claims = JSON.parse(atob(segments[1].replace(/-/g, '+').replace(/_/g, '/')));
+  } catch {
+    return Response.json({ error: 'invalid_grant', error_description: 'unreadable claims' }, { status: 400 });
+  }
+
+  if (claims.aud !== 'https://oauth2.googleapis.com/token' || !claims.iss || !claims.scope) {
+    return Response.json({ error: 'invalid_grant', error_description: 'bad claims' }, { status: 400 });
+  }
+  if (claims.exp <= Math.floor(Date.now() / 1000)) {
+    return Response.json({ error: 'invalid_grant', error_description: 'expired assertion' }, { status: 400 });
+  }
+  return Response.json({ access_token: ACCESS_TOKEN, token_type: 'Bearer', expires_in: 3600 });
+}
+
+/** The bytes of one uploaded part, out of a `multipart/related` body. */
+function readMultipart(bytes, boundary) {
+  const characters = Array.from(bytes, (byte) => String.fromCharCode(byte)).join('');
+  const parts = characters.split(`--${boundary}`).slice(1, -1);
+  const bodyOf = (part) => part.slice(part.indexOf('\r\n\r\n') + 4).replace(/\r\n$/, '');
+  return { metadata: JSON.parse(bodyOf(parts[0])), content: bodyOf(parts[1] ?? '\r\n\r\n') };
+}
+
+/** `workouts-mcp/intervals.icu/2026-09/…`, walked back up through the parents. */
+function drivePath(id) {
+  const segments = [];
+  for (let at = id; at && at !== SHARED_DRIVE; at = state.drive.files.get(at)?.parents?.[0]) {
+    const file = state.drive.files.get(at);
+    if (!file) break;
+    segments.unshift(file.name);
+  }
+  return segments.join('/');
+}
+
+/** Drive's `q` is `name = 'x' and 'parent' in parents and …`; the quoted values in order. */
+const quoted = (query) => [...query.matchAll(/'((?:[^'\\]|\\.)*)'/g)].map((match) => match[1].replace(/\\(.)/g, '$1'));
+
+function drive(request, url) {
+  const path = url.pathname;
+  if (request.headers.get('Authorization') !== `Bearer ${ACCESS_TOKEN}`) {
+    return Response.json({ error: { message: 'Invalid Credentials' } }, { status: 401 });
+  }
+  state.drive.requests.push({ method: request.method, path, search: url.search });
+
+  for (const [fragment, status] of Object.entries(state.drive.failing)) {
+    if (path.includes(fragment)) {
+      return Response.json({ error: { message: `Drive is unhappy about ${fragment}` } }, { status });
+    }
+  }
+
+  // GET /drive/v3/drives/{id}
+  const asDrive = /^\/drive\/v3\/drives\/([^/]+)$/.exec(path);
+  if (request.method === 'GET' && asDrive) {
+    return asDrive[1] === SHARED_DRIVE
+      ? Response.json({ id: SHARED_DRIVE, name: 'Race Files' })
+      : Response.json({ error: { message: 'File not found' } }, { status: 404 });
+  }
+
+  // GET /drive/v3/files/{id}
+  const asFile = /^\/drive\/v3\/files\/([^/]+)$/.exec(path);
+  if (request.method === 'GET' && asFile) {
+    const found = state.drive.files.get(asFile[1]);
+    return found
+      ? Response.json({ id: asFile[1], name: found.name, mimeType: found.mimeType })
+      : Response.json({ error: { message: 'File not found' } }, { status: 404 });
+  }
+
+  // GET /drive/v3/files?q=…
+  if (request.method === 'GET' && path === '/drive/v3/files') {
+    const [name, parent, mimeType] = quoted(url.searchParams.get('q') ?? '');
+    const files = [...state.drive.files.entries()]
+      .filter(([, file]) => file.name === name && file.parents?.[0] === parent && file.mimeType === mimeType)
+      .map(([id]) => ({ id }));
+    return Response.json({ files });
+  }
+
+  // POST /drive/v3/files — a folder, with no bytes
+  if (request.method === 'POST' && path === '/drive/v3/files') {
+    return request.json().then((body) => {
+      const id = `file-${state.drive.nextId++}`;
+      state.drive.files.set(id, { name: body.name, mimeType: body.mimeType, parents: body.parents });
+      return Response.json({ id });
+    });
+  }
+
+  // POST /upload/drive/v3/files?uploadType=multipart
+  if (request.method === 'POST' && path === '/upload/drive/v3/files') {
+    const boundary = /boundary=([^;]+)/.exec(request.headers.get('Content-Type') ?? '')?.[1];
+    if (!boundary) return Response.json({ error: { message: 'no boundary' } }, { status: 400 });
+
+    return request.arrayBuffer().then((buffer) => {
+      const { metadata, content } = readMultipart(new Uint8Array(buffer), boundary);
+      const id = `file-${state.drive.nextId++}`;
+      state.drive.files.set(id, {
+        name: metadata.name,
+        mimeType: 'application/vnd.ant.fit',
+        parents: metadata.parents,
+        content,
+      });
+      return Response.json({ id });
+    });
+  }
+
+  return new Response(`unexpected Google Drive request: ${request.method} ${path}`, { status: 404 });
+}
+
+// ---------------------------------------------------------------------------
 // intervals.icu
 // ---------------------------------------------------------------------------
 
@@ -87,6 +228,15 @@ const freshState = () => ({
   failing: {},
   /** Every intervals.icu request seen, so a test can assert the call was made. */
   requests: [],
+  /** Google Drive: the files put there, the calls that put them, and arranged failures.
+   *  Seeded with a folder in someone's own Drive, which is a thing a link can name
+   *  and this integration has to refuse. */
+  drive: {
+    files: new Map([['personal-folder-1', { name: 'Races', mimeType: FOLDER_TYPE, parents: ['root'] }]]),
+    nextId: 1,
+    requests: [],
+    failing: {},
+  },
 });
 
 let state = freshState();
@@ -119,11 +269,21 @@ function control(request, path) {
       requests: state.requests,
     });
   }
+  if (path === '/__control/drive') {
+    return Response.json({
+      files: [...state.drive.files.entries()]
+        .filter(([, file]) => file.mimeType !== FOLDER_TYPE)
+        .map(([id, file]) => ({ id, path: drivePath(id), content: file.content })),
+      folders: [...state.drive.files.values()].filter((file) => file.mimeType === FOLDER_TYPE).map((f) => f.name),
+      requests: state.drive.requests,
+    });
+  }
   if (path === '/__control/setup') {
     // `{ activities?, failing?, athlete? }` — whatever a test needs to arrange.
     return request.json().then((body) => {
       if (body.activities) state.activities = body.activities;
       if (body.failing) state.failing = body.failing;
+      if (body.driveFailing) state.drive.failing = body.driveFailing;
       if (body.athlete) state.athlete = body.athlete;
       return Response.json({ ok: true });
     });
@@ -167,6 +327,16 @@ async function intervals(request, url) {
     return Response.json(state.activities.filter(within));
   }
 
+  // GET /api/v1/activity/{id}/file, and the FIT intervals.icu builds itself
+  const recording = /^\/api\/v1\/activity\/([^/]+)\/(file|fit-file)$/.exec(path);
+  if (request.method === 'GET' && recording) {
+    // Stands in for FIT bytes, and names which of the two endpoints answered.
+    const body = `${recording[2]}:${recording[1]}`;
+    return new Response(body, {
+      headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': String(body.length) },
+    });
+  }
+
   // POST /api/v1/athlete/0/events?upsertOnUid=true
   if (request.method === 'POST' && path.endsWith('/events')) {
     const body = JSON.parse(payload);
@@ -198,6 +368,7 @@ export default {
   async fetch(request) {
     const url = new URL(request.url);
     if (url.hostname === 'intervals.icu') return intervals(request, url);
+    if (url.hostname === 'www.googleapis.com') return drive(request, url);
     if (url.hostname === 'oauth2.googleapis.com' || url.hostname === 'appleid.apple.com') {
       return signIn(request, url);
     }

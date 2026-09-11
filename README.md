@@ -3,7 +3,8 @@
 Plan structured workouts over MCP or a plain REST API, then export them as
 Garmin **FIT** workout files. One Cloudflare Worker, a D1 database, and a
 static dashboard, all on the free tier. Sign in with Google or Apple; connect
-intervals.icu and the plan syncs both ways.
+intervals.icu and the plan syncs both ways, with the races you record copied
+into a Google Drive of your own to analyse.
 
 New here? Start with [docs/deployment.md](docs/deployment.md) to get it
 running, then [docs/workouts.md](docs/workouts.md) to write one.
@@ -134,6 +135,16 @@ any of it: pushes are upserts keyed on something stable, a platform failure
 never fails your write, completions are polled and applied exactly once, and
 only a run that finds nothing left to do clears a standing error.
 
+### [docs/drive.md](docs/drive.md)
+
+Copying the races you record into your own Google shared drive, so there is
+somewhere to analyse data this server deliberately does not keep. Walks through
+creating the service account and sharing a drive with it, and explains why a
+service account rather than your Google sign-in, and why only a shared drive
+will do — which makes this Workspace-only. Then the path each file lands at, that
+a race is copied exactly once, and that the recording is relayed without ever
+being stored here.
+
 ### [docs/database.md](docs/database.md)
 
 D1 and the schema. How migrations are written and tested, and why the steps are
@@ -166,9 +177,9 @@ it outright.
 How the suite is put together and why. Tests run inside `workerd`, on the same
 runtime that serves production, which is the only place some of the encoder
 bugs reproduce at all. FIT files are asserted by decoding them again with
-Garmin's own decoder. Google, Apple and intervals.icu are stood in for by an
-auxiliary Worker that Miniflare routes outbound traffic to, so the real sign-in
-path runs offline. Lists what each suite covers.
+Garmin's own decoder. Google, Apple, intervals.icu and Google Drive are stood
+in for by an auxiliary Worker that Miniflare routes outbound traffic to, so the
+real sign-in path runs offline. Lists what each suite covers.
 
 ---
 

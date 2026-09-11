@@ -43,7 +43,7 @@ const call = (path: string, init: RequestInit = {}) =>
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...init.headers },
   });
 
-const connect = (key = KEY) => call('/api/platforms/intervals', { method: 'PUT', body: JSON.stringify({ key }) });
+const connect = (key = KEY) => call('/api/config/intervals', { method: 'PUT', body: JSON.stringify({ key }) });
 
 const DAY = shiftDate(today(), 2);
 const OTHER_DAY = shiftDate(today(), 3);
@@ -65,8 +65,8 @@ const createWorkout = async (body: unknown = WORKOUT): Promise<{ date: string; i
 };
 
 const platformStatus = async () => {
-  const body = (await (await call('/api/platforms')).json()) as {
-    configured: boolean;
+  const body = (await (await call('/api/config')).json()) as {
+    credentials_configured: boolean;
     platforms: Array<{ id: string; connected: boolean; account: string | null; last_error: string | null; synced: number }>;
   };
   return { ...body, intervals: body.platforms.find((platform) => platform.id === 'intervals')! };
@@ -119,12 +119,12 @@ describe('connecting a platform', () => {
 
   it('lists a platform that is not connected, so the dashboard can offer it', async () => {
     const status = await platformStatus();
-    expect(status.configured).toBe(true);
+    expect(status.credentials_configured).toBe(true);
     expect(status.intervals).toMatchObject({ connected: false, synced: 0 });
   });
 
   it('404s an unknown platform', async () => {
-    const response = await call('/api/platforms/strava', { method: 'PUT', body: JSON.stringify({ key: 'x' }) });
+    const response = await call('/api/config/strava', { method: 'PUT', body: JSON.stringify({ key: 'x' }) });
     expect(response.status).toBe(404);
   });
 });
@@ -207,7 +207,7 @@ describe('pushing workout changes', () => {
   });
 
   it('pushes nothing once the platform is disconnected', async () => {
-    expect((await call('/api/platforms/intervals', { method: 'DELETE' })).status).toBe(200);
+    expect((await call('/api/config/intervals', { method: 'DELETE' })).status).toBe(200);
 
     await createWorkout();
     expect(await calendar()).toHaveLength(0);
@@ -220,7 +220,7 @@ describe('syncing on demand', () => {
     await connect();
     await createWorkout();
 
-    const first = (await (await call('/api/platforms/intervals/sync', { method: 'POST' })).json()) as {
+    const first = (await (await call('/api/sync/intervals', { method: 'POST' })).json()) as {
       pushed: number;
       remaining: number;
     };
@@ -231,7 +231,7 @@ describe('syncing on demand', () => {
     await createWorkout({ ...WORKOUT, date: OTHER_DAY, name: 'Missed' });
     await control('setup', { failing: {} });
 
-    const second = (await (await call('/api/platforms/intervals/sync', { method: 'POST' })).json()) as {
+    const second = (await (await call('/api/sync/intervals', { method: 'POST' })).json()) as {
       pushed: number;
       error: string | null;
     };
@@ -245,7 +245,7 @@ describe('syncing on demand', () => {
     await createWorkout();
     await control('setup', { failing: { '/activities': 500 } });
 
-    const response = await call('/api/platforms/intervals/sync', { method: 'POST' });
+    const response = await call('/api/sync/intervals', { method: 'POST' });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ error: expect.stringContaining('500') });
   });
@@ -268,7 +268,7 @@ describe('completions coming back', () => {
       ],
     });
 
-    const sync = (await (await call('/api/platforms/intervals/sync', { method: 'POST' })).json()) as {
+    const sync = (await (await call('/api/sync/intervals', { method: 'POST' })).json()) as {
       completed: number;
     };
     expect(sync.completed).toBe(1);
@@ -307,7 +307,7 @@ describe('completions coming back', () => {
       activities: [{ id: 'a2', paired_event_id: 123456, start_date_local: `${DAY}T06:30:00` }],
     });
 
-    const sync = (await (await call('/api/platforms/intervals/sync', { method: 'POST' })).json()) as {
+    const sync = (await (await call('/api/sync/intervals', { method: 'POST' })).json()) as {
       completed: number;
     };
     expect(sync.completed).toBe(0);
@@ -321,8 +321,8 @@ describe('completions coming back', () => {
       activities: [{ id: 'a3', paired_event_id: event.id, start_date_local: `${DAY}T06:30:00` }],
     });
 
-    await call('/api/platforms/intervals/sync', { method: 'POST' });
-    const again = (await (await call('/api/platforms/intervals/sync', { method: 'POST' })).json()) as {
+    await call('/api/sync/intervals', { method: 'POST' });
+    const again = (await (await call('/api/sync/intervals', { method: 'POST' })).json()) as {
       completed: number;
       pushed: number;
     };

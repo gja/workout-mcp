@@ -84,6 +84,12 @@
         at rest, along with the account name it belongs to and the error from the last failed sync. Without the
         encryption key configured, a connection is refused rather than stored in the clear.
       </li>
+      <li>
+        <strong>Google Drive connections.</strong> If you connect a drive for your race files, its id and name are
+        stored, along with the error from the last failed copy, and one row per race copied recording which race it
+        was and the path the file went to. The recording itself is not stored: it is relayed from the training
+        platform to your drive inside a single request and held nowhere afterwards.
+      </li>
     </ul>
 
     <h2>What is not</h2>
@@ -106,6 +112,11 @@
       <li>
         <strong>intervals.icu</strong>, and only if you connect it: workouts you sync are pushed there, and completions
         are read back hourly.
+      </li>
+      <li>
+        <strong>Google Drive</strong>, and only if you connect a drive: the race files copied into it pass through
+        this server on the way, and land in a drive you own and control. Remove this server's service account from
+        that drive and the copying stops; the files already there are yours and stay.
       </li>
       <li>
         <strong>The MCP client you connect</strong> — Claude, or whatever else you authorize — can read and write the
