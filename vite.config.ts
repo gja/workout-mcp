@@ -13,9 +13,9 @@ export default defineConfig({
     client: {
       build: {
         rollupOptions: {
-          // Two pages: the dashboard, and the OAuth consent screen the Worker
-          // serves at /oauth/authorize.
-          input: { index: 'index.html', authorize: 'authorize.html' },
+          // Three pages: the dashboard, the OAuth consent screen the Worker
+          // serves at /oauth/authorize, and the privacy policy.
+          input: { index: 'index.html', authorize: 'authorize.html', privacy: 'privacy-policy.html' },
         },
       },
     },
