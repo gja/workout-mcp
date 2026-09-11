@@ -245,6 +245,23 @@ describe('copying a recorded session', () => {
     expect((await driveStatus()).last_error).toBeNull();
   });
 
+  // Every recorded session is queued now, and some have no file to fetch at all —
+  // a manual entry, or one from Strava with no streams to build a FIT from.
+  it('copies the rest of the batch when one session has no file to fetch', async () => {
+    await control('setup', {
+      activities: [recorded('i570'), recorded('i571', { name: 'Manual Entry' })],
+      failing: { '/activity/i570/': 404 },
+    });
+
+    const { body } = await connectDrive();
+    expect(body.sync).toMatchObject({ copied: 1 });
+    // The failure is reported rather than swallowed, but it did not stop the run.
+    expect(body.sync!.error).toContain('404');
+    expect((await driveState()).files.map((file) => file.path)).toEqual([
+      `workouts-mcp/intervals.icu/${MONTH}/${SESSION_DAY}-i571-Manual-Entry.fit`,
+    ]);
+  });
+
   it('names a file safely when the session name is full of path characters', async () => {
     await control('setup', { activities: [recorded('i564', { name: ' 10k / "PB" attempt ' })] });
     await connectDrive();

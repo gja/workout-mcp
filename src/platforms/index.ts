@@ -68,7 +68,12 @@ export async function disconnect(env: Env, user: User, platformId: PlatformId): 
   const platform = PLATFORMS[platformId] as Platform | undefined;
   const token = await store.credentialFor(env, user.id, platformId);
 
-  if (platform?.revoke && token) {
+  // Not where another account here is connected to the same athlete: upstream
+  // releases the app, not one token of it, so handing it back would take their
+  // connection down with ours. Forgetting our copy is still what was asked for.
+  const shared = await store.accountSharedWithOthers(env, user.id, platformId);
+
+  if (platform?.revoke && token && !shared) {
     // Never fails the disconnect: a grant we cannot hand back is still one the
     // athlete asked us to forget, and they can revoke it from their own settings.
     await platform.revoke(token).catch((err: unknown) => {
@@ -304,7 +309,17 @@ export async function onAccountActivity(
   let failure: unknown;
 
   for (const connection of connections) {
-    if (!connection.token) continue;
+    if (!connection.token) {
+      // Said out loud, as the hourly pass says it: otherwise a rotated
+      // `CREDENTIALS_SECRET` is a connection that quietly stops hearing anything.
+      await store.recordSyncError(
+        env,
+        connection.user_id,
+        platformId,
+        'the stored token could not be read back; connect the platform again',
+      );
+      continue;
+    }
     try {
       marked += await applyCompletions(env, connection.user_id, platformId, connection.token);
     } catch (err) {

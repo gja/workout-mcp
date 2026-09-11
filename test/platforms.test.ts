@@ -387,6 +387,33 @@ describe('completions coming back', () => {
   });
 });
 
+describe('disconnecting', () => {
+  const revoked = async (): Promise<string[]> => (await control<{ revoked: string[] }>('state')).revoked;
+
+  it('hands the grant back, so the app leaves their intervals.icu settings too', async () => {
+    await connect();
+    expect((await call('/api/config/intervals', { method: 'DELETE' })).status).toBe(200);
+
+    expect(await revoked()).toEqual([TOKEN]);
+    expect((await platformStatus()).intervals.connected).toBe(false);
+  });
+
+  // Their call releases the *app* for that athlete, not one token of it, and one
+  // athlete legitimately maps to more than one account here. See docs/auth.md.
+  it('keeps the grant when another account here is connected to the same athlete', async () => {
+    await connect();
+
+    const other = await seedUser('other@example.com');
+    await connectIntervals({ Authorization: `Bearer ${other.token}` });
+
+    expect((await call('/api/config/intervals', { method: 'DELETE' })).status).toBe(200);
+    expect(await revoked()).toEqual([]);
+
+    // Ours is gone all the same — forgetting our copy is what was asked for.
+    expect((await platformStatus()).intervals.connected).toBe(false);
+  });
+});
+
 describe('the intervals.icu webhook', () => {
   const WEBHOOK = '/webhooks/intervals';
 

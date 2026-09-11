@@ -136,6 +136,29 @@ export async function connectionsForAccount(
   );
 }
 
+/**
+ * Whether somebody else here is connected to the same upstream account.
+ *
+ * Revoking upstream releases the grant for the *app*, not for one token of it, so
+ * where one athlete is legitimately connected to two users — signing in with
+ * intervals.icu makes its own account — handing the grant back on one disconnect
+ * would silently 401 the other. See `disconnect` in `index.ts`.
+ */
+export async function accountSharedWithOthers(
+  env: Env,
+  userId: string,
+  platform: PlatformId,
+): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `SELECT COUNT(*) AS others FROM platform_connections
+     WHERE platform = ?1 AND user_id <> ?2 AND account_id IS NOT NULL
+       AND account_id = (SELECT account_id FROM platform_connections WHERE user_id = ?2 AND platform = ?1)`,
+  )
+    .bind(platform, userId)
+    .first<{ others: number }>();
+  return (row?.others ?? 0) > 0;
+}
+
 /** The token in the clear, or null when there is no usable connection. */
 export async function credentialFor(env: Env, userId: string, platform: PlatformId): Promise<string | null> {
   const row = await env.DB.prepare('SELECT secret FROM platform_connections WHERE user_id = ? AND platform = ?')

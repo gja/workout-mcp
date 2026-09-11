@@ -210,20 +210,33 @@ export async function copyNow(env: Env, user: User): Promise<CopyReport> {
     const folders = new Map<string, string>();
 
     let reached = 0;
+    let refused: string | null = null;
     for (const { source, recorded } of queue) {
       if (reached === COPY_LIMIT) break;
       reached += 1;
-      const path = await copyOne(env, user.id, token, folders, connection.drive_id, source, recorded);
-      // Null means another run claimed it between the queue being built and now.
-      if (path === null) continue;
-      report.paths.push(path);
-      report.copied += 1;
+      try {
+        const path = await copyOne(env, user.id, token, folders, connection.drive_id, source, recorded);
+        // Null means another run claimed it between the queue being built and now.
+        if (path === null) continue;
+        report.paths.push(path);
+        report.copied += 1;
+      } catch (err) {
+        // Per session, not per run: every recorded session is queued now, and some of
+        // them have no file to fetch at all — a manual entry, or one that came from
+        // Strava with no streams to build a FIT from. Aborting here would park the
+        // queue on that session for good, because it is rebuilt oldest-first every
+        // pass and would fail at the same place. `copyOne` has already handed the
+        // claim back, so it is still owed; the rest of the batch moves meanwhile,
+        // and the lookback drops the session for good after `LOOKBACK_DAYS`.
+        refused = message(err);
+      }
     }
     report.remaining = queue.length - reached;
+    report.error = refused;
 
     // A backlog is not a failure: it clears itself next hour, so it never becomes a
     // standing error the dashboard would report as "Last copy failed".
-    await store.recordError(env, user.id, null);
+    await store.recordError(env, user.id, refused);
   } catch (err) {
     report.error = message(err);
     await store.recordError(env, user.id, report.error);

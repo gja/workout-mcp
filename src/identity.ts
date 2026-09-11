@@ -97,6 +97,9 @@ export const intervalsConfigured = (env: Env): boolean =>
 /** Hand-rolled: `arctic` has no intervals.icu provider, and there is no PKCE to do. */
 function intervalsAuthorizationUrl(env: Env, state: string, redirect: string): URL {
   const url = new URL(INTERVALS_AUTHORIZE);
+  // Required of an authorization endpoint by RFC 6749, and harmless where it is
+  // merely assumed: without it a stricter reading of the request is an error page.
+  url.searchParams.set('response_type', 'code');
   url.searchParams.set('client_id', env.INTERVALS_CLIENT_ID as string);
   url.searchParams.set('redirect_uri', redirect);
   url.searchParams.set('scope', INTERVALS_SCOPE);

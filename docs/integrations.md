@@ -36,7 +36,9 @@ intervals.icu sign-in never joins an existing account.
 `DELETE /api/v1/disconnect-app`, so the app also disappears from the athlete's
 own intervals.icu settings rather than lingering there unused. A revocation we
 cannot deliver never fails the disconnect: forgetting our copy is still what
-they asked for, and they can revoke it themselves.
+they asked for, and they can revoke it themselves. It is skipped where another
+account here is connected to the same athlete, because that call releases the
+*app* rather than one token of it and would take their connection down too.
 
 ### There is no key to paste any more
 
