@@ -79,11 +79,13 @@ type WorkoutRow = {
   notes: string | null;
   external_id: string | null;
   steps: string;
+  completed_at: string | null;
   updated_at: string;
 };
 
 /** The columns every read needs, in one place. */
-const WORKOUT_COLUMNS = 'id, date, name, sport, sub_sport, notes, external_id, steps, updated_at';
+const WORKOUT_COLUMNS =
+  'id, date, name, sport, sub_sport, notes, external_id, steps, completed_at, updated_at';
 
 /** Short, URL-safe, unambiguous — no vowels, so no accidental words. */
 const ID_ALPHABET = '0123456789bcdfghjkmnpqrstvwxyz';
@@ -131,6 +133,7 @@ function parseRow(row: WorkoutRow): Workout {
   if (row.sub_sport) workout.sub_sport = row.sub_sport as SubSport;
   if (row.notes) workout.notes = row.notes;
   if (row.external_id) workout.external_id = row.external_id;
+  if (row.completed_at) workout.completed_at = row.completed_at;
   return workout;
 }
 
@@ -200,10 +203,35 @@ export function assertRetainable(date: string): void {
   }
 }
 
+/**
+ * The completion a stored row already carries, or null.
+ *
+ * Not narrowed to the read window, for the same reason `findByExternalId` is
+ * not: it is asked about a row that is about to be overwritten, which is a
+ * row that exists whatever the sweep has yet to catch up on.
+ */
+async function storedCompletion(env: Env, userId: string, date: string, id: string): Promise<string | null> {
+  const row = await env.DB.prepare('SELECT completed_at FROM workouts WHERE user_id = ? AND date = ? AND id = ?')
+    .bind(userId, date, id)
+    .first<{ completed_at: string | null }>();
+  return row?.completed_at ?? null;
+}
+
 export async function putWorkout(env: Env, userId: string, input: WorkoutInput, id?: string): Promise<Workout> {
   let workoutId = id;
 
   assertRetainable(input.date);
+
+  /**
+   * Rewriting the plan does not un-do the session. Unless the caller has said
+   * what the completion should be, whatever the row it lands on already
+   * carries comes across — which is what keeps a plan re-synced under its
+   * `external_id` from quietly marking a finished session unfinished again.
+   */
+  let completedAt = input.completed_at ?? null;
+  const carryFrom = async (date: string, rowId: string) => {
+    if (input.completed_at === undefined) completedAt = await storedCompletion(env, userId, date, rowId);
+  };
 
   // A caller that supplies its own key is re-syncing: land on the row that
   // key already names, rather than creating a second copy of the session.
@@ -217,18 +245,25 @@ export async function putWorkout(env: Env, userId: string, input: WorkoutInput, 
       // mistake that it is.
       fail('external_id', `"${input.external_id}" already belongs to workout ${existing.id} on ${existing.date}`);
     }
+    // Read before the delete below, which would take the completion with it.
+    if (existing) await carryFrom(existing.date, existing.id);
     // The workout moved day; the old row has to go before the new one lands.
     if (existing && existing.date !== input.date) await deleteWorkout(env, userId, existing.date, existing.id);
+  } else if (workoutId !== undefined) {
+    await carryFrom(input.date, workoutId);
   }
 
   const workout: Workout = { id: workoutId ?? newId(), ...input, updated_at: new Date().toISOString() };
+  if (completedAt) workout.completed_at = completedAt;
+  else delete workout.completed_at;
   await env.DB.prepare(
-    `INSERT INTO workouts (user_id, date, id, name, sport, sub_sport, notes, external_id, steps, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)
+    `INSERT INTO workouts (user_id, date, id, name, sport, sub_sport, notes, external_id, steps, completed_at, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)
      ON CONFLICT (user_id, date, id) DO UPDATE SET
        name = excluded.name, sport = excluded.sport, sub_sport = excluded.sub_sport,
        notes = excluded.notes, external_id = excluded.external_id,
-       steps = excluded.steps, updated_at = excluded.updated_at`,
+       steps = excluded.steps, completed_at = excluded.completed_at,
+       updated_at = excluded.updated_at`,
   )
     .bind(
       userId,
@@ -240,6 +275,7 @@ export async function putWorkout(env: Env, userId: string, input: WorkoutInput, 
       workout.notes ?? null,
       workout.external_id ?? null,
       JSON.stringify(workout.steps),
+      workout.completed_at ?? null,
       workout.updated_at,
     )
     .run();
@@ -252,6 +288,34 @@ export async function putWorkout(env: Env, userId: string, input: WorkoutInput, 
     fail('date', `only ${MAX_WORKOUTS_PER_USER} workouts are kept, newest dates first, and ${workout.date} lost out`);
   }
   return workout;
+}
+
+/**
+ * Record that a workout was done, or clear that record.
+ *
+ * Its own write rather than a field on the plan: marking a session done is
+ * what an athlete does after the fact, and it should not need to resend — or
+ * risk rewriting — the steps. Bounded by the read window like every other
+ * lookup, so a row the sweep has yet to drop cannot be reached through it.
+ * Returns the workout as it now stands, or null if there is none to complete.
+ */
+export async function setCompleted(
+  env: Env,
+  userId: string,
+  date: string,
+  id: string,
+  completedAt: string | null,
+): Promise<Workout | null> {
+  const window = readWindow();
+  if (date < window.from || date > window.to) return null;
+
+  const result = await env.DB.prepare(
+    'UPDATE workouts SET completed_at = ?, updated_at = ? WHERE user_id = ? AND date = ? AND id = ?',
+  )
+    .bind(completedAt, new Date().toISOString(), userId, date, id)
+    .run();
+  if ((result.meta.changes ?? 0) === 0) return null;
+  return getWorkout(env, userId, date, id);
 }
 
 export async function deleteWorkout(env: Env, userId: string, date: string, id: string): Promise<boolean> {

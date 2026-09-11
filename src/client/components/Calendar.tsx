@@ -1,6 +1,6 @@
 import type { Workout, Window } from '../api';
 import { calendarDays, longDate, shortDate, fromKey, toKey } from '../dates';
-import { plannedSummary } from '../format';
+import { plannedSummary, sportIcon } from '../format';
 
 /**
  * The retention window as whole Sunday-to-Saturday weeks.
@@ -66,14 +66,27 @@ export function Calendar({ window, workouts, selected, onSelect }: Props) {
                   (byDate.get(key) ?? []).map((workout) => {
                     const id = `${workout.date}/${workout.id}`;
                     const total = plannedSummary(workout.planned);
+                    const done = Boolean(workout.completed_at);
+                    const classes = ['chip', selected === id && 'on', done && 'done'].filter(Boolean).join(' ');
                     return (
                       <button
                         key={workout.id}
-                        className={`chip${selected === id ? ' on' : ''}`}
-                        title={workout.name}
+                        className={classes}
+                        title={done ? `${workout.name} — done` : workout.name}
                         onClick={() => onSelect(selected === id ? null : id)}
                       >
-                        <span>{workout.name}</span>
+                        <span>
+                          {/* The emoji carries the sport, so it needs the label a word would have. */}
+                          <span className="icon" role="img" aria-label={workout.sport}>
+                            {sportIcon(workout.sport)}
+                          </span>
+                          {done && (
+                            <span className="tick" role="img" aria-label="done">
+                              ✓
+                            </span>
+                          )}
+                          {workout.name}
+                        </span>
                         {total && <span className="total">{total}</span>}
                       </button>
                     );

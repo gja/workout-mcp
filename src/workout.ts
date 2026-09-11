@@ -72,6 +72,15 @@ export type Workout = {
   /** The caller's own key for this workout, for idempotent re-syncs. */
   external_id?: string;
   steps: PlanStep[];
+  /**
+   * When the session was actually done, as an ISO instant; absent while it is
+   * still only planned.
+   *
+   * Deliberately not something `parseWorkout` reads: completing a workout is
+   * its own verb, so rewriting the plan neither sets it nor clears it by
+   * accident. The write paths carry the stored value across themselves.
+   */
+  completed_at?: string;
   updated_at: string;
 };
 

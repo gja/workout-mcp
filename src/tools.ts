@@ -14,7 +14,7 @@ import * as garminStore from './garmin/store';
 import { syncAll } from './garmin/sync';
 import { WorkoutError, parseWorkout } from './workout';
 import type { Workout } from './workout';
-import { parseDate } from './units';
+import { parseDate, parseTimestamp } from './units';
 
 const RANGE_DOC =
   'A range as [floor, ceiling]; either end may be "-" to leave it open, ' +
@@ -196,6 +196,33 @@ export const TOOLS = [
     },
   },
   {
+    name: 'complete_workout',
+    annotations: { title: 'Mark a workout done', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    description:
+      'Record that a planned workout was actually done, and when. Defaults to now, so ' +
+      'completed_at is only needed when logging a session after the fact. ' +
+      'Pass completed: false to clear the record and put the workout back to merely planned. ' +
+      'The plan itself is untouched, and rewriting the plan later leaves the record in place.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        date: WORKOUT_PROPERTIES.date,
+        id: { type: 'string', description: 'The workout id.' },
+        completed_at: {
+          type: 'string',
+          description:
+            'When it was done, as an ISO 8601 timestamp such as "2026-09-12T06:30:00Z". ' +
+            'A bare YYYY-MM-DD is read as the start of that day. Defaults to now.',
+        },
+        completed: {
+          type: 'boolean',
+          description: 'Defaults to true. Pass false to clear the record instead, leaving the workout planned.',
+        },
+      },
+      required: ['date', 'id'],
+    },
+  },
+  {
     name: 'export_workout_fit',
     annotations: { title: 'Export a workout as FIT', readOnlyHint: true, openWorldHint: false },
     description:
@@ -364,6 +391,9 @@ export async function callTool(
 
       const { id: _id, current_date: _currentDate, ...rest } = args;
       const input = parseWorkout(rest);
+      // Replacing the plan is not un-doing the session, and a move deletes the
+      // row the completion would otherwise have been carried across from.
+      if (existing.completed_at) input.completed_at = existing.completed_at;
       // A moved workout keeps its id, so the old row has to go first — which
       // means the date has to be checked before that, or a refused move takes
       // the workout with it.
@@ -377,6 +407,32 @@ export async function callTool(
       const id = requireString(args, 'id');
       if (!(await db.deleteWorkout(env, user.id, date, id))) throw new ToolError(`no workout ${id} on ${date}`);
       return { deleted: true, date, id };
+    }
+
+    case 'complete_workout': {
+      const date = parseDate(requireString(args, 'date'), 'date');
+      const id = requireString(args, 'id');
+
+      let completed = true;
+      if (args.completed !== undefined && args.completed !== null) {
+        if (typeof args.completed !== 'boolean') throw new ToolError('completed must be true or false');
+        completed = args.completed;
+      }
+      // Clearing the record and naming a time for it are contradictory asks;
+      // guessing which one was meant would silently do the other.
+      if (!completed && args.completed_at !== undefined && args.completed_at !== null) {
+        throw new ToolError('completed_at has no meaning alongside completed: false');
+      }
+
+      const completedAt = !completed
+        ? null
+        : args.completed_at === undefined || args.completed_at === null
+          ? new Date().toISOString()
+          : parseTimestamp(args.completed_at, 'completed_at');
+
+      const workout = await db.setCompleted(env, user.id, date, id, completedAt);
+      if (!workout) throw new ToolError(`no workout ${id} on ${date}`);
+      return presentBrief(workout);
     }
 
     case 'export_workout_fit': {

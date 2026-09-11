@@ -20,7 +20,7 @@ import { GarminAuthError } from './garmin/oauth';
 import { GarminBusyError } from './garmin/sync';
 import { callTool, isCallerError, present, presentBrief } from './tools';
 import { parseWorkout } from './workout';
-import { parseDate } from './units';
+import { parseDate, parseTimestamp } from './units';
 
 export const SCOPE = 'workouts';
 
@@ -281,6 +281,29 @@ async function handleApi(request: Request, url: URL, env: Env, user: User, baseU
     return error('method not allowed', 405);
   }
 
+  // Completing a workout is its own verb rather than a field on the plan, so
+  // marking a session done does not mean resending — or risk rewriting — it.
+  const completion = path.match(/^\/api\/workouts\/(\d{4}-\d{2}-\d{2})\/([0-9a-z]+)\/complete$/);
+  if (completion) {
+    const date = parseDate(completion[1], 'date');
+    const id = completion[2];
+
+    if (method === 'POST' || method === 'DELETE') {
+      // An empty body means now, which is the common case from the dashboard.
+      const body = method === 'POST' ? ((await request.json().catch(() => ({}))) as { completed_at?: unknown }) : {};
+      const completedAt =
+        method === 'DELETE'
+          ? null
+          : body?.completed_at === undefined || body.completed_at === null
+            ? new Date().toISOString()
+            : parseTimestamp(body.completed_at, 'completed_at');
+
+      const workout = await db.setCompleted(env, user.id, date, id, completedAt);
+      return workout ? json(presentBrief(workout, baseUrl)) : error(`no workout ${id} on ${date}`, 404);
+    }
+    return error('method not allowed', 405);
+  }
+
   const single = path.match(/^\/api\/workouts\/(\d{4}-\d{2}-\d{2})\/([0-9a-z]+)(?:\.json)?$/);
   if (single) {
     const date = parseDate(single[1], 'date');
@@ -291,8 +314,12 @@ async function handleApi(request: Request, url: URL, env: Env, user: User, baseU
       return workout ? json(present(workout, baseUrl)) : error(`no workout ${id} on ${date}`, 404);
     }
     if (method === 'PUT') {
-      if (!(await db.getWorkout(env, user.id, date, id))) return error(`no workout ${id} on ${date}`, 404);
+      const existing = await db.getWorkout(env, user.id, date, id);
+      if (!existing) return error(`no workout ${id} on ${date}`, 404);
       const input = parseWorkout(await request.json());
+      // Replacing the plan is not un-doing the session, and a move deletes the
+      // row the completion would otherwise have been carried across from.
+      if (existing.completed_at) input.completed_at = existing.completed_at;
       // Before the delete below, so a refused date does not also cost the
       // workout the caller was trying to move.
       db.assertRetainable(input.date);

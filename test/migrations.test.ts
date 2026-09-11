@@ -9,8 +9,6 @@
 
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
-import migration0002 from '../migrations/0002_workout_steps_column.sql?raw';
-import migration0003 from '../migrations/0003_sub_sport_and_external_id.sql?raw';
 import { getWorkout, putWorkout } from '../src/db';
 import { shiftDate, today } from '../src/units';
 import { parseWorkout } from '../src/workout';
@@ -43,6 +41,31 @@ const runMigration = async (sql: string): Promise<void> => {
   }
 };
 
+const MIGRATIONS = import.meta.glob('../migrations/*.sql', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>;
+
+/**
+ * Everything after 0001, which is what turns the old table below into the
+ * current one. Taken from the directory rather than listed here, so a new
+ * migration joins the replay instead of breaking these tests.
+ *
+ * The tables 0001 does not create are dropped first, because the fixture is a
+ * database sitting at 0001 and such a database has none of them. Without that
+ * the replay reaches a later `ALTER TABLE ... ADD COLUMN` against a table
+ * `resetDatabase` has already migrated, and SQLite refuses the duplicate
+ * column — a failure about the fixture rather than about the migration.
+ */
+async function migrateOldTable(): Promise<void> {
+  for (const table of ['garmin_workouts', 'garmin_connect_states', 'garmin_connections']) {
+    await env.DB.exec(`DROP TABLE IF EXISTS ${table}`);
+  }
+  const paths = Object.keys(MIGRATIONS).sort().filter((path) => !path.includes('0001_'));
+  for (const path of paths) await runMigration(MIGRATIONS[path]);
+}
+
 beforeEach(resetDatabase);
 
 describe('0002, steps into their own column', () => {
@@ -70,8 +93,7 @@ describe('0002, steps into their own column', () => {
       .bind(userId, old.date, old.id, old.name, old.sport, JSON.stringify(old), old.updated_at, old.updated_at)
       .run();
 
-    await runMigration(migration0002);
-    await runMigration(migration0003);
+    await migrateOldTable();
 
     const migrated = await getWorkout(env, userId, old.date, old.id);
     expect(migrated).toMatchObject({
@@ -97,8 +119,7 @@ describe('0002, steps into their own column', () => {
       .bind(userId, data.date, data.id, data.name, data.sport, JSON.stringify(data))
       .run();
 
-    await runMigration(migration0002);
-    await runMigration(migration0003);
+    await migrateOldTable();
 
     const migrated = await getWorkout(env, userId, data.date, data.id);
     expect(migrated).not.toBeNull();

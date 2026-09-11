@@ -124,6 +124,25 @@ export function parseDate(value: unknown, path: string): string {
   return date;
 }
 
+/**
+ * An instant, normalized to UTC: `2026-09-12T06:30:00.000Z`.
+ *
+ * A bare `YYYY-MM-DD` is accepted and read as the start of that day, since a
+ * caller logging a session after the fact often knows the day and not the
+ * hour. Anything else has to be something `Date` understands.
+ */
+export function parseTimestamp(value: unknown, path: string): string {
+  if (typeof value !== 'string') {
+    fail(path, `expected an ISO 8601 timestamp, got ${typeof value}`);
+  }
+  const text = (value as string).trim();
+  const ms = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text}T00:00:00Z` : text);
+  if (Number.isNaN(ms)) {
+    fail(path, `${JSON.stringify(value)} is not a timestamp; use ISO 8601, e.g. "2026-09-12T06:30:00Z"`);
+  }
+  return new Date(ms).toISOString();
+}
+
 /** Today in UTC as `YYYY-MM-DD`. */
 export const today = (now: Date = new Date()): string => now.toISOString().slice(0, 10);
 
