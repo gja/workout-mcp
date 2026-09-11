@@ -68,11 +68,14 @@ export const uncompleteWorkout = (workout: Workout): Promise<Workout> =>
 export type Platform = {
   id: string;
   label: string;
-  credential: { label: string; help: string; help_url: string };
-  /** What the platform still needs from the athlete, once the key is in. */
+  /** What the athlete is about to be asked for, and where. */
+  connect: { help: string; help_url: string };
+  /** What the platform still needs from the athlete, once it is connected. */
   connected_note: string | null;
   connected: boolean;
   account: string | null;
+  /** False when this deployment was never given the platform's OAuth client. */
+  oauth: boolean;
   last_error: string | null;
   /** How many workouts we have pushed and still track. */
   synced: number;
@@ -94,9 +97,6 @@ export type SyncReport = {
 export type Config = { credentials_configured: boolean; platforms: Platform[]; drive: DriveStatus };
 
 export const getConfig = (): Promise<Config> => request('/api/config');
-
-export const connectPlatform = (id: string, key: string): Promise<{ account: string; sync: SyncReport }> =>
-  request(`/api/config/${id}`, { method: 'PUT', body: { key } });
 
 export const disconnectPlatform = (id: string): Promise<unknown> =>
   request(`/api/config/${id}`, { method: 'DELETE' });

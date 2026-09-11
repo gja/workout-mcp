@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
 import { listProviders } from '../api';
 
-const LABELS: Record<string, string> = { google: 'Continue with Google', apple: 'Continue with Apple' };
+const LABELS: Record<string, string> = {
+  google: 'Continue with Google',
+  apple: 'Continue with Apple',
+  intervals: 'Continue with intervals.icu',
+};
 
 /** A full-page navigation, so there is no success callback to wire up. */
 export function SignIn({ intro, returnTo }: { intro: string; returnTo?: string }) {

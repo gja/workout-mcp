@@ -37,7 +37,15 @@ const OLD_TABLE = `
 
 const runMigration = async (sql: string): Promise<void> => {
   for (const statement of sql.replace(/--[^\n]*/g, '').split(';').map((s) => s.trim()).filter(Boolean)) {
-    await env.DB.prepare(statement).run();
+    try {
+      await env.DB.prepare(statement).run();
+    } catch (err) {
+      // `resetDatabase` has already applied every migration, and the replay below
+      // only puts `workouts` back. A column add against a table it did not drop is
+      // therefore a second application, which a real migration runner would never
+      // attempt — SQLite has no ADD COLUMN IF NOT EXISTS, so it is skipped here.
+      if (!/duplicate column name/.test((err as Error).message)) throw err;
+    }
   }
 };
 

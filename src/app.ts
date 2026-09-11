@@ -9,6 +9,7 @@ import * as account from './routes/account';
 import * as integrations from './routes/integrations';
 import * as oauth from './routes/oauth';
 import * as signin from './routes/signin';
+import * as webhooks from './routes/webhooks';
 import * as workouts from './routes/workouts';
 import { isCallerError } from './tools';
 
@@ -47,6 +48,7 @@ const routes = new Router<Context>({
   .mount(oauth.routes)
   .mount(account.routes)
   .mount(integrations.routes)
+  .mount(webhooks.routes)
   .mount(workouts.routes);
 
 export const app = {

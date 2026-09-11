@@ -101,7 +101,7 @@ export function Drive() {
               {drive.copied === 0
                 ? 'No completed workouts copied yet.'
                 : `${drive.copied} completed workout${drive.copied === 1 ? '' : 's'} copied.`}{' '}
-              Only the ones you marked as a race on the platform count — an ordinary session stays where it is.
+              Every session you record on a connected platform counts, not only the ones you marked as a race.
             </p>
             {drive.recent.length > 0 && (
               <ul className="note">

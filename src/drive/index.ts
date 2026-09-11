@@ -1,9 +1,9 @@
-// Copying the races an athlete recorded on a training platform into their own
+// Copying the sessions an athlete recorded on a training platform into their own
 // Google Drive. One pass over the platforms, one file each, nothing kept. See docs/drive.md.
 
 import type { Env, User } from '../db';
 import * as platforms from '../platforms';
-import type { Competition, RaceSource } from '../platforms';
+import type { ActivitySource, Recorded } from '../platforms';
 import { shiftDate, today } from '../units';
 import * as google from './google';
 import * as store from './store';
@@ -15,18 +15,22 @@ export { DriveError } from './google';
 export const ROOT_FOLDER = 'workouts-mcp';
 
 /**
- * How far back a run looks for races.
+ * How far back a run looks for sessions to copy.
  *
  * Deliberately not the retention window: that window protects the database, and
- * nothing about a race is stored, so it has no bearing here. This is long
- * enough that connecting a drive the week after a race still catches it.
+ * nothing about the session itself is stored, so it has no bearing here. This is
+ * long enough that connecting a drive weeks later still catches what came before.
  */
 export const LOOKBACK_DAYS = 30;
 
 // Each copy is a download and an upload, on top of up to six folder lookups on
-// a cold run, so a batch of three athletes at three races each is about forty
+// a cold run, so a batch of three athletes at three sessions each is about forty
 // subrequests — inside the 50 a Worker gets on the free plan. The pass has its
 // own cron for exactly that reason: see "Scheduled work" in docs/deployment.md.
+//
+// Every recorded session is copied, not only the races, so the queue after a
+// drive is first connected is a month of training rather than a handful of
+// events. It clears over consecutive hourly runs, and `remaining` says so.
 export const COPY_LIMIT = 3;
 export const COPY_BATCH = 3;
 
@@ -43,15 +47,15 @@ const safe = (value: string, limit: number): string =>
     .replace(/[^\p{L}\p{N}._-]/gu, '')
     .replace(/-{2,}/g, '-')
     .replace(/^[-.]+|[-.]+$/g, '')
-    .slice(0, limit) || 'race';
+    .slice(0, limit) || 'workout';
 
 /** `yyyy-mm-dd-<id>-<name>.fit`, as docs/drive.md spells the path out. */
-export const fileName = (race: Competition): string =>
-  `${race.date}-${safe(race.remote_id, 40)}-${safe(race.name, 80)}.fit`;
+export const fileName = (recorded: Recorded): string =>
+  `${recorded.date}-${safe(recorded.remote_id, 40)}-${safe(recorded.name, 80)}.fit`;
 
 /** `workouts-mcp/<platform>/yyyy-mm/<file>`, for the dashboard and the ledger. */
-const pathOf = (label: string, race: Competition): string =>
-  `${ROOT_FOLDER}/${label}/${race.date.slice(0, 7)}/${fileName(race)}`;
+const pathOf = (label: string, recorded: Recorded): string =>
+  `${ROOT_FOLDER}/${label}/${recorded.date.slice(0, 7)}/${fileName(recorded)}`;
 
 // --- Configuring ------------------------------------------------------------
 
@@ -90,7 +94,7 @@ export type DriveStatus = {
   drive_id: string | null;
   drive_name: string | null;
   last_error: string | null;
-  /** Where a race ends up, for the dashboard to show without duplicating the rule. */
+  /** Where a copy ends up, for the dashboard to show without duplicating the rule. */
   path_template: string;
   copied: number;
   recent: store.Copy[];
@@ -117,31 +121,31 @@ export async function status(env: Env, user: User): Promise<DriveStatus> {
 
 export type CopyReport = {
   copied: number;
-  /** Races found that this run's budget did not reach; the next pass takes them. */
+  /** Sessions found that this run's budget did not reach; the next pass takes them. */
   remaining: number;
   paths: string[];
   error: string | null;
 };
 
-/** One race, relayed from the platform into the drive. The path it landed at, or null if taken. */
+/** One session, relayed from the platform into the drive. The path it landed at, or null if taken. */
 async function copyOne(
   env: Env,
   userId: string,
   token: string,
   folderCache: Map<string, string>,
   driveId: string,
-  source: RaceSource,
-  race: Competition,
+  source: ActivitySource,
+  recorded: Recorded,
 ): Promise<string | null> {
-  const path = pathOf(source.label, race);
+  const path = pathOf(source.label, recorded);
 
   // Claimed before a byte moves, so an overlapping run cannot upload it too.
-  if (!(await store.claimCopy(env, userId, source.platform, race.remote_id, path))) return null;
+  if (!(await store.claimCopy(env, userId, source.platform, recorded.remote_id, path))) return null;
 
   try {
-    // Cached because a run is usually several races in the same month on the same platform,
-    // and each miss is up to six more subrequests against the budget the copies need.
-    const month = race.date.slice(0, 7);
+    // Cached because a run is usually several sessions in the same month on the same
+    // platform, and each miss is up to six more subrequests against the copies' budget.
+    const month = recorded.date.slice(0, 7);
     const key = `${source.label}/${month}`;
     let folderId = folderCache.get(key);
     if (!folderId) {
@@ -151,37 +155,37 @@ async function copyOne(
       folderCache.set(key, folderId);
     }
 
-    const recording = await source.recording(race);
+    const recording = await source.recording(recorded);
     const fileId = await google.uploadFile(token, {
       parentId: folderId,
-      name: fileName(race),
+      name: fileName(recorded),
       contentType: recording.content_type,
       body: recording.body,
       length: recording.content_length,
     });
 
-    await store.completeCopy(env, userId, source.platform, race.remote_id, fileId);
+    await store.completeCopy(env, userId, source.platform, recorded.remote_id, fileId);
     return path;
   } catch (err) {
     // The claim goes back: a download that failed is one to try again, not one to forget.
-    await store.releaseCopy(env, userId, source.platform, race.remote_id);
+    await store.releaseCopy(env, userId, source.platform, recorded.remote_id);
     throw err;
   }
 }
 
-/** Every race not yet copied, oldest first, across every platform that offers them. */
-async function pending(env: Env, userId: string): Promise<Array<{ source: RaceSource; race: Competition }>> {
+/** Every recorded session not yet copied, oldest first, across every platform offering them. */
+async function pending(env: Env, userId: string): Promise<Array<{ source: ActivitySource; recorded: Recorded }>> {
   const to = today();
   const from = shiftDate(to, -LOOKBACK_DAYS);
 
-  const found: Array<{ source: RaceSource; race: Competition }> = [];
-  for (const source of await platforms.raceSources(env, userId)) {
+  const found: Array<{ source: ActivitySource; recorded: Recorded }> = [];
+  for (const source of await platforms.activitySources(env, userId)) {
     const already = await store.copiedIds(env, userId, source.platform);
-    for (const race of await source.races(from, to)) {
-      if (!already.has(race.remote_id)) found.push({ source, race });
+    for (const recorded of await source.activities(from, to)) {
+      if (!already.has(recorded.remote_id)) found.push({ source, recorded });
     }
   }
-  return found.sort((left, right) => left.race.date.localeCompare(right.race.date));
+  return found.sort((left, right) => left.recorded.date.localeCompare(right.recorded.date));
 }
 
 /** Bring the drive up to date for one athlete. Never throws: the report carries the failure. */
@@ -206,10 +210,10 @@ export async function copyNow(env: Env, user: User): Promise<CopyReport> {
     const folders = new Map<string, string>();
 
     let reached = 0;
-    for (const { source, race } of queue) {
+    for (const { source, recorded } of queue) {
       if (reached === COPY_LIMIT) break;
       reached += 1;
-      const path = await copyOne(env, user.id, token, folders, connection.drive_id, source, race);
+      const path = await copyOne(env, user.id, token, folders, connection.drive_id, source, recorded);
       // Null means another run claimed it between the queue being built and now.
       if (path === null) continue;
       report.paths.push(path);

@@ -32,13 +32,18 @@ export type Env = {
   /** The .p8 private key, base64 PKCS#8, with or without its PEM armour. */
   APPLE_PRIVATE_KEY?: string;
 
-  /** Optional sign-up allowlist: addresses or "@domain", comma separated. */
-  ALLOWED_EMAILS?: string;
-
   /** Any passphrase. Without it, connecting a training platform is refused outright. */
   CREDENTIALS_SECRET?: string;
 
-  /** The Google service account race files are copied as. Both are needed. See docs/drive.md. */
+  /** The intervals.icu OAuth app. Both are needed for sign-in, and for connecting without a key. */
+  INTERVALS_CLIENT_ID?: string;
+  INTERVALS_CLIENT_SECRET?: string;
+  /** The secret intervals.icu puts in the body of every webhook it sends. Without it, none are accepted. */
+  INTERVALS_WEBHOOK_SECRET?: string;
+  /** The `Authorization` header configured on their end, when one is. Checked as well as the secret. */
+  INTERVALS_WEBHOOK_AUTHORIZATION?: string;
+
+  /** The Google service account recordings are copied as. Both are needed. See docs/drive.md. */
   GOOGLE_DRIVE_CLIENT_EMAIL?: string;
   /** Its private key, PEM PKCS#8, straight out of the JSON Google downloads. */
   GOOGLE_DRIVE_PRIVATE_KEY?: string;

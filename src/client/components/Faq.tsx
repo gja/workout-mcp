@@ -83,8 +83,8 @@ export function Faq() {
           </p>
           <p className="note">
             You will need to add this server's service account to the drive as a <strong>Contributor</strong>; the
-            panel shows you which address, and it writes a folder there to prove it can before storing anything. Only
-            the ones you marked as a race on the platform are copied — an ordinary session stays where it is.
+            panel shows you which address, and it writes a folder there to prove it can before storing anything. Every
+            session you record there is copied, so the executed file sits next to the plan you wrote.
           </p>
           <p className="note">
             It has to be a shared drive, and those are a Google Workspace feature — so on a free Gmail account this
