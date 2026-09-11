@@ -132,7 +132,7 @@ function PlatformCard({
   );
 }
 
-/** The platforms section of the dashboard. */
+/** The integrations panel: one card per platform, connected or not. */
 export function Platforms({ onSynced }: { onSynced: () => void }) {
   const [platforms, setPlatforms] = useState<Platform[] | null>(null);
   const [configured, setConfigured] = useState(true);
@@ -154,8 +154,7 @@ export function Platforms({ onSynced }: { onSynced: () => void }) {
   if (platforms === null && error === null) return null;
 
   return (
-    <section>
-      <h2>Training platforms</h2>
+    <>
       <p className="note">
         Every workout you create, change or delete here is pushed to the platforms you connect. Sessions you record
         there are read back and marked done.
@@ -172,6 +171,6 @@ export function Platforms({ onSynced }: { onSynced: () => void }) {
       {(platforms ?? []).map((platform) => (
         <PlatformCard key={platform.id} platform={platform} onChanged={reload} onSynced={onSynced} />
       ))}
-    </section>
+    </>
   );
 }

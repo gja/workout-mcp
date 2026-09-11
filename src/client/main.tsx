@@ -2,11 +2,15 @@ import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { currentUser, listWorkouts, signOut, type Me, type Workout } from './api';
 import { relativeDate } from './dates';
+import { Accordion, Section } from './components/Accordion';
+import { ApiTokens } from './components/ApiTokens';
 import { Calendar } from './components/Calendar';
+import { ConnectedApps } from './components/ConnectedApps';
+import { ConnectToClaude } from './components/ConnectToClaude';
+import { Faq } from './components/Faq';
+import { Platforms } from './components/Platforms';
 import { SignIn } from './components/SignIn';
 import { WorkoutCard } from './components/WorkoutCard';
-import { ConnectToClaude } from './components/ConnectToClaude';
-import { Platforms } from './components/Platforms';
 import './styles.css';
 
 function Dashboard({ me }: { me: Me }) {
@@ -34,13 +38,6 @@ function Dashboard({ me }: { me: Me }) {
 
   return (
     <>
-      <div className="row">
-        <span className="note">{me.email ?? 'Signed in'}</span>
-        <button className="link" onClick={() => void signOut().then(() => location.reload())}>
-          Sign out
-        </button>
-      </div>
-
       {error && <p className="error">{error}</p>}
 
       <Calendar window={me.window} workouts={workouts} selected={selected} onSelect={setSelected} />
@@ -55,8 +52,23 @@ function Dashboard({ me }: { me: Me }) {
         </div>
       )}
 
-      <Platforms onSynced={reload} />
-      <ConnectToClaude />
+      <section>
+        <h2>Setup</h2>
+        <Accordion>
+          <Section group="setup" title="Integrations" hint="intervals.icu">
+            <Platforms onSynced={reload} />
+          </Section>
+          <Section group="setup" title="Connect to Claude" hint="Custom connector">
+            <ConnectToClaude />
+          </Section>
+          <Section group="setup" title="API tokens" hint="Other MCP hosts">
+            <ApiTokens />
+          </Section>
+          <Section group="setup" title="Connected apps" hint="Approved clients">
+            <ConnectedApps />
+          </Section>
+        </Accordion>
+      </section>
     </>
   );
 }
@@ -72,9 +84,27 @@ function App() {
 
   return (
     <main>
-      <h1>Workouts</h1>
-      <p className="sub">Planned sessions in the window the server keeps. Download any of them as a Garmin FIT file.</p>
+      <header className="masthead">
+        <div>
+          <h1>WorkoutsMCP</h1>
+          <p className="sub">
+            Plan structured workouts with an assistant, sync them to your training platform, and export any of them as
+            a Garmin FIT file.
+          </p>
+        </div>
+        {me && (
+          <div className="whoami">
+            <span className="note">{me.email ?? 'Signed in'}</span>
+            <button className="link" onClick={() => void signOut().then(() => location.reload())}>
+              Sign out
+            </button>
+          </div>
+        )}
+      </header>
+
       {me ? <Dashboard me={me} /> : <SignIn intro="Sign in to see your planned workouts." />}
+
+      <Faq />
     </main>
   );
 }
