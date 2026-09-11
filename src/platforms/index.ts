@@ -61,6 +61,7 @@ export type PlatformStatus = {
   id: PlatformId;
   label: string;
   credential: Platform['credential'];
+  connected_note: string | null;
   connected: boolean;
   account: string | null;
   last_error: string | null;
@@ -81,6 +82,7 @@ export async function status(env: Env, user: User): Promise<PlatformStatus[]> {
         id: platform.id,
         label: platform.label,
         credential: platform.credential,
+        connected_note: platform.connected_note ?? null,
         connected: connection !== undefined,
         account: connection?.account ?? null,
         last_error: connection?.last_error ?? null,

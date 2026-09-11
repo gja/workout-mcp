@@ -39,6 +39,8 @@ export type Platform = {
   label: string;
   /** What the athlete has to paste in, and where they find it. */
   credential: { label: string; help: string; help_url: string };
+  /** Shown on the dashboard once connected: what the platform still needs from the athlete. */
+  connected_note?: string;
 
   /** Prove the credential works, and say whose account it is. Throws if not. */
   verify(key: string): Promise<Account>;

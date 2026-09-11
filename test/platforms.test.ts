@@ -67,7 +67,14 @@ const createWorkout = async (body: unknown = WORKOUT): Promise<{ date: string; i
 const platformStatus = async () => {
   const body = (await (await call('/api/config')).json()) as {
     credentials_configured: boolean;
-    platforms: Array<{ id: string; connected: boolean; account: string | null; last_error: string | null; synced: number }>;
+    platforms: Array<{
+      id: string;
+      connected: boolean;
+      account: string | null;
+      last_error: string | null;
+      synced: number;
+      connected_note: string | null;
+    }>;
   };
   return { ...body, intervals: body.platforms.find((platform) => platform.id === 'intervals')! };
 };
@@ -121,6 +128,16 @@ describe('connecting a platform', () => {
     const status = await platformStatus();
     expect(status.credentials_configured).toBe(true);
     expect(status.intervals).toMatchObject({ connected: false, synced: 0 });
+  });
+
+  /**
+   * intervals.icu reads every target against a threshold on the athlete's own
+   * profile, so a plan we encode correctly still lands without a usable target
+   * when one is missing. The dashboard says so; nothing here can supply them.
+   */
+  it('carries the note pointing an athlete at their thresholds', async () => {
+    const { intervals } = await platformStatus();
+    expect(intervals.connected_note).toContain('threshold pace and FTP');
   });
 
   it('404s an unknown platform', async () => {
