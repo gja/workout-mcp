@@ -46,8 +46,11 @@ came back as *"Missing custom_target_value_low and/or custom_target_value_high"*
 and the step was dropped from the calendar entry altogether.
 
 So both ends are always written, and the open one gets a limit no athlete
-reaches: 0 to 25 m/s for speed, 0 to 254 rpm for cadence, 1 to 255 bpm for
-heart rate, 1 to 2000 W for power.
+reaches: 0.1 to 25 m/s for speed, 1 to 254 rpm for cadence, 1 to 255 bpm for
+heart rate, 1 to 2000 W for power. None of them is zero — a zero bound reads as
+unset rather than as a limit, and takes the target with it. intervals.icu showed
+no target at all on the steps written with a 0 m/s floor, while every non-zero
+filler came through, one of them as `< 150W`, which is the reading to want.
 
 Heart rate and power pack two units into one field, so the filler is written in
 whatever unit the caller used for the end they did give — a raw 0 under a

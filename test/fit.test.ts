@@ -184,6 +184,20 @@ describe('targets', () => {
     expect(spun.customTargetCadenceHigh).toBe(254);
   });
 
+  /**
+   * A zero bound reads as unset, not as a limit, and takes the target with it:
+   * intervals.icu showed no target at all on a step written with a 0 m/s floor.
+   */
+  it('never fills a bound with zero', () => {
+    const slower = roundTrip(build([{ goal_s: 60, target_pace_km: ['-', '6:30'] }])).workoutStepMesgs[0];
+    expect(slower.customTargetSpeedLow as number).toBeGreaterThan(0);
+    expect(slower.customTargetSpeedHigh as number).toBeCloseTo(1000 / 390, 2);
+
+    const spinning = roundTrip(build([{ goal_s: 60, target_cadence: ['-', 95] }])).workoutStepMesgs[0];
+    expect(spinning.customTargetCadenceLow).toBe(1);
+    expect(spinning.customTargetCadenceHigh).toBe(95);
+  });
+
   /** The filler never crosses into the other unit the field carries. */
   it('fills a percentage range with a percentage, not an absolute', () => {
     const hr = roundTrip(build([{ goal_s: 60, target_heart_rate: ['75%', '-'] }])).workoutStepMesgs[0];
@@ -202,7 +216,7 @@ describe('targets', () => {
     const step = roundTrip(
       build([{ goal_s: 60, target_watts: [152, 180], target_cadence: ['-', 95] }]),
     ).workoutStepMesgs[0];
-    expect(step.secondaryCustomTargetCadenceLow).toBe(0);
+    expect(step.secondaryCustomTargetCadenceLow).toBe(1);
     expect(step.secondaryCustomTargetCadenceHigh).toBe(95);
   });
 

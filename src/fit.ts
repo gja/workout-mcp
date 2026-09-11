@@ -43,13 +43,20 @@ function encodeDuration(duration: Duration): DurationFields {
  * ever the offset itself (100 for heart rate, 1000 for power): that is the one
  * value where the two units meet — the SDK's own decoder reads a 100 back as
  * `bpmOffset` rather than as 100% — so a percentage ceiling stops just under it.
+ *
+ * No filler is zero either. A zero bound reads as unset rather than as a limit,
+ * and the step loses the target it does carry: intervals.icu showed no target at
+ * all on the steps written with a 0 m/s floor, while every non-zero filler came
+ * through. One of theirs came back as `< 150W`, which is the reading we want.
  */
 const OPEN_ENDED = {
   hr: { bpm: { low: 1, high: 255 }, percent: { low: 1, high: 99 } },
   power: { watts: { low: 1, high: 2000 }, percent: { low: 1, high: 999 } },
-  // Speed and cadence carry one unit each, so their plain extremes are unambiguous.
-  speed: { low: 0, high: 25 }, // m/s, ~90 km/h
-  cadence: { low: 0, high: 254 },
+  // Speed and cadence carry one unit each, so their extremes are unambiguous — but
+  // never zero, which reads as unset (and a 0 m/s floor converts to an infinite pace):
+  // intervals.icu dropped the target off every step written with one.
+  speed: { low: 0.1, high: 25 }, // m/s, so ~2:46:40/km to ~90 km/h
+  cadence: { low: 1, high: 254 },
 } as const;
 
 /** `low`/`high` are absent only where the target is not a custom range at all. */
