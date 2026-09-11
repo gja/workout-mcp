@@ -5,7 +5,7 @@ is also the limit of it: there is no heart-rate stream to look at, no GPS track,
 no history to plot. So instead of collecting any of that, this integration
 hands it to you.
 
-Connect a Google shared drive and **every race you record on a connected
+Connect a Google shared drive and **every session you record on a connected
 training platform is copied into it as a FIT file**, on the hour, as:
 
 ```
@@ -16,9 +16,11 @@ From there it is yours. Point an assistant at the folder, open it in whatever
 analysis tool you like, keep it for the decade — none of that involves this
 server, which is exactly the arrangement we want.
 
-Only races are copied. An ordinary Tuesday evening session stays where it is; a
-race is a session you marked as one on the platform, which is a decision you
-already made for your own reasons.
+Everything you record is copied, not only the races. That was once the other way
+round, and the race flag turned out to be the wrong filter: an athlete who wants
+their executed files wants all of them, and the flag is usually ticked well
+after the upload — so a filtered copy both withheld the ordinary sessions and
+missed the races themselves until something else happened to re-list them.
 
 > **This needs a Google Workspace account.** It writes into a *shared drive*,
 > and shared drives are a Workspace feature — a free Gmail account cannot
@@ -158,22 +160,22 @@ of exactly the drives athletes have added it to.
 ```
 workouts-mcp/            everything this writes, under one folder, so nothing else is touched
   intervals.icu/         which platform it came from, by the name a person knows it by
-    2026-04/             the race's month, so a drive with years in it stays navigable
+    2026-04/             the session's month, so a drive with years in it stays navigable
       2026-04-19-i44031892-City-Marathon.fit
 ```
 
 Platform above month, rather than the other way round: a month folder per
-platform means one folder per month you actually raced in, where month-first
+platform means one folder per month you actually trained in, where month-first
 would make a new set of platform folders inside every month. Fewer folders, and
 a single place to look for everything one platform has ever sent.
 
-The file name is the race's local date, the platform's own id for it, and the
+The file name is the session's local date, the platform's own id for it, and the
 name you gave it. The date sorts; the id is what makes the name unique and what
 you would quote in a support thread; the name is for recognising it in a
 folder. The extension is always `.fit`, which is what the contents always are.
 
 The name is sanitised down to letters, numbers, dots, dashes and underscores —
-a race called `10k / "PB" attempt` becomes `10k-PB-attempt`. Drive would accept
+a session called `10k / "PB" attempt` becomes `10k-PB-attempt`. Drive would accept
 a slash, and then you would have a file that no path can name.
 
 The platform folder is the adapter's display label rather than its internal id,
@@ -184,7 +186,7 @@ which is what keeps `src/drive/` from knowing that intervals.icu exists.
 The recording never reaches this database. A copy is one pass: the bytes are
 requested from the training platform and handed to Google inside the same
 request, held only in memory while it happens and then gone. The only thing
-written down is a row saying *this race, on this platform, went to this path* —
+written down is a row saying *this session, on this platform, went to this path* —
 which exists so the next hourly pass does not copy it a second time.
 
 The bytes are assembled in memory rather than streamed, because Google's
@@ -198,16 +200,17 @@ out-of-memory kill cannot be caught, so this guard has to come first.
 
 ## One copy, and only one
 
-A race is claimed in the ledger *before* its bytes move, not after. **Copy now**
+A session is claimed in the ledger *before* its bytes move, not after. **Copy now**
 can overlap the hourly pass, and two runs that had each read an empty ledger
 would both upload — Drive allows duplicate names, so that is two files, one of
 them orphaned. The ledger's primary key settles it instead: the run that loses
-the insert skips the race. `file_id` stays null until the upload lands, so a
+the insert skips the session. `file_id` stays null until the upload lands, so a
 claim whose download failed is released and tried again rather than lost, and a
 claim still in flight is not counted as a copy on the dashboard.
 
-Beyond that race, a race is copied when it is first seen and never again. Re-analysing it
-upstream, renaming it, or fixing its GPS does not produce a second file, and
+Beyond that race condition, a session is copied when it is first seen and never
+again. Re-analysing it upstream, renaming it, or fixing its GPS does not
+produce a second file, and
 does not overwrite the one in your drive — which may by then be a file you have
 annotated, moved, or built a spreadsheet next to. If you do want the newer
 version, delete the ledger row by disconnecting and reconnecting the drive; the
@@ -220,7 +223,7 @@ Deleting the copy in Drive does not bring it back either, for the same reason.
 
 `copyNow` brings one athlete's drive up to date:
 
-- Ask every connected platform that offers races for the ones it has, from
+- Ask every connected platform that offers them for the sessions it has, from
   `LOOKBACK_DAYS` (30) ago to today.
 - Drop the ones already in the ledger, and take the oldest `COPY_LIMIT` (3) of
   what is left.
@@ -228,14 +231,14 @@ Deleting the copy in Drive does not bring it back either, for the same reason.
   the platform for the file, hand it to Google, then name the file on the claim.
 
 The lookback is deliberately **not** the retention window. That window exists to
-bound what the database holds, and the database holds nothing about a race, so
-it has no bearing here. Thirty days means connecting a drive the week after a
-race still catches the race.
+bound what the database holds, and the database holds nothing about the session
+itself, so it has no bearing here. Thirty days means connecting a drive weeks
+later still catches what came before it.
 
 The per-run cap is the Worker's outbound subrequest budget, which is 50 on
 Cloudflare's free plan: each copy is a download and an upload, on top of up to
 six folder lookups on a cold run, so `COPY_BATCH` (3) athletes at `COPY_LIMIT`
-(3) races each comes to about forty. That is also why the drive pass has its own
+(3) sessions each comes to about forty. That is also why the drive pass has its own
 cron rather than riding along on the completion sweep — that one already spends
 up to 40 subrequests of its own, and two jobs in one invocation would share a
 budget neither fits in twice.
@@ -252,27 +255,35 @@ first, so consecutive passes work round everybody. An error is per-athlete: one
 drive whose membership was revoked must not stop the sweep for anyone else.
 
 The folder ids are cached for the run, keyed by month and platform, because a
-run is usually several races in the same month and each miss is three more
+run is usually several sessions in the same month and each miss is three more
 lookups out of the same budget.
 
-## Where a race comes from
+Copying everything rather than only races makes the queue after a drive is first
+connected a month of training rather than a handful of events, so the first few
+hourly runs report a `remaining` and work through it. Steady state is one
+session a day, which is well inside one run.
 
-A platform adapter may offer two more functions than the four in
+## Where a recording comes from
+
+A platform adapter may offer two more functions than the three in
 [integrations.md](integrations.md):
 
 ```ts
-competitions(key, from, to): Promise<Competition[]>   // which recorded sessions were races
-recording(key, competition): Promise<RecordedFile>    // the FIT behind one
+activities(token, from, to): Promise<Recorded[]>   // what the athlete recorded
+recording(token, recorded): Promise<RecordedFile>  // the FIT behind one
 ```
 
 Both are optional, and `src/drive/` asks only the platforms that have them. A
-platform with no notion of a race simply never appears in a drive.
+platform that cannot hand back a recording simply never appears in a drive.
 
-For intervals.icu, a race is an activity with `race: true` or `sub_type:
-"RACE"` — both are how an athlete marks one there, and either one counts. The
-file is `GET /activity/{id}/file`, the athlete's own upload, when the platform
-says that upload was a FIT. When it was a GPX, or the activity came in from
-Strava and there is no original, it falls back to `GET
+`activities` is deliberately unfiltered: which of them are worth copying is the
+caller's question, and `src/drive/` answers it from its own ledger of what has
+already gone. An adapter that filtered would be deciding for a caller it knows
+nothing about.
+
+For intervals.icu the file is `GET /activity/{id}/file`, the athlete's own
+upload, when the platform says that upload was a FIT. When it was a GPX, or the
+activity came in from Strava and there is no original, it falls back to `GET
 /activity/{id}/fit-file`, which intervals.icu builds from the stored streams.
 So the `.fit` in the name is always true, even when what the watch produced is
 not what arrives.

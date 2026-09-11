@@ -1,6 +1,6 @@
 import { SELF, env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { isAllowed } from '../src/auth';
+import { secretsMatch } from '../src/auth';
 import { cookieFrom, resetDatabase, sessionCookieFor, signIn } from './helpers';
 
 const BASE = 'https://workouts.example';
@@ -29,7 +29,7 @@ const post = (path: string, body: unknown, headers: HeadersInit = {}) =>
 describe('providers', () => {
   it('advertises the ones this deployment has configured', async () => {
     const response = await SELF.fetch(`${BASE}/auth/providers`);
-    expect(await response.json()).toEqual({ providers: ['google', 'apple'] });
+    expect(await response.json()).toEqual({ providers: ['google', 'apple', 'intervals'] });
   });
 
   it('rejects a provider it does not know', async () => {
@@ -202,15 +202,88 @@ describe('finishing a sign-in', () => {
   });
 });
 
-describe('the allowlist', () => {
-  it('matches by address or domain, and is open when unset', () => {
-    expect(isAllowed({} as never, 'anyone@example.com')).toBe(true);
-    const gated = { ALLOWED_EMAILS: 'me@example.com, @team.example' } as never;
-    expect(isAllowed(gated, 'me@example.com')).toBe(true);
-    expect(isAllowed(gated, 'someone@team.example')).toBe(true);
-    expect(isAllowed(gated, 'stranger@example.com')).toBe(false);
-    // A provider that hands back no address cannot be matched against a list.
-    expect(isAllowed(gated, null)).toBe(false);
+describe('signing in with intervals.icu', () => {
+  /** Drive the round and hand back the callback's response. */
+  const signInWithIntervals = async (code = 'ok') => {
+    const started = await SELF.fetch(`${BASE}/auth/intervals/start`, { redirect: 'manual' });
+    expect(started.status).toBe(302);
+    const authorize = new URL(started.headers.get('Location')!);
+    const state = authorize.searchParams.get('state')!;
+
+    return {
+      authorize,
+      response: await SELF.fetch(`${BASE}/auth/intervals/callback?${new URLSearchParams({ code, state })}`, {
+        headers: { Cookie: cookieFrom(started, 'workout_login') },
+        redirect: 'manual',
+      }),
+    };
+  };
+
+  it('sends the athlete to intervals.icu with the scopes the integration needs', async () => {
+    const { authorize } = await signInWithIntervals();
+    expect(authorize.origin).toBe('https://intervals.icu');
+    expect(authorize.pathname).toBe('/oauth/authorize');
+    expect(authorize.searchParams.get('scope')).toBe('CALENDAR:WRITE,ACTIVITY:READ');
+    expect(authorize.searchParams.get('redirect_uri')).toBe(`${BASE}/auth/intervals/callback`);
+  });
+
+  it('makes an account keyed on the athlete, with no address to go with it', async () => {
+    const { response } = await signInWithIntervals();
+    const cookie = cookieFrom(response, 'workout_session');
+    expect(cookie).toBeTruthy();
+
+    const me = await (await SELF.fetch(`${BASE}/api/me`, { headers: { Cookie: cookie } })).json();
+    // Their OAuth hands back an athlete and nothing else: there is no email to store.
+    expect(me).toMatchObject({ email: null });
+
+    const row = await env.DB.prepare('SELECT provider, subject FROM users').first<{
+      provider: string;
+      subject: string;
+    }>();
+    expect(row).toMatchObject({ provider: 'intervals', subject: 'i99999' });
+  });
+
+  // The sign-in *is* an authorization, so asking for a second one would be theatre.
+  it('leaves the athlete already connected to intervals.icu', async () => {
+    const { response } = await signInWithIntervals();
+    const cookie = cookieFrom(response, 'workout_session');
+
+    const config = (await (await SELF.fetch(`${BASE}/api/config`, { headers: { Cookie: cookie } })).json()) as {
+      platforms: Array<{ id: string; connected: boolean; account: string | null }>;
+    };
+    expect(config.platforms.find((platform) => platform.id === 'intervals')).toMatchObject({
+      connected: true,
+      account: 'Test Athlete',
+    });
+  });
+
+  it('makes its own account rather than joining one that signed in another way', async () => {
+    await signIn('google');
+    await signInWithIntervals();
+
+    const { results } = await env.DB.prepare('SELECT provider FROM users ORDER BY provider').all<{
+      provider: string;
+    }>();
+    expect(results.map((row) => row.provider)).toEqual(['google', 'intervals']);
+  });
+
+  it('comes back to the dashboard with a message when the athlete refuses', async () => {
+    const { response } = await signInWithIntervals('denied');
+    expect(response.headers.get('Location')).toContain('error=');
+    expect(cookieFrom(response, 'workout_session')).toBe('');
+  });
+});
+
+describe('comparing a shared secret', () => {
+  it('matches only an exact value, and never a missing one', async () => {
+    expect(await secretsMatch('s3cret', 's3cret')).toBe(true);
+    expect(await secretsMatch('s3cret', 's3crex')).toBe(false);
+    // A prefix must not pass: the whole header value is the secret.
+    expect(await secretsMatch('s3cre', 's3cret')).toBe(false);
+    expect(await secretsMatch('s3cret ', 's3cret')).toBe(false);
+    // Nothing configured is not something everything matches.
+    expect(await secretsMatch('s3cret', undefined)).toBe(false);
+    expect(await secretsMatch(null, 's3cret')).toBe(false);
   });
 });
 

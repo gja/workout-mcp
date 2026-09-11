@@ -3,9 +3,9 @@
 
 import { retentionWindow } from '../db';
 import type { Env } from '../db';
-import type { PlatformId } from './types';
+import type { Account, PlatformId } from './types';
 
-/** Connection state as the rest of the app sees it: never the credential. */
+/** Connection state as the rest of the app sees it: never the token. */
 export type Connection = {
   platform: PlatformId;
   account: string | null;
@@ -65,22 +65,25 @@ export async function decryptSecret(env: Env, stored: string): Promise<string | 
 
 const CONNECTION_COLUMNS = 'platform, account, last_error, created_at, updated_at';
 
+/** Re-authorizing replaces the token, so a fresh grant lands on the same row. */
 export async function saveConnection(
   env: Env,
   userId: string,
   platform: PlatformId,
-  key: string,
-  account: string | null,
+  token: string,
+  account: Account,
 ): Promise<void> {
   const now = new Date().toISOString();
   await env.DB.prepare(
-    `INSERT INTO platform_connections (user_id, platform, secret, account, last_error, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?5)
+    `INSERT INTO platform_connections
+       (user_id, platform, secret, account, account_id, last_error, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?6)
      ON CONFLICT (user_id, platform) DO UPDATE SET
-       secret = excluded.secret, account = excluded.account,
+       secret = excluded.secret,
+       account = excluded.account, account_id = excluded.account_id,
        last_error = NULL, updated_at = excluded.updated_at`,
   )
-    .bind(userId, platform, await encryptSecret(env, key), account, now)
+    .bind(userId, platform, await encryptSecret(env, token), account.name ?? account.id, account.id, now)
     .run();
 }
 
@@ -98,54 +101,87 @@ export async function connectionBatch(
   env: Env,
   platform: PlatformId,
   limit: number,
-): Promise<Array<{ user_id: string; secret: string }>> {
+): Promise<Array<{ user_id: string; token: string | null }>> {
   const { results } = await env.DB.prepare(
     'SELECT user_id, secret FROM platform_connections WHERE platform = ? ORDER BY updated_at LIMIT ?',
   )
     .bind(platform, limit)
     .all<{ user_id: string; secret: string }>();
-  return results ?? [];
+
+  return Promise.all(
+    (results ?? []).map(async (row) => ({ user_id: row.user_id, token: await decryptSecret(env, row.secret) })),
+  );
 }
 
-/** For the nightly retry: nothing else picks these up. */
-export async function failedConnections(
+/**
+ * Every connection to one upstream account, which a webhook names and nothing else.
+ *
+ * Deliberately more than one: signing in with intervals.icu makes its own account
+ * here, so the same athlete can legitimately be connected to two users. An event
+ * concerns all of them. See docs/integrations.md.
+ */
+export async function connectionsForAccount(
   env: Env,
-  limit: number,
-): Promise<Array<{ user_id: string; platform: PlatformId }>> {
+  platform: PlatformId,
+  accountId: string,
+): Promise<Array<{ user_id: string; token: string | null }>> {
   const { results } = await env.DB.prepare(
-    `SELECT user_id, platform FROM platform_connections
-     WHERE last_error IS NOT NULL ORDER BY updated_at LIMIT ?`,
+    'SELECT user_id, secret FROM platform_connections WHERE platform = ? AND account_id = ?',
   )
-    .bind(limit)
-    .all<{ user_id: string; platform: PlatformId }>();
-  return results ?? [];
+    .bind(platform, accountId)
+    .all<{ user_id: string; secret: string }>();
+
+  return Promise.all(
+    (results ?? []).map(async (row) => ({ user_id: row.user_id, token: await decryptSecret(env, row.secret) })),
+  );
 }
 
-/** The credential in the clear, or null when there is no usable connection. */
-export async function credentialFor(env: Env, userId: string, platform: PlatformId): Promise<string | null> {
+/**
+ * Whether somebody else here is connected to the same upstream account.
+ *
+ * Revoking upstream releases the grant for the *app*, not for one token of it, so
+ * where one athlete is legitimately connected to two users — signing in with
+ * intervals.icu makes its own account — handing the grant back on one disconnect
+ * would silently 401 the other. See `disconnect` in `index.ts`.
+ */
+export async function accountSharedWithOthers(
+  env: Env,
+  userId: string,
+  platform: PlatformId,
+): Promise<boolean> {
   const row = await env.DB.prepare(
-    'SELECT secret FROM platform_connections WHERE user_id = ? AND platform = ?',
+    `SELECT COUNT(*) AS others FROM platform_connections
+     WHERE platform = ?1 AND user_id <> ?2 AND account_id IS NOT NULL
+       AND account_id = (SELECT account_id FROM platform_connections WHERE user_id = ?2 AND platform = ?1)`,
   )
+    .bind(platform, userId)
+    .first<{ others: number }>();
+  return (row?.others ?? 0) > 0;
+}
+
+/** The token in the clear, or null when there is no usable connection. */
+export async function credentialFor(env: Env, userId: string, platform: PlatformId): Promise<string | null> {
+  const row = await env.DB.prepare('SELECT secret FROM platform_connections WHERE user_id = ? AND platform = ?')
     .bind(userId, platform)
     .first<{ secret: string }>();
   return row ? decryptSecret(env, row.secret) : null;
 }
 
-/** Connections with their credentials already decrypted; unreadable ones drop out. */
+/** Connections with their tokens already decrypted; unreadable ones drop out. */
 export async function usableConnections(
   env: Env,
   userId: string,
-): Promise<Array<{ platform: PlatformId; key: string }>> {
+): Promise<Array<{ platform: PlatformId; token: string }>> {
   const { results } = await env.DB.prepare(
     'SELECT platform, secret FROM platform_connections WHERE user_id = ? ORDER BY platform',
   )
     .bind(userId)
     .all<{ platform: PlatformId; secret: string }>();
 
-  const usable: Array<{ platform: PlatformId; key: string }> = [];
+  const usable: Array<{ platform: PlatformId; token: string }> = [];
   for (const row of results ?? []) {
-    const key = await decryptSecret(env, row.secret);
-    if (key) usable.push({ platform: row.platform, key });
+    const token = await decryptSecret(env, row.secret);
+    if (token) usable.push({ platform: row.platform, token });
   }
   return usable;
 }

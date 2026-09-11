@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { connectPlatform, disconnectPlatform, getConfig, syncPlatform, type Platform, type SyncReport } from '../api';
+import { disconnectPlatform, getConfig, syncPlatform, type Platform, type SyncReport } from '../api';
 
 /** What a finished run amounts to, in one line. */
 function describeSync(report: SyncReport): string {
@@ -21,7 +21,6 @@ function PlatformCard({
   onChanged: () => void;
   onSynced: () => void;
 }) {
-  const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -39,18 +38,6 @@ function PlatformCard({
     }
   };
 
-  const connect = (event: React.FormEvent) => {
-    event.preventDefault();
-    void run(async () => {
-      const { sync } = await connectPlatform(platform.id, key);
-      setKey('');
-      // A key that stores but cannot sync is worth saying here, not only as a standing error.
-      setNote(sync.error ? `Connected, but the first sync failed: ${sync.error}` : describeSync(sync));
-      onChanged();
-      onSynced();
-    });
-  };
-
   const sync = () =>
     void run(async () => {
       const report = await syncPlatform(platform.id);
@@ -61,7 +48,10 @@ function PlatformCard({
     });
 
   const disconnect = () => {
-    if (!confirm(`Disconnect ${platform.label}? Workouts already on it are left alone.`)) return;
+    const warning =
+      `Disconnect ${platform.label}? Workouts already on it are left alone, and the ` +
+      'access you granted is handed back.';
+    if (!confirm(warning)) return;
     void run(async () => {
       await disconnectPlatform(platform.id);
       onChanged();
@@ -97,26 +87,26 @@ function PlatformCard({
       ) : (
         <>
           <p className="note">
-            {platform.credential.help}{' '}
-            <a href={platform.credential.help_url} target="_blank" rel="noreferrer">
-              Open settings
+            {platform.connect.help}{' '}
+            <a href={platform.connect.help_url} target="_blank" rel="noreferrer">
+              Open {platform.label}
             </a>
             .
           </p>
-          <div className="row">
-            <form onSubmit={connect}>
-              <input
-                type="password"
-                autoComplete="off"
-                placeholder={platform.credential.label}
-                value={key}
-                onChange={(event) => setKey(event.target.value)}
-              />
-              <button className="primary" type="submit" disabled={busy || key.trim() === ''}>
-                Connect
-              </button>
-            </form>
-          </div>
+          {platform.oauth ? (
+            // A full-page navigation, like signing in: the round ends at a callback,
+            // so there is no fetch whose answer we could wait on.
+            <div className="actions">
+              <a className="button primary" href={`/auth/${platform.id}/connect`}>
+                Connect {platform.label}
+              </a>
+            </div>
+          ) : (
+            <p className="error">
+              This server has no {platform.label} OAuth client, so it cannot be connected. Set{' '}
+              <code>INTERVALS_CLIENT_ID</code> and <code>INTERVALS_CLIENT_SECRET</code> on the Worker.
+            </p>
+          )}
         </>
       )}
 
@@ -151,13 +141,13 @@ export function Platforms({ onSynced }: { onSynced: () => void }) {
     <>
       <p className="note">
         Every workout you create, change or delete here is pushed to the platforms you connect. Sessions you record
-        there are read back and marked done.
+        there are marked done here — as they are analysed, or on the next hourly pass.
       </p>
 
       {!configured && (
         <p className="error">
-          Connections are disabled until <code>CREDENTIALS_SECRET</code> is set on the Worker; it is what the keys
-          below are encrypted with.
+          Connections are disabled until <code>CREDENTIALS_SECRET</code> is set on the Worker; it is what the
+          access tokens below are encrypted with.
         </p>
       )}
       {error && <p className="error">{error}</p>}

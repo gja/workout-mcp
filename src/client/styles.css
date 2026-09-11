@@ -75,6 +75,7 @@ a.button {
   font-weight: 500;
 }
 a.button:hover { border-color: var(--accent); }
+a.button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .providers { display: flex; flex-direction: column; gap: 10px; margin: 16px 0; }
 
 /* --- Masthead ----------------------------------------------------------- */

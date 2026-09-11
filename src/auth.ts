@@ -22,15 +22,14 @@ export async function sha256(value: string): Promise<string> {
 const iso = (date: Date): string => date.toISOString();
 const inDays = (days: number, from = new Date()): Date => new Date(from.getTime() + days * 86_400_000);
 
-/** `ALLOWED_EMAILS` is addresses or `@domain`, comma separated. Unset means anyone. */
-export function isAllowed(env: Env, email: string | null): boolean {
-  if (!env.ALLOWED_EMAILS) return true;
-  if (!email) return false;
-  const domain = email.slice(email.indexOf('@'));
-  return env.ALLOWED_EMAILS.split(',')
-    .map((entry) => entry.trim().toLowerCase())
-    .filter(Boolean)
-    .some((entry) => entry === email || entry === domain);
+// Compared as digests, so the work is fixed-length whatever the inputs were: a
+// plain `===` on a shared secret leaks its length and its matching prefix.
+export async function secretsMatch(given: string | null, expected: string | undefined): Promise<boolean> {
+  if (!given || !expected) return false;
+  const [a, b] = await Promise.all([sha256(given), sha256(expected)]);
+  let same = 0;
+  for (let at = 0; at < a.length; at += 1) same |= a.charCodeAt(at) ^ b.charCodeAt(at);
+  return same === 0;
 }
 
 // --- Accounts --------------------------------------------------------------

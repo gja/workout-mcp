@@ -7,8 +7,10 @@ session cookie set at login.
 | --- | --- |
 | `GET /api/health` | Liveness, no auth |
 | `GET /auth/providers` | Which sign-in providers are configured |
-| `GET /auth/:provider/start` | Begin a Google or Apple sign-in |
+| `GET /auth/:provider/start` | Begin a Google, Apple or intervals.icu sign-in |
 | `GET`/`POST /auth/:provider/callback` | Finish it, sets the session cookie |
+| `GET /auth/intervals/connect` | Begin connecting intervals.icu to the account you are signed in as |
+| `GET /auth/intervals/connect-callback` | Finish that, storing the token; no session is touched |
 | `POST /api/auth/logout` | End the session |
 | `GET /api/me` | Who you are, and the retention window |
 | `GET /api/tokens` | List API tokens |
@@ -24,16 +26,24 @@ session cookie set at login.
 | `POST /api/workouts/:date/:id/complete` | Mark it done; `{completed_at}` optional, defaults to now |
 | `DELETE /api/workouts/:date/:id/complete` | Clear that, leaving the plan alone |
 | `GET /api/config` | Every integration and where each one stands |
-| `PUT /api/config/:integration` | Verify a credential or a drive, store it, and sync |
+| `PUT /api/config/:integration` | Verify a drive, store it, and sync. A platform answers 400: it is connected by OAuth |
 | `DELETE /api/config/:integration` | Disconnect, forgetting what was stored for it |
 | `POST /api/sync/:integration` | Run that integration's sync now |
 | `GET /export/:date-:id.fit` | The FIT file |
 | `POST /api/tools/:name` | Any MCP tool, over REST |
+| `POST /webhooks/intervals` | intervals.icu's own callback; theirs to call, not yours |
 
 `:integration` is a training platform's id (`intervals`) or `drive`. One read
-covers the lot, and each Setup panel takes its own slice; the three verbs are
-the same shape whatever is behind them, except for the body `PUT` takes — a
-platform wants `{key}`, the drive wants `{drive}`, a shared drive link or id.
+covers the lot, and each Setup panel takes its own slice. `DELETE` and the sync
+`POST` are the same shape whatever is behind them; `PUT` is the drive's alone,
+taking `{drive}`, a shared drive link or id. A platform has no `PUT` body
+because it is connected by an OAuth round — the two `/auth/intervals/connect*`
+routes above — so that path answers 400 and says so.
+
+`/webhooks/intervals` is the one route outside `/api/` that is not the
+dashboard, and deliberately so: it is authenticated by the secrets
+intervals.icu sends rather than by a credential of ours, so it must not meet
+`withUser`. See [integrations.md](integrations.md).
 
 Syncing is under `/api/sync`, not `/api/config`: configuring an integration and
 telling it to run now are different things, and only the first is a setting.

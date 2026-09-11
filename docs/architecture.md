@@ -73,7 +73,7 @@ plan.ts                the rules for a write, and who to tell
       ↓
 db.ts                  storage, the window, the cap
 platforms/             the sync layer, then one adapter per platform
-drive/                 races out of a platform and into the athlete's own Drive
+drive/                 recordings out of a platform and into the athlete's own Drive
 ```
 
 Nothing above `src/platforms/` knows what intervals.icu is: `plan.ts` calls the
@@ -87,7 +87,7 @@ being re-implemented per platform.
 
 Nothing is stored in the clear. Session ids and API tokens are SHA-256 hashes
 in D1; OAuth grants and their tokens are the library's problem, in KV. A
-training platform's API key is the one credential that cannot be hashed,
+training platform's access token is the one credential that cannot be hashed,
 because it has to be replayed on every push, so it is AES-GCM encrypted under
 `CREDENTIALS_SECRET`. See [auth.md](auth.md) and
 [integrations.md](integrations.md).

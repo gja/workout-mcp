@@ -3,10 +3,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import worker from '../src/index';
 import { COPY_LIMIT, LOOKBACK_DAYS } from '../src/drive';
 import { shiftDate, today } from '../src/units';
-import { resetDatabase, seedUser } from './helpers';
+import { connectIntervals, resetDatabase, seedUser } from './helpers';
 
 const BASE = 'https://workouts.example';
-const KEY = 'an-intervals-api-key';
 
 /** The shared drive the stand-in says the service account is a member of. */
 const DRIVE = 'shared-drive-1';
@@ -36,8 +35,7 @@ const call = (path: string, init: RequestInit = {}) =>
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...init.headers },
   });
 
-const connectPlatform = () =>
-  call('/api/config/intervals', { method: 'PUT', body: JSON.stringify({ key: KEY }) });
+const connectPlatform = () => connectIntervals({ Authorization: `Bearer ${token}` });
 
 type Report = { copied: number; remaining: number; paths: string[]; error: string | null };
 
@@ -63,15 +61,14 @@ type DriveStatus = {
   recent: Array<{ path: string }>;
 };
 
-const RACE_DAY = shiftDate(today(), -2);
-const MONTH = RACE_DAY.slice(0, 7);
+const SESSION_DAY = shiftDate(today(), -2);
+const MONTH = SESSION_DAY.slice(0, 7);
 
-/** A recorded race, as intervals.icu reports one. */
-const race = (id: string, over: Record<string, unknown> = {}) => ({
+/** A recorded session, as intervals.icu reports one. */
+const recorded = (id: string, over: Record<string, unknown> = {}) => ({
   id,
   name: 'City Marathon',
-  start_date_local: `${RACE_DAY}T08:00:00`,
-  race: true,
+  start_date_local: `${SESSION_DAY}T08:00:00`,
   file_type: 'fit',
   ...over,
 });
@@ -141,65 +138,63 @@ describe('configuring a drive', () => {
   });
 });
 
-describe('copying a race', () => {
+describe('copying a recorded session', () => {
   beforeEach(async () => {
     await connectPlatform();
   });
 
   it('puts the recording at workouts-mcp/<platform>/yyyy-mm/yyyy-mm-dd-<id>-<name>.fit', async () => {
-    await control('setup', { activities: [race('i555')] });
+    await control('setup', { activities: [recorded('i555')] });
 
     const { body } = await connectDrive();
     expect(body.sync).toMatchObject({ copied: 1, remaining: 0, error: null });
 
     const { files } = await driveState();
     expect(files).toHaveLength(1);
-    expect(files[0].path).toBe(`workouts-mcp/intervals.icu/${MONTH}/${RACE_DAY}-i555-City-Marathon.fit`);
+    expect(files[0].path).toBe(`workouts-mcp/intervals.icu/${MONTH}/${SESSION_DAY}-i555-City-Marathon.fit`);
     // The athlete's own upload, not the one intervals.icu builds from the streams.
     expect(files[0].content).toBe('file:i555');
   });
 
-  it('leaves an ordinary session alone — only a race is copied', async () => {
+  // The race flag used to decide this, and no longer does: an athlete who wants
+  // their executed files wants all of them, and the flag is usually ticked later.
+  it('copies an ordinary session too, not only the ones marked as a race', async () => {
     await control('setup', {
       activities: [
-        race('i555'),
-        { id: 'i556', name: 'Easy Ride', start_date_local: `${RACE_DAY}T08:00:00`, race: false, file_type: 'fit' },
+        recorded('i555'),
+        { id: 'i556', name: 'Easy Ride', start_date_local: `${SESSION_DAY}T08:00:00`, file_type: 'fit' },
       ],
     });
 
     const { body } = await connectDrive();
-    expect(body.sync).toMatchObject({ copied: 1 });
-    expect((await driveState()).files.map((file) => file.path)).toEqual([
-      `workouts-mcp/intervals.icu/${MONTH}/${RACE_DAY}-i555-City-Marathon.fit`,
+    expect(body.sync).toMatchObject({ copied: 2 });
+    expect((await driveState()).files.map((file) => file.path).sort()).toEqual([
+      `workouts-mcp/intervals.icu/${MONTH}/${SESSION_DAY}-i555-City-Marathon.fit`,
+      `workouts-mcp/intervals.icu/${MONTH}/${SESSION_DAY}-i556-Easy-Ride.fit`,
     ]);
-  });
-
-  it('takes a RACE sub-type as a race too', async () => {
-    await control('setup', { activities: [race('i557', { race: undefined, sub_type: 'RACE' })] });
-    expect((await connectDrive()).body.sync).toMatchObject({ copied: 1 });
   });
 
   /** A GPX upload, or a Strava-sourced activity, has no FIT of the athlete's own. */
   it('falls back to the FIT intervals.icu builds when the upload was not one', async () => {
-    await control('setup', { activities: [race('i558', { file_type: 'gpx' })] });
+    await control('setup', { activities: [recorded('i558', { file_type: 'gpx' })] });
     await connectDrive();
 
     const { files } = await driveState();
     expect(files[0].content).toBe('fit-file:i558');
-    expect(files[0].path).toBe(`workouts-mcp/intervals.icu/${MONTH}/${RACE_DAY}-i558-City-Marathon.fit`);
+    expect(files[0].path).toBe(`workouts-mcp/intervals.icu/${MONTH}/${SESSION_DAY}-i558-City-Marathon.fit`);
   });
 
-  it('copies each race once, however often it is asked', async () => {
-    await control('setup', { activities: [race('i555')] });
+  it('copies each session once, however often it is asked', async () => {
+    await control('setup', { activities: [recorded('i555')] });
     await connectDrive();
 
     expect(await copyNow()).toMatchObject({ copied: 0, remaining: 0, error: null });
     expect((await driveState()).files).toHaveLength(1);
   });
 
-  /** Stands in for the hourly pass having claimed the race while "Copy now" was queueing it. */
-  it('leaves a race another run has already claimed, rather than uploading it twice', async () => {
-    await control('setup', { activities: [race('i560')] });
+  /** Stands in for the hourly pass having claimed the session while "Copy now" was queueing it. */
+  it('leaves a session another run has already claimed, rather than uploading it twice', async () => {
+    await control('setup', { activities: [recorded('i560')] });
     await connectDrive();
 
     const { id: userId } = await seedUser('other@example.com');
@@ -213,14 +208,14 @@ describe('copying a race', () => {
     // Someone else's claim is not ours, so ours still goes.
     expect((await driveState()).files).toHaveLength(1);
 
-    // Our own in-flight claim is: the race is skipped and nothing is uploaded again.
+    // Our own in-flight claim is: the session is skipped and nothing is uploaded again.
     await env.DB.prepare('UPDATE drive_copies SET file_id = NULL WHERE remote_id = ?').bind('i560').run();
     expect(await copyNow()).toMatchObject({ copied: 0, error: null });
     expect((await driveState()).files).toHaveLength(1);
   });
 
   it('reuses the month folder instead of making a second one', async () => {
-    await control('setup', { activities: [race('i561'), race('i562', { name: 'Half' })] });
+    await control('setup', { activities: [recorded('i561'), recorded('i562', { name: 'Half' })] });
     await connectDrive();
 
     const { files, requests } = await driveState();
@@ -229,16 +224,16 @@ describe('copying a race', () => {
     expect(requests.filter((seen) => seen.method === 'POST' && seen.path === '/drive/v3/files')).toHaveLength(3);
   });
 
-  it('ignores a race older than the lookback', async () => {
+  it('ignores a session older than the lookback', async () => {
     const old = shiftDate(today(), -(LOOKBACK_DAYS + 5));
-    await control('setup', { activities: [race('i563', { start_date_local: `${old}T08:00:00` })] });
+    await control('setup', { activities: [recorded('i563', { start_date_local: `${old}T08:00:00` })] });
 
     expect((await connectDrive()).body.sync).toMatchObject({ copied: 0 });
     expect((await driveState()).files).toHaveLength(0);
   });
 
   it('caps a run and leaves the rest for the next one', async () => {
-    const many = Array.from({ length: COPY_LIMIT + 2 }, (_, index) => race(`i6${index}`));
+    const many = Array.from({ length: COPY_LIMIT + 2 }, (_, index) => recorded(`i6${index}`));
     await control('setup', { activities: many });
 
     expect((await connectDrive()).body.sync).toMatchObject({ copied: COPY_LIMIT, remaining: 2 });
@@ -250,30 +245,47 @@ describe('copying a race', () => {
     expect((await driveStatus()).last_error).toBeNull();
   });
 
-  it('names a file safely when the race name is full of path characters', async () => {
-    await control('setup', { activities: [race('i564', { name: ' 10k / "PB" attempt ' })] });
+  // Every recorded session is queued now, and some have no file to fetch at all —
+  // a manual entry, or one from Strava with no streams to build a FIT from.
+  it('copies the rest of the batch when one session has no file to fetch', async () => {
+    await control('setup', {
+      activities: [recorded('i570'), recorded('i571', { name: 'Manual Entry' })],
+      failing: { '/activity/i570/': 404 },
+    });
+
+    const { body } = await connectDrive();
+    expect(body.sync).toMatchObject({ copied: 1 });
+    // The failure is reported rather than swallowed, but it did not stop the run.
+    expect(body.sync!.error).toContain('404');
+    expect((await driveState()).files.map((file) => file.path)).toEqual([
+      `workouts-mcp/intervals.icu/${MONTH}/${SESSION_DAY}-i571-Manual-Entry.fit`,
+    ]);
+  });
+
+  it('names a file safely when the session name is full of path characters', async () => {
+    await control('setup', { activities: [recorded('i564', { name: ' 10k / "PB" attempt ' })] });
     await connectDrive();
 
     const { files } = await driveState();
-    expect(files[0].path).toBe(`workouts-mcp/intervals.icu/${MONTH}/${RACE_DAY}-i564-10k-PB-attempt.fit`);
+    expect(files[0].path).toBe(`workouts-mcp/intervals.icu/${MONTH}/${SESSION_DAY}-i564-10k-PB-attempt.fit`);
   });
 
   it('records the failure against the drive rather than throwing', async () => {
-    await control('setup', { activities: [race('i565')], failing: { '/activity/': 500 } });
+    await control('setup', { activities: [recorded('i565')], failing: { '/activity/': 500 } });
 
     const { body } = await connectDrive();
     expect(body.sync?.error).toContain('500');
     expect((await driveStatus()).last_error).toContain('500');
     expect((await driveState()).files).toHaveLength(0);
 
-    // The claim went back, so the race is still owed rather than silently dropped.
+    // The claim went back, so the session is still owed rather than silently dropped.
     await control('setup', { failing: {} });
     expect(await copyNow()).toMatchObject({ copied: 1, error: null });
     expect((await driveState()).files).toHaveLength(1);
   });
 
-  it('stores nothing about the race itself beyond where it went', async () => {
-    await control('setup', { activities: [race('i566')] });
+  it('stores nothing about the session itself beyond where it went', async () => {
+    await control('setup', { activities: [recorded('i566')] });
     await connectDrive();
 
     const row = await env.DB.prepare('SELECT path, file_id FROM drive_copies').first<{ path: string; file_id: string }>();
@@ -293,32 +305,32 @@ describe('copying a race', () => {
 
   /**
    * The hourly cron is the whole of the integration for anyone not sat at the
-   * dashboard: a race recorded overnight has to arrive without being asked for.
+   * dashboard: a session recorded overnight has to arrive without being asked for.
    */
   it('copies on the hourly pass, with nobody watching', async () => {
     await connectDrive();
-    await control('setup', { activities: [race('i567')] });
+    await control('setup', { activities: [recorded('i567')] });
 
     await worker.scheduled!(createScheduledController({ cron: '40 * * * *' }), env);
 
     const { files } = await driveState();
     expect(files).toHaveLength(1);
-    expect(files[0].path).toBe(`workouts-mcp/intervals.icu/${MONTH}/${RACE_DAY}-i567-City-Marathon.fit`);
+    expect(files[0].path).toBe(`workouts-mcp/intervals.icu/${MONTH}/${SESSION_DAY}-i567-City-Marathon.fit`);
   });
 
   it('lists the most recent copies on the dashboard', async () => {
-    await control('setup', { activities: [race('i568')] });
+    await control('setup', { activities: [recorded('i568')] });
     await connectDrive();
 
     const status = await driveStatus();
     expect(status.copied).toBe(1);
-    expect(status.recent[0].path).toContain(`${RACE_DAY}-i568-City-Marathon.fit`);
+    expect(status.recent[0].path).toContain(`${SESSION_DAY}-i568-City-Marathon.fit`);
   });
 });
 
 describe('without a training platform', () => {
   it('has nothing to copy, and does not call Google for a file', async () => {
-    await control('setup', { activities: [race('i569')] });
+    await control('setup', { activities: [recorded('i569')] });
     expect((await connectDrive()).body.sync).toMatchObject({ copied: 0, remaining: 0, error: null });
     expect((await driveState()).files).toHaveLength(0);
   });

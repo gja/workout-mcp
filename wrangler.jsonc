@@ -1,5 +1,8 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
+	// Deployed at https://workouts-mcp.com, which is the origin every OAuth
+	// redirect URI and the intervals.icu webhook URL are registered against.
+	// See docs/deployment.md.
 	"name": "workout-mcp",
 	"main": "src/index.ts",
 	// Vite builds both the client and the Worker. Running it here means a bare
@@ -21,12 +24,17 @@
 		//   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 		// Apple is optional and needs a paid developer account:
 		//   APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY
-		// Optional allowlist, e.g. "me@example.com,@myteam.com":
-		//   ALLOWED_EMAILS
 		//
-		// Encrypts the API keys athletes paste in to connect a training
-		// platform. Any passphrase; without it those connections are refused
-		// rather than stored in the clear:
+		// The intervals.icu OAuth app, which is both a sign-in button and the
+		// only way a training platform is connected. The webhook secret is
+		// theirs; the authorization value is whatever was typed into their app
+		// page, and is compared verbatim. See docs/integrations.md:
+		//   INTERVALS_CLIENT_ID, INTERVALS_CLIENT_SECRET
+		//   INTERVALS_WEBHOOK_SECRET, INTERVALS_WEBHOOK_AUTHORIZATION
+		//
+		// Encrypts the access tokens the OAuth round comes back with. Any
+		// passphrase; without it a platform connection is refused rather than
+		// stored in the clear:
 		//   CREDENTIALS_SECRET
 		//
 		// The service account races are copied to Google Drive as. Both are
@@ -55,6 +63,10 @@
 	// new races into athletes' Google Drives. The drive pass is its own cron so
 	// it gets its own subrequest allowance rather than the completion sweep's
 	// leftovers. src/index.ts tells the three apart by the cron that fired.
+	//
+	// The hourly completion pass is a backstop now rather than the main path:
+	// an intervals.icu webhook marks a session done within a minute of it being
+	// analysed, and this catches the ones where that delivery never arrived.
 	//
 	// Workouts are not swept: the retention window and the per-user cap are
 	// enforced on the way in and on every read, so nothing has to delete an

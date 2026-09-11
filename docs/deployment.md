@@ -28,7 +28,24 @@ npm run dev         # everything at http://localhost:8787
 ```
 
 Google sign-in works on localhost — Google allows loopback redirect URIs. Apple
-does not, so that button is only usable on a real domain.
+does not, so that button is only usable on a real domain. intervals.icu does not
+support wildcard redirect URIs, and changing the registered ones means emailing
+them, so it is practical on the deployed origin only.
+
+## The deployed origin
+
+This is deployed at **`https://workouts-mcp.com`**. Three things are registered
+against that origin upstream and have to be changed there, not here, if it ever
+moves:
+
+| Registered with | Value |
+| --- | --- |
+| intervals.icu redirect URI | `https://workouts-mcp.com/auth/intervals/callback` |
+| intervals.icu redirect URI | `https://workouts-mcp.com/auth/intervals/connect-callback` |
+| intervals.icu webhook URL | `https://workouts-mcp.com/webhooks/intervals` |
+
+Google's and Apple's redirect URIs are on the same origin and are set in their
+own consoles.
 
 ## Secrets
 
@@ -36,9 +53,11 @@ does not, so that button is only usable on a real domain.
 | --- | --- |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google sign-in |
 | `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY` | Apple sign-in |
-| `ALLOWED_EMAILS` | Restricting who may sign up |
+| `INTERVALS_CLIENT_ID`, `INTERVALS_CLIENT_SECRET` | intervals.icu sign-in, and connecting it |
+| `INTERVALS_WEBHOOK_SECRET` | Accepting their webhooks at all |
+| `INTERVALS_WEBHOOK_AUTHORIZATION` | The header they send with one, when you set one |
 | `CREDENTIALS_SECRET` | Connecting a training platform |
-| `GOOGLE_DRIVE_CLIENT_EMAIL`, `GOOGLE_DRIVE_PRIVATE_KEY` | Copying races to an athlete's Google shared drive |
+| `GOOGLE_DRIVE_CLIENT_EMAIL`, `GOOGLE_DRIVE_PRIVATE_KEY` | Copying recorded sessions to an athlete's Google shared drive |
 
 `APP_NAME` is an optional plain variable, shown on the dashboard and the
 consent page.
@@ -47,7 +66,9 @@ consent page.
 
 Three crons, told apart in `src/index.ts` by which one fired.
 
-- **Hourly (`20 * * * *`)** — read completions back off the connected training
+- **Hourly (`20 * * * *`)** — a backstop for the intervals.icu webhook, which
+  normally marks a session done within a minute: read completions back off the
+  connected training
   platforms. There is no webhook to subscribe to; see
   [integrations.md](integrations.md).
 - **Hourly (`40 * * * *`)** — copy any new race into the drive an athlete

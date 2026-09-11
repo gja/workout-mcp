@@ -31,27 +31,16 @@ const readConfig: AuthedRoute = async ({ env, user }) =>
 const namedPlatform = (name: string): platforms.PlatformId | Response =>
   platforms.isPlatformId(name) ? name : error(`unknown integration "${name}"`, 404);
 
-/** The first sync runs straight away: a calendar that fills in later looks broken. */
-const connectPlatform = async ({ request, env, user, params }: Named) => {
+/**
+ * There is nothing to PUT: a platform is connected by an OAuth round, not a body.
+ *
+ * Kept as an answer rather than a 404, because it used to take a pasted API key and
+ * anything still sending one deserves to be told where the door moved to.
+ */
+const connectPlatform = async ({ params }: Named) => {
   const platform = namedPlatform(params.integration);
   if (platform instanceof Response) return platform;
-
-  const body = (await request.json().catch(() => ({}))) as { key?: unknown };
-  const key = typeof body.key === 'string' ? body.key.trim() : '';
-  if (!key) return error('key is required', 400);
-
-  try {
-    const account = await platforms.connect(env, user, platform, key);
-    return json({
-      connected: true,
-      account: account.name ?? account.id,
-      sync: await platforms.syncNow(env, user, platform),
-    });
-  } catch (err) {
-    if (err instanceof platforms.CredentialsUnavailable) return error(err.message, 503);
-    if (err instanceof platforms.PlatformError) return error(err.message, 400);
-    throw err;
-  }
+  return error(`connect ${platform} from the dashboard: it is an OAuth app, and there is no key to paste`, 400);
 };
 
 const disconnectPlatform = async ({ env, user, params }: Named) => {

@@ -66,10 +66,10 @@ export default {
     // whatever the completion sweep below left of a 50-call budget.
     if (event.cron === DRIVE) {
       const copied = await drive.copyForEveryone(env).catch((err: unknown) => {
-        console.error('copying races to Google Drive failed', err);
+        console.error('copying recorded sessions to Google Drive failed', err);
         return 0;
       });
-      console.log(`drive pass copied ${copied} races`);
+      console.log(`drive pass copied ${copied} recorded sessions`);
       return;
     }
 
@@ -85,18 +85,14 @@ export default {
       return;
     }
 
-    const retried = await platforms.retryFailedConnections(env).catch((err: unknown) => {
-      console.error('retrying stuck platform connections failed', err);
-      return 0;
-    });
     const links = await platforms.pruneOrphanedLinks(env);
     const credentials = await auth.pruneExpired(env);
     const abandoned = await identity.pruneLoginStates(env);
     const purged = await provider.purgeExpiredData(env);
     console.log(
-      `nightly sweep marked ${completed} workouts done, brought ${retried} platform connections back, ` +
-        `and removed ${links} stale platform links, ${credentials} expired sessions, ` +
-        `${abandoned} abandoned sign-ins and ${purged.grantsPurged ?? 0} stale grants`,
+      `nightly sweep marked ${completed} workouts done, and removed ${links} stale platform links, ` +
+        `${credentials} expired sessions, ${abandoned} abandoned sign-ins and ` +
+        `${purged.grantsPurged ?? 0} stale grants`,
     );
   },
 } satisfies ExportedHandler<Env>;

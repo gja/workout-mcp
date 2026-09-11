@@ -119,31 +119,33 @@ query parameter on FIT downloads.
 
 ### [docs/auth.md](docs/auth.md)
 
-Sign-in end to end. Setting up Google and Apple, the `ALLOWED_EMAILS`
-allowlist, and why an unverified address is treated as no address at all. Then
-the security detail: why the in-flight sign-in is remembered in both D1 and a
-cookie and what attack the second half stops, why the login cookie needs
+Sign-in end to end. Setting up Google, Apple and intervals.icu, which is not
+OpenID Connect and so has no address to offer, why it needs two registered
+callbacks, and why it never joins an account another provider already made.
+Then the security detail: why the in-flight sign-in is remembered in both D1
+and a cookie and what attack the second half stops, why the login cookie needs
 `SameSite=None`, why ID tokens are not signature-checked, and how sessions and
 `wk_` API tokens are stored.
 
 ### [docs/integrations.md](docs/integrations.md)
 
-Training platforms, of which intervals.icu is the first. Connecting a key, why
-that credential is encrypted rather than hashed, and what happens when the
-secret is rotated away. Then the sync semantics worth knowing before changing
-any of it: pushes are upserts keyed on something stable, a platform failure
-never fails your write, completions are polled and applied exactly once, and
-only a run that finds nothing left to do clears a standing error.
+Training platforms, of which intervals.icu is the first. Connecting by OAuth,
+why the token is encrypted rather than hashed, and what happens when the secret
+is rotated away. Then the sync semantics worth knowing before changing any of
+it: pushes are upserts keyed on something stable, a platform failure never
+fails your write, completions arrive by webhook with an hourly poll behind
+them, which event to trust and why the body is never believed for more than
+the athlete it names.
 
 ### [docs/drive.md](docs/drive.md)
 
-Copying the races you record into your own Google shared drive, so there is
+Copying every session you record into your own Google shared drive, so there is
 somewhere to analyse data this server deliberately does not keep. Walks through
 creating the service account and sharing a drive with it, and explains why a
 service account rather than your Google sign-in, and why only a shared drive
-will do — which makes this Workspace-only. Then the path each file lands at, that
-a race is copied exactly once, and that the recording is relayed without ever
-being stored here.
+will do — which makes this Workspace-only. Then the path each file lands at,
+why the race filter was dropped, that a session is copied exactly once, and
+that the recording is relayed without ever being stored here.
 
 ### [docs/database.md](docs/database.md)
 

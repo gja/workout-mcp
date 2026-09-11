@@ -1,5 +1,5 @@
-// The athlete's drive, and the ledger of races already copied to it. Nothing about
-// a race itself is written here — only that it went. See docs/drive.md.
+// The athlete's drive, and the ledger of sessions already copied to it. Nothing about
+// a session itself is written here — only that it went. See docs/drive.md.
 
 import type { Env } from '../db';
 
@@ -61,7 +61,7 @@ export async function forgetConnection(env: Env, userId: string): Promise<boolea
 
 export type Copy = { platform: string; remote_id: string; path: string; copied_at: string };
 
-/** Races already copied or claimed, for one sync run. A claim counts: it is being copied. */
+/** Sessions already copied or claimed, for one sync run. A claim counts: it is being copied. */
 export async function copiedIds(env: Env, userId: string, platform: string): Promise<Set<string>> {
   const { results } = await env.DB.prepare(
     'SELECT remote_id FROM drive_copies WHERE user_id = ? AND platform = ?',
@@ -72,7 +72,7 @@ export async function copiedIds(env: Env, userId: string, platform: string): Pro
 }
 
 /**
- * Take the race, or find that someone else already has it.
+ * Take the session, or find that someone else already has it.
  *
  * Written *before* the upload, not after: "Copy now" can overlap the hourly
  * pass, and two runs that each checked an empty ledger first would both upload
@@ -111,7 +111,7 @@ export async function completeCopy(
     .run();
 }
 
-/** Give the race back, so a claim whose upload failed is retried rather than lost. */
+/** Give the session back, so a claim whose upload failed is retried rather than lost. */
 export async function releaseCopy(env: Env, userId: string, platform: string, remoteId: string): Promise<void> {
   await env.DB.prepare(
     'DELETE FROM drive_copies WHERE user_id = ? AND platform = ? AND remote_id = ? AND file_id IS NULL',

@@ -2,8 +2,9 @@
 
 import * as auth from '../auth';
 import * as identity from '../identity';
-import type { Context, Route } from '../http';
-import { error, json } from '../http';
+import type { AuthedRoute, Context, Route } from '../http';
+import { error, json, withUser } from '../http';
+import * as platforms from '../platforms';
 import type { Router } from '../router';
 
 /** Google's callback arrives in the query string, Apple's as a form body. */
@@ -68,15 +69,19 @@ const finishLogin: Route<'/auth/:provider/callback'> = async ({ request, url, en
     throw err;
   }
 
-  // An unverified address is a claim, not a fact, so the allowlist is asked as if there were none.
-  if (!auth.isAllowed(env, who.emailVerified ? who.email : null)) {
-    return withCookie(
-      backToDashboard(url.origin, 'that account is not allowed to sign in here'),
-      clearLoginCookie,
-    );
+  const user = await auth.upsertUser(env, who);
+
+  // Signing in with intervals.icu hands us a platform credential as a side effect, and
+  // asking for it twice would be theatre. Nothing is pushed here: the account this
+  // sign-in lands in is keyed on that athlete, so on a first sign-in it is empty, and
+  // on a later one its calendar is already in step. See docs/integrations.md.
+  if (who.grant && platforms.credentialsConfigured(env)) {
+    await platforms
+      .connect(env, user, 'intervals', who.grant.accessToken, who.grant.athlete)
+      // Never fails the sign-in: they are in, and the dashboard offers Connect.
+      .catch((err: unknown) => console.error('storing the intervals.icu token from a sign-in failed', err));
   }
 
-  const user = await auth.upsertUser(env, who);
   const session = await auth.createSession(env, user.id);
   // 303, so the browser follows Apple's POST callback with a GET.
   const response = new Response(null, {
@@ -90,6 +95,68 @@ const finishLogin: Route<'/auth/:provider/callback'> = async ({ request, url, en
   return response;
 };
 
+// --- Connecting intervals.icu, whoever you signed in as ----------------------
+
+/**
+ * Start the same OAuth round, but for a connection rather than a session.
+ *
+ * Under `/auth` so the login cookie's `Path=/auth` still reaches the callback,
+ * and behind `withUser` because the token it returns with is hung on that athlete.
+ */
+const startConnect: AuthedRoute = async ({ url, env, user }) => {
+  try {
+    const { url: authorizationUrl, state } = await identity.startConnect(
+      env,
+      url.origin,
+      user.id,
+      url.searchParams.get('return_to'),
+    );
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: authorizationUrl,
+        'Set-Cookie': identity.loginCookie(state, url.protocol === 'https:'),
+      },
+    });
+  } catch (err) {
+    if (err instanceof identity.LoginError) return error(err.message, 400);
+    throw err;
+  }
+};
+
+/** The connect callback. No session is minted here: the athlete already had one. */
+const finishConnect: AuthedRoute = async ({ request, url, env, user }) => {
+  const secure = url.protocol === 'https:';
+  const clearLoginCookie = identity.loginCookie(null, secure);
+  const started = auth.readCookie(request, identity.LOGIN_COOKIE);
+
+  let connected;
+  try {
+    connected = await identity.completeConnect(env, url.searchParams, url.origin, started, user.id);
+  } catch (err) {
+    if (err instanceof identity.LoginError) {
+      return withCookie(backToDashboard(url.origin, err.message), clearLoginCookie);
+    }
+    throw err;
+  }
+
+  try {
+    await platforms.connect(env, user, 'intervals', connected.grant.accessToken, connected.grant.athlete);
+  } catch (err) {
+    const why =
+      err instanceof platforms.CredentialsUnavailable ? err.message : 'that connection could not be stored';
+    return withCookie(backToDashboard(url.origin, why), clearLoginCookie);
+  }
+
+  // Straight away, not on the next hourly pass: a calendar that fills in an hour later looks broken.
+  await platforms.syncNow(env, user, 'intervals');
+
+  return withCookie(
+    Response.redirect(`${url.origin}${connected.returnTo ?? '/'}`, 302),
+    clearLoginCookie,
+  );
+};
+
 const logout: Route = async ({ request, url, env }) => {
   await auth.endSession(env, request);
   return json({ ok: true }, 200, { 'Set-Cookie': auth.sessionCookie(null, url.protocol === 'https:') });
@@ -98,6 +165,12 @@ const logout: Route = async ({ request, url, env }) => {
 export const routes = (app: Router<Context>): void => {
   app
     .get('/auth/providers', listProviders)
+
+    // Declared before the `:provider` patterns, so a later reshuffle cannot have
+    // these start resolving to a sign-in — they must never mint a session.
+    .get('/auth/intervals/connect', withUser(startConnect))
+    .get(identity.CONNECT_CALLBACK, withUser(finishConnect))
+
     .get('/auth/:provider/start', startLogin)
     .on(['GET', 'POST'], '/auth/:provider/callback', finishLogin)
     .post('/api/auth/logout', logout);

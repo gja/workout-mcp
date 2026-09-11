@@ -1,11 +1,11 @@
 // What a training platform has to be able to do. Adapters are stateless — handed
-// the credential on every call, storing nothing. See docs/architecture.md.
+// the athlete's OAuth access token on every call, storing nothing. See docs/architecture.md.
 
 import type { Workout } from '../workout';
 
 export type PlatformId = 'intervals';
 
-/** Whose account a credential turns out to belong to. */
+/** Whose account a token turns out to belong to. The OAuth exchange says. */
 export type Account = { id: string; name: string | null };
 
 /** The sync key is ours and stable, so a push is idempotent even without the `remote_id`. */
@@ -14,8 +14,8 @@ export type Outbound = { workout: Workout; syncKey: string };
 /** A session the platform says was actually done, named by our remote id. */
 export type Completion = { remote_id: string; completed_at: string };
 
-/** A race the athlete recorded on the platform, theirs entirely — we never pushed it. */
-export type Competition = {
+/** A session the athlete recorded on the platform, theirs entirely — we never pushed it. */
+export type Recorded = {
   /** The platform's id for the recorded session. */
   remote_id: string;
   /** The athlete's local day it was recorded on, `YYYY-MM-DD`. */
@@ -37,28 +37,28 @@ export type Platform = {
   id: PlatformId;
   /** Shown on the dashboard. */
   label: string;
-  /** What the athlete has to paste in, and where they find it. */
-  credential: { label: string; help: string; help_url: string };
+  /** Shown on the dashboard before the athlete connects: what the round will ask them for. */
+  connect: { help: string; help_url: string };
   /** Shown on the dashboard once connected: what the platform still needs from the athlete. */
   connected_note?: string;
 
-  /** Prove the credential works, and say whose account it is. Throws if not. */
-  verify(key: string): Promise<Account>;
-
   /** Create or replace the workout upstream. Returns the platform's own id. */
-  push(key: string, outbound: Outbound): Promise<string>;
+  push(token: string, outbound: Outbound): Promise<string>;
 
   /** Remove a workout we previously pushed. Already gone counts as removed. */
-  remove(key: string, remoteId: string): Promise<void>;
+  remove(token: string, remoteId: string): Promise<void>;
 
   /** Sessions the platform has matched to the workouts we pushed, by date. */
-  completions(key: string, from: string, to: string): Promise<Completion[]>;
+  completions(token: string, from: string, to: string): Promise<Completion[]>;
 
-  /** Races recorded on the platform. Optional: only `src/drive/` asks, and only if offered. */
-  competitions?(key: string, from: string, to: string): Promise<Competition[]>;
+  /** Hand the token back, so a disconnect here releases the grant there. */
+  revoke?(token: string): Promise<void>;
 
-  /** The FIT recording behind one of those races. Required if `competitions` is offered. */
-  recording?(key: string, competition: Competition): Promise<RecordedFile>;
+  /** Sessions recorded on the platform. Optional: only `src/drive/` asks, and only if offered. */
+  activities?(token: string, from: string, to: string): Promise<Recorded[]>;
+
+  /** The FIT recording behind one of those. Required if `activities` is offered. */
+  recording?(token: string, recorded: Recorded): Promise<RecordedFile>;
 };
 
 /** Theirs, not ours: shown on the dashboard, and never allowed to fail a write. */

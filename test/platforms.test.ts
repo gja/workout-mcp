@@ -3,10 +3,19 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { Decoder, Stream } from '@garmin/fitsdk';
 import worker from '../src/index';
 import { shiftDate, today } from '../src/units';
-import { resetDatabase, seedUser } from './helpers';
+import { connectIntervals, resetDatabase, seedUser } from './helpers';
 
 const BASE = 'https://workouts.example';
-const KEY = 'an-intervals-api-key';
+
+/** What the stand-in's token endpoint issues. See `test/upstream-provider.js`. */
+const TOKEN = 'intervals-access-token';
+
+/** The athlete the stand-in says the token belongs to. */
+const ATHLETE_ID = 'i99999';
+
+/** Both halves of what makes a webhook ours, as `vitest.config.ts` sets them. */
+const SECRET = 'test-intervals-webhook-secret';
+const HEADER = 'test-intervals-webhook-header';
 
 let token: string;
 let userId: string;
@@ -43,7 +52,7 @@ const call = (path: string, init: RequestInit = {}) =>
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...init.headers },
   });
 
-const connect = (key = KEY) => call('/api/config/intervals', { method: 'PUT', body: JSON.stringify({ key }) });
+const connect = (code = 'ok') => connectIntervals({ Authorization: `Bearer ${token}` }, code);
 
 const DAY = shiftDate(today(), 2);
 const OTHER_DAY = shiftDate(today(), 3);
@@ -86,12 +95,16 @@ beforeEach(async () => {
 });
 
 describe('connecting a platform', () => {
-  it('verifies the key, names the account, and pushes what is already planned', async () => {
+  it('takes the athlete through OAuth, names the account, and pushes what is already planned', async () => {
     const planned = await createWorkout();
 
     const response = await connect();
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ account: 'Test Athlete', sync: { pushed: 1, error: null } });
+    // A redirect back to the dashboard, not a body: the round ends at a callback.
+    expect(response.status).toBe(302);
+    expect(response.headers.get('Location')).toBe(`${BASE}/`);
+
+    const status = await platformStatus();
+    expect(status.intervals).toMatchObject({ connected: true, account: 'Test Athlete', last_error: null });
 
     const events = await calendar();
     expect(events).toHaveLength(1);
@@ -104,24 +117,46 @@ describe('connecting a platform', () => {
     });
   });
 
-  it('refuses a key the platform does not accept, and stores nothing', async () => {
-    const response = await connect('revoked-key');
-    expect(response.status).toBe(400);
-    expect(await response.text()).toContain('401');
+  it('spends the code at the connect callback, which is not the sign-in one', async () => {
+    await connect();
+    const { tokenExchanges } = await control<{ tokenExchanges: Array<{ redirect_uri: string }> }>('state');
+    expect(tokenExchanges).toHaveLength(1);
+    expect(tokenExchanges[0].redirect_uri).toBe(`${BASE}/auth/intervals/connect-callback`);
+  });
+
+  it('stores nothing when the athlete refuses, and says so on the way back', async () => {
+    const response = await connect('denied');
+    expect(response.status).toBe(302);
+    expect(response.headers.get('Location')).toContain('error=');
     expect((await platformStatus()).intervals.connected).toBe(false);
   });
 
-  it('refuses an empty key without calling out', async () => {
-    expect((await connect('   ')).status).toBe(400);
+  // Nothing is verified before the grant is stored — their token endpoint already
+  // said whose it is — so a token they will not honour is a connection with a
+  // standing error, not a refusal.
+  it('keeps a grant whose first sync fails, and reports why', async () => {
+    await createWorkout();
+    expect((await connect('revoked')).status).toBe(302);
+
+    const status = await platformStatus();
+    expect(status.intervals.connected).toBe(true);
+    expect(status.intervals.last_error).toContain('401');
   });
 
-  it('encrypts the stored key rather than keeping it in the clear', async () => {
+  it('refuses to start the round for a caller with no session', async () => {
+    const response = await SELF.fetch(`${BASE}/auth/intervals/connect`, { redirect: 'manual' });
+    expect(response.status).toBe(401);
+  });
+
+  it('encrypts the stored token rather than keeping it in the clear', async () => {
     await connect();
-    const row = await env.DB.prepare('SELECT secret FROM platform_connections WHERE user_id = ?')
+    const row = await env.DB.prepare('SELECT secret, account_id FROM platform_connections WHERE user_id = ?')
       .bind(userId)
-      .first<{ secret: string }>();
+      .first<{ secret: string; account_id: string }>();
     expect(row?.secret).toBeTruthy();
-    expect(row!.secret).not.toContain(KEY);
+    expect(row!.secret).not.toContain(TOKEN);
+    // Kept in the clear on purpose: a webhook names the athlete and nothing else.
+    expect(row!.account_id).toBe('i99999');
   });
 
   it('lists a platform that is not connected, so the dashboard can offer it', async () => {
@@ -148,7 +183,7 @@ describe('connecting a platform', () => {
 
 describe('pushing workout changes', () => {
   beforeEach(async () => {
-    expect((await connect()).status).toBe(200);
+    expect((await connect()).status).toBe(302);
   });
 
   it('sends the workout as a FIT file the watch would get', async () => {
@@ -349,5 +384,118 @@ describe('completions coming back', () => {
       completed_at?: string;
     };
     expect(workout.completed_at).toBeTruthy();
+  });
+});
+
+describe('disconnecting', () => {
+  const revoked = async (): Promise<string[]> => (await control<{ revoked: string[] }>('state')).revoked;
+
+  it('hands the grant back, so the app leaves their intervals.icu settings too', async () => {
+    await connect();
+    expect((await call('/api/config/intervals', { method: 'DELETE' })).status).toBe(200);
+
+    expect(await revoked()).toEqual([TOKEN]);
+    expect((await platformStatus()).intervals.connected).toBe(false);
+  });
+
+  // Their call releases the *app* for that athlete, not one token of it, and one
+  // athlete legitimately maps to more than one account here. See docs/auth.md.
+  it('keeps the grant when another account here is connected to the same athlete', async () => {
+    await connect();
+
+    const other = await seedUser('other@example.com');
+    await connectIntervals({ Authorization: `Bearer ${other.token}` });
+
+    expect((await call('/api/config/intervals', { method: 'DELETE' })).status).toBe(200);
+    expect(await revoked()).toEqual([]);
+
+    // Ours is gone all the same — forgetting our copy is what was asked for.
+    expect((await platformStatus()).intervals.connected).toBe(false);
+  });
+});
+
+describe('the intervals.icu webhook', () => {
+  const WEBHOOK = '/webhooks/intervals';
+
+  /** Their shape: a secret to prove it is them, and a batch of events. */
+  const post = (body: unknown, headers: Record<string, string> = { Authorization: HEADER }) =>
+    SELF.fetch(`${BASE}${WEBHOOK}`, { method: 'POST', headers, body: JSON.stringify(body) });
+
+  const analysed = (athleteId = ATHLETE_ID) => ({
+    secret: SECRET,
+    events: [{ athlete_id: athleteId, type: 'ACTIVITY_ANALYZED', timestamp: new Date().toISOString() }],
+  });
+
+  /** A recorded activity intervals.icu has paired with the event we pushed. */
+  const pairAnActivity = async (eventId: number) => {
+    await control('setup', {
+      activities: [{ id: 'w1', paired_event_id: eventId, start_date_local: `${DAY}T06:30:00` }],
+    });
+  };
+
+  it('marks the paired workout done without waiting for the hourly pass', async () => {
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    await pairAnActivity(event.id);
+
+    const response = await post(analysed());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ matched: 1, marked: 1 });
+
+    const workout = (await (await call(`/api/workouts/${planned.date}/${planned.id}`)).json()) as {
+      completed_at?: string;
+    };
+    expect(workout.completed_at).toBeTruthy();
+  });
+
+  // The body is believed for the athlete id and nothing else: what actually marks
+  // the workout done is the pairing, read back over their API.
+  it('marks nothing when the activity is not paired with anything of ours', async () => {
+    await connect();
+    await createWorkout();
+    await control('setup', { activities: [{ id: 'w2', start_date_local: `${DAY}T06:30:00` }] });
+
+    expect(await (await post(analysed())).json()).toMatchObject({ matched: 1, marked: 0 });
+  });
+
+  it('refuses a body whose secret is not the one they were given', async () => {
+    await connect();
+    const response = await post({ ...analysed(), secret: 'not-the-secret' });
+    expect(response.status).toBe(401);
+  });
+
+  it('refuses a request without the authorization header configured on their end', async () => {
+    await connect();
+    expect((await post(analysed(), {})).status).toBe(401);
+    expect((await post(analysed(), { Authorization: 'Bearer wrong' })).status).toBe(401);
+  });
+
+  it('ignores an event type that does not mean a session was completed', async () => {
+    await connect();
+    const response = await post({
+      secret: SECRET,
+      events: [{ athlete_id: ATHLETE_ID, type: 'ACTIVITY_UPLOADED' }],
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ athletes: 0, marked: 0 });
+  });
+
+  // A permanent condition — no retry would ever do better — so it is not an error.
+  it('accepts an event for an athlete nobody here has connected, and does nothing', async () => {
+    const response = await post({
+      secret: SECRET,
+      events: [{ athlete_id: 'i00000', type: 'ACTIVITY_ANALYZED' }],
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ matched: 0, marked: 0 });
+  });
+
+  it('asks to be retried when the platform cannot be read back', async () => {
+    await connect();
+    await createWorkout();
+    await control('setup', { failing: { '/activities': 500 } });
+
+    expect((await post(analysed())).status).toBe(502);
   });
 });

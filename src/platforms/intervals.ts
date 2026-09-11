@@ -4,7 +4,7 @@
 import { base64Encode, encodeWorkoutFit, fitFilename } from '../fit';
 import type { Sport, SubSport, Workout } from '../workout';
 import { PlatformError } from './types';
-import type { Account, Competition, Completion, Outbound, Platform, RecordedFile } from './types';
+import type { Completion, Outbound, Platform, Recorded, RecordedFile } from './types';
 
 const BASE = 'https://intervals.icu/api/v1';
 
@@ -62,19 +62,9 @@ const fail = (message: string): never => {
   throw new PlatformError('intervals', message);
 };
 
-// Username is the literal `API_KEY`. `btoa` refuses non-Latin-1, which is a paste error, not a 500.
-function authorization(key: string): string {
-  try {
-    return `Basic ${btoa(`API_KEY:${key}`)}`;
-  } catch {
-    return fail('that does not look like an intervals.icu API key');
-  }
-}
-
-/** Their own complaint is read off the body — "401" alone does not say "key revoked". */
-async function call(key: string, path: string, init: RequestInit = {}): Promise<Response> {
-  // Outside the try, so a key `authorization` refuses is not reported as an outage.
-  const headers = { Authorization: authorization(key), ...init.headers };
+/** Their own complaint is read off the body — "401" alone does not say "grant revoked". */
+async function call(token: string, path: string, init: RequestInit = {}): Promise<Response> {
+  const headers = { Authorization: `Bearer ${token}`, ...init.headers };
 
   let response: Response;
   try {
@@ -91,8 +81,12 @@ async function call(key: string, path: string, init: RequestInit = {}): Promise<
   return response;
 }
 
-const postJson = (key: string, path: string, body: unknown): Promise<Response> =>
-  call(key, path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+const postJson = (token: string, path: string, body: unknown): Promise<Response> =>
+  call(token, path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 
 async function readJson<T>(response: Response): Promise<T> {
   try {
@@ -102,22 +96,18 @@ async function readJson<T>(response: Response): Promise<T> {
   }
 }
 
-type Athlete = { id?: string; name?: string };
 type Event = { id?: number; push_errors?: unknown[] };
 type Activity = { paired_event_id?: number | null; start_date?: string | null; start_date_local?: string | null };
 
-type RaceActivity = Activity & {
+type RecordedActivity = Activity & {
   id?: string | null;
   name?: string | null;
-  /** Two spellings of the same thing: the flag on the activity, and the lap-level sub-type. */
-  race?: boolean | null;
-  sub_type?: string | null;
   /** What the athlete uploaded — `fit`, `gpx`, `tcx` — or absent for Strava and manual entries. */
   file_type?: string | null;
 };
 
-/** The athlete's own day, which is the day a race belongs to however far east they flew. */
-const localDay = (activity: RaceActivity): string =>
+/** The athlete's own day, which is the day a session belongs to however far east they flew. */
+const localDay = (activity: RecordedActivity): string =>
   (activity.start_date_local ?? activity.start_date ?? '').slice(0, 10);
 
 /** `start_date` is UTC; the local fallback carries no offset, so it is read as UTC too. */
@@ -131,9 +121,10 @@ function startedAt(activity: Activity): string | null {
 export const intervals: Platform = {
   id: 'intervals',
   label: 'intervals.icu',
-  credential: {
-    label: 'API key',
-    help: 'In intervals.icu, open Settings and find the Developer Settings box at the bottom.',
+  connect: {
+    help:
+      'You will be sent to intervals.icu to allow access to your calendar and your activities. ' +
+      'Nothing is pasted, and you can withdraw it from their settings at any time.',
     help_url: 'https://intervals.icu/settings',
   },
   // They store every target as a percentage of a threshold, so a profile missing one
@@ -142,15 +133,9 @@ export const intervals: Platform = {
     'Targets are read against your intervals.icu thresholds. If a pace or a power target looks ' +
     'wrong there, set your threshold pace and FTP in their settings.',
 
-  async verify(key) {
-    const athlete = await readJson<Athlete>(await call(key, `/athlete/${ATHLETE}`));
-    if (!athlete.id) fail('that key did not identify an intervals.icu athlete');
-    return { id: String(athlete.id), name: athlete.name ?? null } satisfies Account;
-  },
-
-  async push(key, { workout, syncKey }: Outbound) {
+  async push(token, { workout, syncKey }: Outbound) {
     const event = await readJson<Event>(
-      await postJson(key, `/athlete/${ATHLETE}/events?upsertOnUid=true`, {
+      await postJson(token, `/athlete/${ATHLETE}/events?upsertOnUid=true`, {
         uid: syncKey,
         category: 'WORKOUT',
         // Their calendar is keyed on the athlete's local day, which is what our `date` is.
@@ -173,9 +158,9 @@ export const intervals: Platform = {
     return String(event.id);
   },
 
-  async remove(key, remoteId) {
+  async remove(token, remoteId) {
     try {
-      await call(key, `/athlete/${ATHLETE}/events/${encodeURIComponent(remoteId)}`, { method: 'DELETE' });
+      await call(token, `/athlete/${ATHLETE}/events/${encodeURIComponent(remoteId)}`, { method: 'DELETE' });
     } catch (err) {
       // Already gone is the state we were asking for. Anything else is real.
       if (err instanceof PlatformError && / 404\b/.test(err.message)) return;
@@ -183,7 +168,18 @@ export const intervals: Platform = {
     }
   },
 
-  async completions(key, from, to) {
+  // Handed back, so disconnecting here also drops the app from their intervals.icu settings.
+  async revoke(token) {
+    try {
+      await call(token, '/disconnect-app', { method: 'DELETE' });
+    } catch (err) {
+      // Already revoked upstream, or revoked from their settings page: the state we wanted.
+      if (err instanceof PlatformError && / 40[0134]\b/.test(err.message)) return;
+      throw err;
+    }
+  },
+
+  async completions(token, from, to) {
     const query = new URLSearchParams({
       oldest: from,
       newest: to,
@@ -191,7 +187,7 @@ export const intervals: Platform = {
       fields: 'id,paired_event_id,start_date,start_date_local',
     });
     const activities = await readJson<Activity[]>(
-      await call(key, `/athlete/${ATHLETE}/activities?${query}`),
+      await call(token, `/athlete/${ATHLETE}/activities?${query}`),
     );
     if (!Array.isArray(activities)) fail('intervals.icu returned an unexpected activity list');
 
@@ -204,41 +200,43 @@ export const intervals: Platform = {
     return completions;
   },
 
-  async competitions(key, from, to) {
+  // Everything the athlete recorded, unfiltered: what is worth copying is the
+  // caller's question, and `src/drive/` answers it with what it has already copied.
+  async activities(token, from, to) {
     const query = new URLSearchParams({
       oldest: from,
       newest: to,
-      fields: 'id,name,start_date,start_date_local,race,sub_type,file_type',
+      fields: 'id,name,start_date,start_date_local,file_type',
     });
-    const activities = await readJson<RaceActivity[]>(await call(key, `/athlete/${ATHLETE}/activities?${query}`));
+    const activities = await readJson<RecordedActivity[]>(
+      await call(token, `/athlete/${ATHLETE}/activities?${query}`),
+    );
     if (!Array.isArray(activities)) fail('intervals.icu returned an unexpected activity list');
 
-    const races: Competition[] = [];
+    const recorded: Recorded[] = [];
     for (const activity of activities) {
-      // Two ways an athlete marks a race there, and either one means it.
-      if (activity?.race !== true && activity?.sub_type !== 'RACE') continue;
       const date = localDay(activity);
       if (!activity.id || !date) continue;
-      races.push({
+      recorded.push({
         remote_id: String(activity.id),
         date,
-        name: activity.name?.trim() || 'race',
+        name: activity.name?.trim() || 'workout',
         original_type: activity.file_type ?? null,
       });
     }
-    return races;
+    return recorded;
   },
 
   // `/file` is the athlete's own upload; `/fit-file` is one intervals.icu builds from the
   // streams, which is the only FIT there is when they uploaded a GPX or came via Strava.
-  async recording(key, competition) {
-    const id = encodeURIComponent(competition.remote_id);
-    const path = /^\.?fit$/i.test(competition.original_type ?? '')
+  async recording(token, recorded) {
+    const id = encodeURIComponent(recorded.remote_id);
+    const path = /^\.?fit$/i.test(recorded.original_type ?? '')
       ? `/activity/${id}/file`
       : `/activity/${id}/fit-file`;
 
-    const response = await call(key, path);
-    const body = response.body ?? fail(`intervals.icu sent no file for activity ${competition.remote_id}`);
+    const response = await call(token, path);
+    const body = response.body ?? fail(`intervals.icu sent no file for activity ${recorded.remote_id}`);
 
     const length = Number(response.headers.get('Content-Length'));
     return {

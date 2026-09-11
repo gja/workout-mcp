@@ -63,8 +63,8 @@ async function signIn(request, url) {
     aud: code.includes('wrong-audience') ? 'some-other-app' : provider.audience,
     sub: code.includes('no-subject') ? undefined : provider.subject,
     email: code.includes('no-email') ? undefined : provider.email,
-    // Both providers send this; Apple as a string. `ALLOWED_EMAILS` is
-    // weighed against it, so the stand-in has to carry it too.
+    // Both providers send this; Apple as a string. Stored for display, and
+    // carried here so the claim is read the way a real one would be.
     email_verified: code.includes('unverified-email') ? false : true,
     exp: code.includes('expired') ? now - 60 : now + 600,
   };
@@ -213,7 +213,11 @@ function drive(request, url) {
 // ---------------------------------------------------------------------------
 
 /** The key a test uses to mean "this one is no longer valid". */
-const REVOKED_KEY = 'revoked-key';
+const REVOKED_TOKEN = 'revoked-token';
+
+/** The access token the stand-in's OAuth round issues, and the athlete it belongs to. */
+const INTERVALS_TOKEN = 'intervals-access-token';
+const INTERVALS_SCOPE = 'CALENDAR:WRITE,ACTIVITY:READ';
 
 const freshState = () => ({
   athlete: { id: 'i99999', name: 'Test Athlete' },
@@ -228,6 +232,10 @@ const freshState = () => ({
   failing: {},
   /** Every intervals.icu request seen, so a test can assert the call was made. */
   requests: [],
+  /** Each OAuth code spent, with the callback it was spent at. */
+  tokenExchanges: [],
+  /** Tokens handed back through `disconnect-app`. */
+  revoked: [],
   /** Google Drive: the files put there, the calls that put them, and arranged failures.
    *  Seeded with a folder in someone's own Drive, which is a thing a link can name
    *  and this integration has to refuse. */
@@ -243,19 +251,36 @@ let state = freshState();
 
 const asEvent = ([id, event]) => ({ id: Number(id), ...event });
 
-/** The key out of `Basic base64("API_KEY:<key>")`, or null if it is not one. */
+/** The bearer token off the header, or null when there is not one. */
 function credential(request) {
   const header = request.headers.get('Authorization') ?? '';
-  if (!header.startsWith('Basic ')) return null;
-  let decoded;
-  try {
-    decoded = atob(header.slice('Basic '.length));
-  } catch {
-    return null;
+  return header.startsWith('Bearer ') ? header.slice('Bearer '.length) : null;
+}
+
+/**
+ * Their OAuth token endpoint: form data in, the athlete inline, no id_token.
+ *
+ * `redirect_uri` is echoed back on the control state, because which of the two
+ * registered callbacks a code was spent at is exactly what the flows differ by.
+ */
+async function intervalsToken(request) {
+  const body = await request.formData();
+  const code = body.get('code') ?? '';
+
+  if (!body.get('client_id') || !body.get('client_secret')) {
+    return Response.json({ error: 'invalid_client' }, { status: 401 });
   }
-  const separator = decoded.indexOf(':');
-  if (separator < 0 || decoded.slice(0, separator) !== 'API_KEY') return null;
-  return decoded.slice(separator + 1);
+  if (code.includes('denied')) {
+    return Response.json({ error: 'invalid_grant', error_description: 'that code is spent' }, { status: 400 });
+  }
+
+  state.tokenExchanges.push({ code, redirect_uri: body.get('redirect_uri') ?? '' });
+  return Response.json({
+    token_type: 'Bearer',
+    access_token: code.includes('revoked') ? REVOKED_TOKEN : INTERVALS_TOKEN,
+    scope: INTERVALS_SCOPE,
+    athlete: state.athlete,
+  });
 }
 
 function control(request, path) {
@@ -267,6 +292,8 @@ function control(request, path) {
     return Response.json({
       events: [...state.events.entries()].map(asEvent),
       requests: state.requests,
+      tokenExchanges: state.tokenExchanges,
+      revoked: state.revoked,
     });
   }
   if (path === '/__control/drive') {
@@ -297,13 +324,16 @@ async function intervals(request, url) {
 
   state.requests.push({ method: request.method, path, search: url.search });
 
+  // Before the bearer check below: this is the call that issues the bearer.
+  if (request.method === 'POST' && path === '/api/oauth/token') return intervalsToken(request);
+
   // Drained here rather than where it is wanted: a request answered without
   // its body being read — the 401 and the arranged failures below — leaves
   // workerd complaining about the stream once the response has gone out.
   const payload = request.method === 'GET' || request.method === 'HEAD' ? null : await request.text();
 
-  const key = credential(request);
-  if (!key || key === REVOKED_KEY) {
+  const token = credential(request);
+  if (!token || token === REVOKED_TOKEN) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -314,6 +344,12 @@ async function intervals(request, url) {
   // GET /api/v1/athlete/0
   if (request.method === 'GET' && /^\/api\/v1\/athlete\/[^/]+$/.test(path)) {
     return Response.json(state.athlete);
+  }
+
+  // DELETE /api/v1/disconnect-app — the grant handed back.
+  if (request.method === 'DELETE' && path === '/api/v1/disconnect-app') {
+    state.revoked.push(token);
+    return Response.json({ disconnected: true });
   }
 
   // GET /api/v1/athlete/0/activities
