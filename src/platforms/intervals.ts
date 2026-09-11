@@ -136,6 +136,11 @@ export const intervals: Platform = {
     help: 'In intervals.icu, open Settings and find the Developer Settings box at the bottom.',
     help_url: 'https://intervals.icu/settings',
   },
+  // They store every target as a percentage of a threshold, so a profile missing one
+  // shows the step with no usable target however right the file is. See integrations.md.
+  connected_note:
+    'Targets are read against your intervals.icu thresholds. If a pace or a power target looks ' +
+    'wrong there, set your threshold pace and FTP in their settings.',
 
   async verify(key) {
     const athlete = await readJson<Athlete>(await call(key, `/athlete/${ATHLETE}`));

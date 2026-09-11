@@ -69,6 +69,8 @@ export type Platform = {
   id: string;
   label: string;
   credential: { label: string; help: string; help_url: string };
+  /** What the platform still needs from the athlete, once the key is in. */
+  connected_note: string | null;
   connected: boolean;
   account: string | null;
   last_error: string | null;
