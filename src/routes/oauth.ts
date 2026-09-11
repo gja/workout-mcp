@@ -1,10 +1,4 @@
-/**
- * How an MCP client gets in: the consent page, and the grant it produces.
- *
- * `@cloudflare/workers-oauth-provider` owns /oauth/token and /oauth/register.
- * The authorize endpoint is ours, because only we know how to sign someone in
- * — see `src/index.ts`, which wires the two together.
- */
+// The consent page and the grant it produces — the one OAuth endpoint that is ours.
 
 import { AuthorizationError } from '@cloudflare/workers-oauth-provider';
 import type { AuthedRoute, Context, Route } from '../http';
@@ -13,13 +7,7 @@ import type { Router } from '../router';
 
 export const SCOPE = 'workouts';
 
-/**
- * The consent page.
- *
- * A bad client_id or redirect_uri is reported here rather than redirected to —
- * an unvalidated redirect target is exactly what an attacker would want.
- * Everything else goes back to the client as an OAuth error.
- */
+/** A bad client_id or redirect_uri is reported, never redirected to. */
 const showConsent: Route = async ({ request, url, env }) => {
   try {
     await env.OAUTH_PROVIDER.parseAuthRequest(request);
@@ -42,8 +30,7 @@ const showConsent: Route = async ({ request, url, env }) => {
 const grantConsent: AuthedRoute = async ({ request, env, user }) => {
   let authRequest;
   try {
-    // Re-parsed from the query string the consent page posted back, so the
-    // grant is built from parameters the provider has just re-validated.
+    // Re-parsed, so the grant is built from parameters just re-validated.
     authRequest = await env.OAUTH_PROVIDER.parseAuthRequest(request);
   } catch (err) {
     if (!(err instanceof AuthorizationError)) throw err;

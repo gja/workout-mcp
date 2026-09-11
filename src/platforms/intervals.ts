@@ -1,27 +1,5 @@
-/**
- * intervals.icu.
- *
- * A planned workout is an *event* on the athlete's calendar, in the WORKOUT
- * category. Three things about their API shape this file:
- *
- *  - The athlete id in a path may be `0`, which means "whoever the credential
- *    belongs to", so nothing here has to look an athlete up before writing.
- *  - Creating an event takes `upsertOnUid`, so create and update are the same
- *    call under a key we choose. That is what makes a re-push idempotent and
- *    a lost `remote_id` recoverable rather than a duplicate on the calendar.
- *  - The event endpoint accepts a FIT workout file, so the structure we send
- *    is exactly the one a watch would get, down to the nested repeats and the
- *    open-ended steps. Serialising to their text format instead would mean a
- *    second encoder to keep in step with the first, and their text repeats do
- *    not nest.
- *
- * Completion comes back the other way: when an athlete records a session,
- * intervals.icu matches it to the planned event and the activity carries a
- * `paired_event_id`. That is what `completions` reads. There is no webhook to
- * subscribe to here — intervals.icu only delivers those to OAuth applications
- * it has approved, and this integration is a key the athlete pastes in — so
- * the pairing is polled rather than pushed. See `sync.pullCompletions`.
- */
+// intervals.icu: a planned workout is a WORKOUT-category event on their calendar.
+// Their API notes, and why completions are polled, are in docs/integrations.md.
 
 import { base64Encode, encodeWorkoutFit, fitFilename } from '../fit';
 import type { Sport, SubSport, Workout } from '../workout';
@@ -84,13 +62,7 @@ const fail = (message: string): never => {
   throw new PlatformError('intervals', message);
 };
 
-/**
- * Username is the literal `API_KEY`; the password is the athlete's key.
- *
- * `btoa` refuses anything outside Latin-1, and what is in the box is whatever
- * was pasted — so a key with a stray non-ASCII character is the athlete's
- * mistake to be told about, not a 500.
- */
+// Username is the literal `API_KEY`. `btoa` refuses non-Latin-1, which is a paste error, not a 500.
 function authorization(key: string): string {
   try {
     return `Basic ${btoa(`API_KEY:${key}`)}`;
@@ -99,17 +71,9 @@ function authorization(key: string): string {
   }
 }
 
-/**
- * One call, with the platform's own complaint carried through.
- *
- * A body is read on failure because intervals.icu explains itself there, and
- * "401 Unauthorized" alone does not tell an athlete their key was revoked.
- * Anything that is not JSON is trimmed to a line so a stray HTML error page
- * does not become the message on the dashboard.
- */
+/** Their own complaint is read off the body — "401" alone does not say "key revoked". */
 async function call(key: string, path: string, init: RequestInit = {}): Promise<Response> {
-  // Built before the try, so a key `authorization` refuses is reported as the
-  // bad key it is rather than as intervals.icu being unreachable.
+  // Outside the try, so a key `authorization` refuses is not reported as an outage.
   const headers = { Authorization: authorization(key), ...init.headers };
 
   let response: Response;
@@ -142,14 +106,7 @@ type Athlete = { id?: string; name?: string };
 type Event = { id?: number; push_errors?: unknown[] };
 type Activity = { paired_event_id?: number | null; start_date?: string | null; start_date_local?: string | null };
 
-/**
- * An instant from an activity.
- *
- * `start_date` is UTC and is what we want; `start_date_local` is the athlete's
- * wall clock with no offset on it, so it is only a fallback and is read as UTC
- * rather than guessed at. Either way an unparseable value is dropped instead
- * of becoming an `Invalid Date` in the database.
- */
+/** `start_date` is UTC; the local fallback carries no offset, so it is read as UTC too. */
 function startedAt(activity: Activity): string | null {
   const raw = activity.start_date ?? activity.start_date_local;
   if (!raw) return null;
@@ -177,23 +134,19 @@ export const intervals: Platform = {
       await postJson(key, `/athlete/${ATHLETE}/events?upsertOnUid=true`, {
         uid: syncKey,
         category: 'WORKOUT',
-        // Their calendar is keyed on the athlete's local day, which is exactly
-        // what our `date` is, so midnight local is the honest start.
+        // Their calendar is keyed on the athlete's local day, which is what our `date` is.
         start_date_local: `${workout.date}T00:00:00`,
         type: activityType(workout),
         name: workout.name,
         indoor: isIndoor(workout),
-        // Our own id, so a person poking at their calendar can tell where the
-        // event came from. The upsert key is `uid`; this is only a label.
+        // A label only — `uid` is the upsert key — so a person can see where the event came from.
         external_id: workout.id,
         filename: fitFilename(workout),
         file_contents_base64: base64Encode(encodeWorkoutFit(workout)),
       }),
     );
 
-    // The call can succeed while the file inside it did not parse, in which
-    // case the event exists but has no steps. Saying so beats recording a
-    // clean sync for a calendar entry the athlete cannot train off.
+    // The call can succeed while the FIT file inside it did not parse, leaving an event with no steps.
     if (Array.isArray(event.push_errors) && event.push_errors.length > 0) {
       fail(`intervals.icu could not read the workout: ${event.push_errors.join('; ').slice(0, 200)}`);
     }
@@ -215,8 +168,7 @@ export const intervals: Platform = {
     const query = new URLSearchParams({
       oldest: from,
       newest: to,
-      // Their default is every field of every activity, which is a large
-      // document; these four are the whole of what pairing needs.
+      // Their default is every field of every activity; these four are all pairing needs.
       fields: 'id,paired_event_id,start_date,start_date_local',
     });
     const activities = await readJson<Activity[]>(

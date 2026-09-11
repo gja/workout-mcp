@@ -1,11 +1,4 @@
-/**
- * The athlete's own account: who they are, the API tokens they have minted,
- * and the MCP clients they have let in.
- *
- * Tokens are ours, in D1. Connections are OAuth grants, which the provider
- * keeps in KV — revoking one invalidates its access and refresh tokens
- * together.
- */
+// The athlete's account: identity, API tokens, and the MCP clients they have let in.
 
 import * as auth from '../auth';
 import * as db from '../db';
@@ -13,9 +6,7 @@ import type { AuthedRoute, Context } from '../http';
 import { error, json, withUser } from '../http';
 import type { Router } from '../router';
 
-// The window comes from the server because it is computed in UTC: a client
-// deriving it from its own local midnight would disagree at the edges and
-// drop a workout the server legitimately returned.
+// The window is UTC, so a client computing it from local midnight would disagree at the edges.
 const whoAmI: AuthedRoute = ({ user }) => json({ ...user, window: db.retentionWindow() });
 
 const listTokens: AuthedRoute = async ({ env, user }) => json({ tokens: await auth.listTokens(env, user.id) });

@@ -8,10 +8,8 @@ export function WorkoutCard({ workout, onChanged }: { workout: Workout; onChange
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // The time to record, held locally so it can be corrected before it is sent.
-  // Seeded from the stored completion, or from now for a session being logged
-  // as it finishes. The card is keyed by workout, so picking another day in
-  // the calendar starts this over rather than carrying the last one's time.
+  // Held locally so it can be corrected before it is sent. The card is keyed by
+  // workout, so picking another day starts this over rather than carrying the last time.
   const [when, setWhen] = useState(() =>
     toLocalInput(workout.completed_at ? new Date(workout.completed_at) : new Date()),
   );

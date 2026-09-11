@@ -1,9 +1,5 @@
-/**
- * The tool surface, shared by MCP and the REST API so both behave identically.
- *
- * The step schema below is the contract an assistant reads before writing a
- * workout, so it carries the examples rather than leaving them to prose.
- */
+// The tool surface, shared by MCP and REST. The schemas are what an assistant
+// reads before writing a workout, so they carry the examples. See docs/mcp.md.
 
 import { base64Encode, encodeWorkoutFit, fitDownloadName } from './fit';
 import { describeWorkout, plannedTotals } from './describe';
@@ -126,12 +122,7 @@ const WORKOUT_PROPERTIES = {
   steps: STEP_SCHEMA,
 } as const;
 
-/**
- * `readOnlyHint` is what lets a client group the reads apart from the writes
- * and allow them without asking each time; `destructiveHint` marks the two
- * that can lose work. The hints are advisory, so the server still checks
- * everything itself — they only shape how a client presents a tool.
- */
+/** The annotations are advisory — they shape how a client asks, not what the server allows. */
 export const TOOLS = [
   {
     name: 'list_workouts',
@@ -249,24 +240,13 @@ const requireString = (args: Record<string, unknown>, key: string): string => {
   return value;
 };
 
-/**
- * Links, for the dashboard alone.
- *
- * The tools deliberately return none: an assistant handed a fit_url links to
- * it instead of calling export_workout_fit, and the link is useless to whoever
- * it is handed to — the bytes are behind the caller's own credential. Callers
- * that can follow a link — the browser dashboard — get one by passing a base
- * URL; MCP does not, so the date and id are the whole handle.
- */
+// For the dashboard alone: no tool result carries a URL, and docs/mcp.md says why.
 const urls = (workout: Workout, baseUrl: string) => ({
   fit_url: `${baseUrl}/export/${workout.date}-${workout.id}.fit`,
   json_url: `${baseUrl}/api/workouts/${workout.date}/${workout.id}.json`,
 });
 
-/**
- * A workout in full: the stored fields — steps included, in the shape they
- * were written — plus the derived summary and totals.
- */
+/** The stored fields, steps and all, plus the derived summary and totals. */
 export function present(workout: Workout, baseUrl?: string) {
   return {
     ...workout,
@@ -276,10 +256,7 @@ export function present(workout: Workout, baseUrl?: string) {
   };
 }
 
-/**
- * What a write returns: which workout it was, by date and id. Echoing the
- * steps back at the caller who just sent them is noise.
- */
+/** What a write returns: which workout it was. Echoing the steps back is noise. */
 export function presentBrief(workout: Workout, baseUrl?: string) {
   const { steps: _steps, ...rest } = workout;
   return { ...rest, ...(baseUrl ? urls(workout, baseUrl) : {}) };
@@ -345,8 +322,7 @@ export async function callTool(name: string, rawArgs: unknown, env: Env, user: U
         if (typeof args.completed !== 'boolean') throw new ToolError('completed must be true or false');
         completed = args.completed;
       }
-      // Clearing the record and naming a time for it are contradictory asks;
-      // guessing which one was meant would silently do the other.
+      // Contradictory asks: guessing which was meant would silently do the other.
       if (!completed && args.completed_at !== undefined && args.completed_at !== null) {
         throw new ToolError('completed_at has no meaning alongside completed: false');
       }

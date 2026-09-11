@@ -1,16 +1,4 @@
-/**
- * Sessions and API tokens.
- *
- * Who the athlete is comes from `identity.ts` (Google or Apple); this module
- * turns that into the two credentials the app uses:
- *
- *   - a browser session cookie, for the dashboard and the consent page;
- *   - an API token (`wk_...`), pasted into a watch app or an MCP client that
- *     only takes a static header.
- *
- * OAuth access and refresh tokens are not here — `@cloudflare/workers-oauth-provider`
- * issues and stores those. `src/index.ts` teaches it to accept `wk_` tokens too.
- */
+// Session cookies and `wk_` API tokens, hashed. OAuth tokens are the library's. See docs/auth.md.
 
 import type { Env, User } from './db';
 import { newId } from './db';
@@ -20,9 +8,7 @@ export const SESSION_TTL_DAYS = 30;
 
 const SESSION_COOKIE = 'workout_session';
 
-// ---------------------------------------------------------------------------
-// Primitives
-// ---------------------------------------------------------------------------
+// --- Primitives ------------------------------------------------------------
 
 export const hex = (bytes: Uint8Array): string =>
   Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
@@ -36,12 +22,7 @@ export async function sha256(value: string): Promise<string> {
 const iso = (date: Date): string => date.toISOString();
 const inDays = (days: number, from = new Date()): Date => new Date(from.getTime() + days * 86_400_000);
 
-/**
- * An optional allowlist. Anyone with a Google account can reach the sign-in
- * button, so a public deployment usually wants to name who may actually get
- * in. `ALLOWED_EMAILS` takes addresses or `@domain` entries, comma separated;
- * unset means anyone may sign up.
- */
+/** `ALLOWED_EMAILS` is addresses or `@domain`, comma separated. Unset means anyone. */
 export function isAllowed(env: Env, email: string | null): boolean {
   if (!env.ALLOWED_EMAILS) return true;
   if (!email) return false;
@@ -52,9 +33,7 @@ export function isAllowed(env: Env, email: string | null): boolean {
     .some((entry) => entry === email || entry === domain);
 }
 
-// ---------------------------------------------------------------------------
-// Accounts
-// ---------------------------------------------------------------------------
+// --- Accounts --------------------------------------------------------------
 
 /** The first sign-in creates the account; later ones just stamp it. */
 export async function upsertUser(env: Env, identity: Identity): Promise<User> {
@@ -74,9 +53,7 @@ export async function upsertUser(env: Env, identity: Identity): Promise<User> {
   return user;
 }
 
-// ---------------------------------------------------------------------------
-// Sessions
-// ---------------------------------------------------------------------------
+// --- Sessions --------------------------------------------------------------
 
 export async function createSession(env: Env, userId: string): Promise<string> {
   const id = randomHex(32);
@@ -127,8 +104,7 @@ export function sessionCookie(id: string | null, secure: boolean): string {
     `${SESSION_COOKIE}=${id ?? ''}`,
     'Path=/',
     'HttpOnly',
-    // Lax rather than Strict: the OAuth consent page is reached by a
-    // top-level navigation from the MCP client.
+    // Lax, not Strict: the consent page is a top-level navigation from the MCP client.
     'SameSite=Lax',
     id ? `Max-Age=${SESSION_TTL_DAYS * 86_400}` : 'Max-Age=0',
   ];
@@ -136,9 +112,7 @@ export function sessionCookie(id: string | null, secure: boolean): string {
   return attributes.join('; ');
 }
 
-// ---------------------------------------------------------------------------
-// Bearer tokens
-// ---------------------------------------------------------------------------
+// --- Bearer tokens ---------------------------------------------------------
 
 const API_TOKEN_PREFIX = 'wk_';
 

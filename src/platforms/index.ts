@@ -1,21 +1,4 @@
-/**
- * Keeping the athlete's plan in step with the platforms they have connected.
- *
- * Every write to a workout goes through `src/plan.ts`, and `src/plan.ts` calls
- * in here, so there is one place that decides what a create, an update, a move
- * or a delete means to a platform — and adding a second platform is a new file
- * in this directory and a line in `PLATFORMS`, not another call site.
- *
- * Two rules shape the whole module:
- *
- *  - A platform never fails an athlete's own write. intervals.icu being down,
- *    or a key having been revoked, must not turn creating a workout into a
- *    500. Failures are caught, recorded against the connection, and shown on
- *    the dashboard; the next write or a "Sync now" retries.
- *  - Completions coming back in are written straight to the database rather
- *    than back through `plan.ts`, so marking a session done here cannot echo
- *    out to the platform it just came from.
- */
+// Keeping the athlete's plan in step with their connected platforms. See docs/integrations.md.
 
 import { sha256 } from '../auth';
 import * as db from '../db';
@@ -36,33 +19,13 @@ export const PLATFORMS: Record<PlatformId, Platform> = { intervals };
 export const isPlatformId = (value: string): value is PlatformId =>
   Object.prototype.hasOwnProperty.call(PLATFORMS, value);
 
-/**
- * How many workouts one sync run may push.
- *
- * A Worker is capped on outbound subrequests per invocation, and the per-user
- * workout cap is above that cap, so a first sync of a full calendar is done
- * over more than one run rather than dying half way through the last one.
- * Only stale workouts are pushed, so each run makes progress.
- */
+/** Below the Worker's outbound subrequest cap; a big first sync spans several runs. */
 export const PUSH_LIMIT = 40;
 
-/**
- * Our stable handle on a workout, used as the upsert key upstream.
- *
- * It has to survive the workout being edited, moved to another day, and the
- * link row being swept, which is why it is built from ids rather than from
- * the date or anything else the athlete can change.
- */
+/** The upsert key upstream: built from ids alone, so an edit or a move cannot change it. */
 const syncKey = (userId: string, workout: Pick<Workout, 'id'>): string => `workout-mcp-${userId}-${workout.id}`;
 
-/**
- * A digest of everything a push actually carries.
- *
- * Compared against the link to decide whether a workout needs pushing again.
- * `updated_at` cannot do that job: recording a completion read back off a
- * platform bumps it, and the next sync would then push the unchanged plan
- * straight back out over a change that platform itself reported.
- */
+// Decides what is stale. Not `updated_at`: a completion read back off a platform bumps that.
 const fingerprint = (workout: Workout): Promise<string> =>
   sha256(
     JSON.stringify([
@@ -78,14 +41,11 @@ const fingerprint = (workout: Workout): Promise<string> =>
 const message = (err: unknown): string =>
   err instanceof PlatformError || err instanceof Error ? err.message : String(err);
 
-// ---------------------------------------------------------------------------
-// Connecting
-// ---------------------------------------------------------------------------
+// --- Connecting ------------------------------------------------------------
 
 /** Check the credential works before storing it, so a typo fails here and now. */
 export async function connect(env: Env, user: User, platformId: PlatformId, key: string): Promise<Account> {
-  // Asked before the platform is, so a Worker with nowhere to put the key
-  // does not send it off to be verified and then refuse to keep it.
+  // Before the key is sent anywhere: nowhere to store it means nobody else sees it either.
   if (!store.credentialsConfigured(env)) throw new store.CredentialsUnavailable();
 
   const platform = PLATFORMS[platformId];
@@ -131,9 +91,7 @@ export async function status(env: Env, user: User): Promise<PlatformStatus[]> {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Pushing
-// ---------------------------------------------------------------------------
+// --- Pushing ---------------------------------------------------------------
 
 /** One workout to one platform, with the link kept up to date. */
 async function pushOne(
@@ -147,14 +105,7 @@ async function pushOne(
   await store.saveLink(env, userId, platform.id, workout.date, workout.id, remoteId, await fingerprint(workout));
 }
 
-/**
- * Everything a change to a workout does to the platforms, with nothing able
- * to escape and fail the athlete's own write.
- *
- * The bookkeeping is inside the guard, not only the push: a link table that
- * refuses a write is still no reason for a workout that is safely stored to
- * come back as a 500.
- */
+/** Nothing in here may fail the athlete's own write — the bookkeeping included. */
 async function sideEffect(what: string, work: () => Promise<void>): Promise<void> {
   try {
     await work();
@@ -163,17 +114,7 @@ async function sideEffect(what: string, work: () => Promise<void>): Promise<void
   }
 }
 
-/**
- * A workout was created or replaced.
- *
- * `previous` is where it used to live when the write moved it, so the link
- * follows the workout rather than being left pointing at a row that is gone —
- * which would push a second copy upstream and orphan the first.
- *
- * A failure is recorded against the connection and left there: it is cleared
- * by a sync that finds nothing left to do, not by the next workout happening
- * to push cleanly, because that one says nothing about this one.
- */
+/** A workout was created or replaced; `previous` is where it was, when the write moved it. */
 export async function onWorkoutSaved(
   env: Env,
   user: User,
@@ -210,8 +151,7 @@ export async function onWorkoutDeleted(env: Env, user: User, date: string, id: s
         await platform.remove(key, link.remote_id);
         await store.dropLink(env, user.id, platformId, date, id);
       } catch (err) {
-        // The link stays, so the nightly retry or the next sync can try again
-        // rather than leaving a session on a calendar nothing here remembers.
+        // The link stays: it is the only record of the event still to remove.
         await store.recordSyncError(env, user.id, platformId, `deleting ${date}/${id}: ${message(err)}`);
       }
     }
@@ -227,18 +167,7 @@ export type SyncReport = {
   error: string | null;
 };
 
-/**
- * Bring a platform back into step, and read completions back.
- *
- * Out of step is three things: a workout with no link or one whose plan has
- * changed since it was last pushed, and a link that names no workout — a
- * delete that did not reach the platform. A run over a calendar that is
- * already in step costs one list and no pushes.
- *
- * This is also the only thing that clears the connection's standing error: a
- * single workout pushing cleanly says nothing about the one that did not, so
- * only a run that finds nothing left to do may call the connection well.
- */
+/** Bring a platform back into step, and read completions back. See docs/integrations.md. */
 export async function syncNow(env: Env, user: User, platformId: PlatformId): Promise<SyncReport> {
   const report: SyncReport = { platform: platformId, pushed: 0, removed: 0, remaining: 0, completed: 0, error: null };
 
@@ -255,11 +184,7 @@ export async function syncNow(env: Env, user: User, platformId: PlatformId): Pro
     const links = await store.listLinks(env, user.id, platformId);
     const stored = new Set(workouts.map((workout) => `${workout.date}/${workout.id}`));
 
-    // A link naming no workout, whose date is still inside the window, is a
-    // delete that never landed. Outside the window there is nothing useful to
-    // do: the date is past reading, and taking a session off an athlete's own
-    // calendar on the strength of a row we can no longer check is worse than
-    // leaving it. `pruneOrphanedLinks` clears those away instead.
+    // A link naming no workout, inside the window, is a delete that never landed.
     const window = db.retentionWindow();
     const abandoned = [...links.entries()]
       .filter(([keyed, link]) => !stored.has(keyed) && link.date >= window.from && link.date <= window.to)
@@ -289,8 +214,7 @@ export async function syncNow(env: Env, user: User, platformId: PlatformId): Pro
     report.remaining = abandoned.length - report.removed + (stale.length - report.pushed);
 
     report.completed = await applyCompletions(env, user.id, platformId, key);
-    // Only now, and only if the cap left nothing behind: a connection with
-    // work still queued is not yet in step.
+    // The only place a standing error is cleared, and only with nothing left queued.
     await store.recordSyncError(env, user.id, platformId, report.remaining > 0 ? `${report.remaining} left to sync` : null);
   } catch (err) {
     report.error = message(err);
@@ -299,27 +223,9 @@ export async function syncNow(env: Env, user: User, platformId: PlatformId): Pro
   return report;
 }
 
-// ---------------------------------------------------------------------------
-// Completions coming back
-// ---------------------------------------------------------------------------
+// --- Completions coming back -----------------------------------------------
 
-/**
- * Mark done whatever the platform says was actually done.
- *
- * intervals.icu pairs a recorded activity with the planned event it matches,
- * and that pairing is the completion. It is polled rather than pushed:
- * intervals.icu delivers webhooks only to OAuth applications it has approved,
- * and this integration is a key the athlete pastes in, so there is no callback
- * to register. The poll runs on the nightly sweep and on "Sync now".
- *
- * Writes go straight to the database: a completion that came from a platform
- * must not be pushed back out to it.
- *
- * Each completion is applied exactly once, remembered on the link. An athlete
- * who un-ticks a session means it, and without that memory the next pass
- * would find the platform still reporting the activity and tick it back on,
- * making the uncomplete button useless on anything synced.
- */
+// Straight to the db, and once each: see "Completion is polled" in docs/integrations.md.
 async function applyCompletions(env: Env, userId: string, platformId: PlatformId, key: string): Promise<number> {
   const window = db.readWindow();
   const completions: Completion[] = await PLATFORMS[platformId].completions(key, window.from, window.to);
@@ -344,27 +250,13 @@ async function applyCompletions(env: Env, userId: string, platformId: PlatformId
   return marked;
 }
 
-/**
- * How many athletes one scheduled pass touches.
- *
- * A scheduled run has the same subrequest budget as any other invocation, so
- * each pass takes a batch and the next one carries on from where it left off.
- * See `store.connectionBatch`.
- */
+/** Athletes per scheduled pass; the next one carries on. See `store.connectionBatch`. */
 export const PULL_BATCH = 40;
 
 /** How many stuck connections the nightly retry takes on. */
 export const RETRY_BATCH = 10;
 
-/**
- * The hourly pass: read completions back off the connected platforms.
- *
- * Errors are per-athlete: one revoked key must not stop the sweep for anyone
- * else, so each is recorded against its own connection and the loop goes on.
- * Every connection visited is stamped, readable or not, because the batch is
- * ordered by when it was last visited — skipping one silently would park the
- * batch on it and quietly stop the sweep for everybody behind it.
- */
+/** The hourly pass. Errors are per-athlete, and every connection visited is stamped. */
 export async function pullEveryCompletion(env: Env): Promise<number> {
   let marked = 0;
   for (const platformId of Object.keys(PLATFORMS) as PlatformId[]) {
@@ -389,14 +281,7 @@ export async function pullEveryCompletion(env: Env): Promise<number> {
   return marked;
 }
 
-/**
- * The nightly retry of connections carrying a standing error.
- *
- * Nothing else picks these up: a push that failed is not retried by the next
- * workout written, since that one pushes only itself. Without this, a session
- * missing from a calendar because the platform was down for a minute stays
- * missing until an athlete notices and presses Sync now.
- */
+/** The nightly retry. Nothing else picks these up — a later write pushes only itself. */
 export async function retryFailedConnections(env: Env): Promise<number> {
   let fixed = 0;
   for (const connection of await store.failedConnections(env, RETRY_BATCH)) {
@@ -407,12 +292,5 @@ export async function retryFailedConnections(env: Env): Promise<number> {
   return fixed;
 }
 
-/**
- * Drop links to workouts that are gone for good.
- *
- * Only outside the window we keep: inside it, a link with no workout is a
- * delete that has yet to reach the platform, which `syncNow` flushes. Outside
- * it, the workout was swept by retention and the session stays on the
- * athlete's calendar, so the link has nothing left to name.
- */
+/** Drop links to workouts gone for good. Outside the window only; inside, `syncNow` has them. */
 export const pruneOrphanedLinks = store.pruneOrphanedLinks;

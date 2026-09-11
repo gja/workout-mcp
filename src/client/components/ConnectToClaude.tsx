@@ -78,7 +78,7 @@ function Tokens({ tokens, onChanged }: { tokens: ApiToken[]; onChanged: () => vo
         </form>
       </div>
 
-      {/* Shown once, right here, because this is the only time the value exists. */}
+      {/* Shown here because this is the only time the full value exists. */}
       {issued && (
         <>
           <div className="secret">{issued.token}</div>

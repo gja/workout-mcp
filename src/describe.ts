@@ -1,8 +1,4 @@
-/**
- * Human-readable rendering of a normalized workout — used by the dashboard and
- * returned alongside MCP tool results so an assistant can read back what it
- * just created without re-deriving it from the raw JSON.
- */
+// Human-readable rendering, shared by the dashboard and the MCP tool results.
 
 import { METRES_PER_MILE, formatDuration, speedToPace } from './units';
 import { resolveSteps } from './resolve';
@@ -46,8 +42,7 @@ function describeTarget(target: Target): string | null {
     case 'speed': {
       const metres = target.unit === 'km' ? 1000 : METRES_PER_MILE;
       const suffix = `/${target.unit}`;
-      // A faster pace is a higher speed, so the ends swap back for display: the
-      // floor on speed is the slowest pace allowed, and vice versa.
+      // A faster pace is a higher speed, so the ends swap back for display.
       const fastest = target.high === null ? null : formatDuration(speedToPace(target.high, metres));
       const slowest = target.low === null ? null : formatDuration(speedToPace(target.low, metres));
       if (fastest && slowest) return `${fastest}-${slowest}${suffix}`;
@@ -80,13 +75,7 @@ export function describeWorkout(workout: Workout): string {
   return [`${workout.date} — ${workout.name} (${sport})`, ...describeSteps(resolveSteps(workout.steps), '  ')].join('\n');
 }
 
-/**
- * What the session adds up to, with repeats resolved.
- *
- * Steps that run until the lap button is pressed cannot be counted, so the
- * totals are a floor rather than an estimate — `open_steps` says how many are
- * missing from them.
- */
+/** A floor, not an estimate: `open_steps` counts what runs until a lap press. */
 export type PlannedTotals = { seconds: number; meters: number; steps: number; open_steps: number };
 
 export function plannedTotals(steps: PlanStep[]): PlannedTotals {

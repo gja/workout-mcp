@@ -1,10 +1,4 @@
-/**
- * A minimal MCP server over Streamable HTTP.
- *
- * Stateless: every POST carries one JSON-RPC request and gets one JSON
- * response, so no sessions, no SSE and no Durable Objects — which is what
- * keeps this deployable on the Workers free plan.
- */
+// MCP over Streamable HTTP, stateless: one JSON-RPC request per POST. See docs/mcp.md.
 
 import { TOOLS, ToolError, callTool, isCallerError } from './tools';
 import type { Env, User } from './db';
@@ -62,11 +56,7 @@ class MethodNotFound extends Error {
   }
 }
 
-/**
- * A tool that fails because of bad input reports it as a successful call with
- * `isError`, so the model sees the message and can retry; only protocol-level
- * problems become JSON-RPC errors.
- */
+/** A successful call carrying `isError`, so the model reads the message and can retry. */
 function toToolErrorResult(error: Error) {
   return { content: [{ type: 'text', text: error.message }], isError: true };
 }
@@ -105,8 +95,7 @@ export async function handleMcp(request: Request, env: Env, user: User): Promise
     );
   }
 
-  // A client may batch requests into an array; notifications drop out of the
-  // response, and an all-notification batch gets a bare 202.
+  // Notifications drop out of a batched response, and an all-notification batch gets a 202.
   const batch = Array.isArray(body) ? (body as JsonRpcRequest[]) : [body as JsonRpcRequest];
   const responses = (await Promise.all(batch.map((r) => dispatch(r, env, user)))).filter(
     (r): r is JsonRpcResponse => r !== null,

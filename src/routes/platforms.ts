@@ -1,10 +1,4 @@
-/**
- * Connecting a training platform, and syncing with it.
- *
- * Only the HTTP shape lives here. What a platform is, and what a create, an
- * update or a delete means to one, is `src/platforms/`; the writes themselves
- * reach it through `src/plan.ts`, not through these routes.
- */
+// Only the HTTP shape; what a platform is lives in `src/platforms/`.
 
 import type { AuthedRoute, Context } from '../http';
 import { error, json, withUser } from '../http';
@@ -15,10 +9,7 @@ type PlatformRoute = '/api/platforms/:platform([a-z_]+)';
 
 const PLATFORM: PlatformRoute = '/api/platforms/:platform([a-z_]+)';
 
-/**
- * Every platform we can sync to, and where each one stands for this athlete.
- * Unconnected ones are listed too, so the dashboard can offer them.
- */
+/** Unconnected platforms are listed too, so the dashboard can offer them. */
 const listPlatforms: AuthedRoute = async ({ env, user }) =>
   json({ configured: platforms.credentialsConfigured(env), platforms: await platforms.status(env, user) });
 
@@ -26,14 +17,7 @@ const listPlatforms: AuthedRoute = async ({ env, user }) =>
 const namedPlatform = (name: string): platforms.PlatformId | Response =>
   platforms.isPlatformId(name) ? name : error(`unknown platform "${name}"`, 404);
 
-/**
- * Connect a platform by storing the athlete's key, then push what we have.
- *
- * The key is checked against the platform before it is stored, so a typo is a
- * 400 here rather than an error that only shows up on the next workout. The
- * first sync runs straight away: a calendar that fills in only when the next
- * workout happens to be written would look broken.
- */
+/** The first sync runs straight away: a calendar that fills in later looks broken. */
 const connectPlatform: AuthedRoute<PlatformRoute> = async ({ request, env, user, params }) => {
   const platform = namedPlatform(params.platform);
   if (platform instanceof Response) return platform;

@@ -1,27 +1,11 @@
-/**
- * FIT workout file encoding, via the Garmin FIT JavaScript SDK.
- *
- * Two details drive most of this file:
- *
- *  - The SDK's encoder writes *parent* fields only; it does not resolve
- *    subfield names like `durationTime` or `customTargetSpeedLow`. So we write
- *    `durationValue` / `customTargetValueLow` / `customTargetValueHigh`
- *    ourselves and apply the profile's scaling (time x1000, distance x100,
- *    speed x1000).
- *  - Nested repeats are flattened. FIT stores a flat list of steps; a repeat is
- *    a step emitted *after* its children whose duration value points back at
- *    the message index of the first child.
- */
+// FIT workout encoding, via the Garmin SDK. Read docs/fit.md before changing any of it.
 
 import { Encoder, Profile } from '@garmin/fitsdk';
 import { resolveSteps } from './resolve';
 import type { Duration, HrValue, PowerValue, ResolvedStep, Target } from './resolve';
 import type { Sport, SubSport, Workout } from './workout';
 
-/**
- * The most the encoder's scratch buffer may reserve. A workout file is a few
- * hundred bytes; a megabyte is already far more than any plan will need.
- */
+/** The encoder's scratch buffer ceiling. A workout file is a few hundred bytes. */
 const MAX_FIT_BYTES = 1024 * 1024;
 
 /** `workoutHr`: 0-100 is a percentage of max HR, above 100 is bpm + 100. */
@@ -45,15 +29,7 @@ function encodeDuration(duration: Duration): DurationFields {
   }
 }
 
-/**
- * A target in FIT's shape, before it is named primary or secondary.
- *
- * `low` and `high` are absent when that end of the range was left open. An
- * absent field means "not set", which is what an open end is; writing a
- * stand-in value instead invents a bound the athlete never asked for, and
- * FIT has no value that reads as "no limit" — a 0 floor on a power range is
- * read as 0% of FTP, not as "no floor".
- */
+/** `low`/`high` are absent for an open end: FIT has no value meaning "no limit". */
 type TargetFields = { type: string; value: number; low?: number; high?: number };
 
 /** FIT target type per zone metric. Pace zones are speed zones. */
@@ -103,8 +79,7 @@ function targetMesgFields(target: Target, secondary: boolean): Record<string, un
     ? { secondaryTargetType: type, secondaryTargetValue: value }
     : { targetType: type, targetValue: value };
 
-  // Each bound is written only if it exists, so an open end leaves the field
-  // out of the step's definition entirely.
+  // Only if it exists: an open end leaves the field out of the step definition entirely.
   if (low !== undefined) fields[secondary ? 'secondaryCustomTargetValueLow' : 'customTargetValueLow'] = low;
   if (high !== undefined) fields[secondary ? 'secondaryCustomTargetValueHigh' : 'customTargetValueHigh'] = high;
   return fields;
@@ -113,22 +88,13 @@ function targetMesgFields(target: Target, secondary: boolean): Record<string, un
 /** One encoded FIT workout step, before message indices are assigned. */
 type StepMesg = Record<string, unknown>;
 
-/**
- * The SDK types every enum field as `number`, but the encoder also accepts the
- * profile's string names (`'time'`, `'heartRate'`, ...) and resolves them. We
- * use the names for readability and narrow the encoder's type here, once.
- */
+/** The SDK types enums as `number`, but the encoder resolves the profile's names too. */
 type FitEncoder = { onMesg(mesgNum: number, mesg: Record<string, unknown>): void };
 
 const write = (encoder: Encoder, mesgNum: number, mesg: Record<string, unknown>): void =>
   (encoder as unknown as FitEncoder).onMesg(mesgNum, mesg);
 
-/**
- * Flatten the step tree into FIT's linear form.
- *
- * A repeat becomes a trailing step pointing back at its first child, which is
- * why children are emitted first and the repeat is pushed afterwards.
- */
+/** A repeat points back at its first child, so children are emitted before it. */
 export function flattenSteps(steps: ResolvedStep[], out: StepMesg[] = []): StepMesg[] {
   for (const step of steps) {
     if (step.kind === 'repeat') {
@@ -138,13 +104,9 @@ export function flattenSteps(steps: ResolvedStep[], out: StepMesg[] = []): StepM
         messageIndex: out.length,
         durationType: 'repeatUntilStepsCmplt',
         durationValue: firstChildIndex,
-        // A repeat has no target of its own, but the field is written anyway:
-        // Garmin's own exports carry it, and an importer that reads
-        // targetType on every step chokes on the one record missing it.
+        // Written even though a repeat has no target: importers choke on the record missing it.
         targetType: 'open',
-        // With durationType = repeatUntilStepsCmplt, targetValue holds the
-        // repeat count (the profile's `repeatSteps` subfield), which resolves
-        // off durationType and so is unaffected by targetType above.
+        // Under repeatUntilStepsCmplt this is the `repeatSteps` subfield, not a target.
         targetValue: step.times,
       });
       continue;
@@ -194,7 +156,7 @@ const FIT_SUB_SPORT: Record<SubSport, string> = {
   generic: 'generic',
 };
 
-/** A stable non-zero serial number derived from the workout id (FIT uint32z). */
+/** FIT uint32z, so it must be non-zero. */
 function serialFor(id: string): number {
   let hash = 2166136261;
   for (let i = 0; i < id.length; i++) {
@@ -203,19 +165,8 @@ function serialFor(id: string): number {
   return (hash >>> 0) || 1;
 }
 
-/**
- * Build an encoder whose scratch buffer fits inside a Worker.
- *
- * The SDK's `OutputStream` asks for a *resizable* ArrayBuffer with a 500 MB
- * `maxByteLength`. V8 reserves that much address space up front, which
- * production workerd refuses against the isolate's memory cap — so the
- * encoder threw before writing a byte, while dev workerd let it through. The
- * size is a private field with no constructor option, so the allocation is
- * clamped here instead.
- *
- * The swap spans a single synchronous constructor call with no `await` in it,
- * so no other request can run while the global is replaced.
- */
+// The SDK asks for a 500 MB resizable buffer, which production workerd refuses; see docs/fit.md.
+// The swap is safe: one synchronous constructor call, so no other request can run inside it.
 function createEncoder(): Encoder {
   const NativeArrayBuffer = globalThis.ArrayBuffer;
 
@@ -254,7 +205,6 @@ export function encodeWorkoutFit(workout: Workout, now: Date = new Date()): Uint
     sport: FIT_SPORT[workout.sport],
     numValidSteps: steps.length,
     ...(workout.sub_sport ? { subSport: FIT_SUB_SPORT[workout.sub_sport] } : {}),
-    // The session description the athlete wrote, which the watch shows.
     ...(workout.notes ? { wktDescription: workout.notes } : {}),
   });
 
@@ -265,11 +215,7 @@ export function encodeWorkoutFit(workout: Workout, now: Date = new Date()): Uint
   return encoder.close();
 }
 
-/**
- * FIT bytes as base64, for the callers that cannot hand back a file: the MCP
- * tool, which has only JSON to answer with, and the platform adapters, which
- * upload the workout as an attachment.
- */
+/** For callers with no file to hand back: the MCP tool, and the platform adapters. */
 export function base64Encode(bytes: Uint8Array): string {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -279,14 +225,7 @@ export function base64Encode(bytes: Uint8Array): string {
 /** Download filename for a workout: `2026-09-12-a1b2c3d4.fit`. Mirrors the export URL. */
 export const fitFilename = (workout: Pick<Workout, 'date' | 'id'>): string => `${workout.date}-${workout.id}.fit`;
 
-/**
- * The name to save an exported workout under: `2026-09-12-4x10-Tempo.fit`.
- *
- * A caller that gets the bytes rather than the URL — every MCP client — has no
- * filename to fall back on, and a folder of these should read as a plan rather
- * than a list of ids. Anything a filesystem would argue about collapses to a
- * dash, and a workout whose name survives none of that keeps its id.
- */
+/** `2026-09-12-4x10-Tempo.fit`, for a caller given the bytes rather than the URL. */
 export function fitDownloadName(workout: Pick<Workout, 'date' | 'id' | 'name'>): string {
   const slug = (workout.name ?? '')
     .normalize('NFKD')

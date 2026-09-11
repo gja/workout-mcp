@@ -12,12 +12,7 @@ export function formatDuration(seconds: number): string {
 export const formatDistance = (meters: number): string =>
   meters >= 1000 ? `${Number((meters / 1000).toFixed(1))} km` : `${Math.round(meters)} m`;
 
-/**
- * "45 min", "10 km", "1 h 15 · 12 km".
- *
- * A trailing "+" means the session also has steps that run until a lap press,
- * so the totals are a floor rather than the whole thing.
- */
+/** "1 h 15 · 12 km". A trailing "+" means open steps, so the totals are a floor. */
 export function plannedSummary(planned: PlannedTotals | undefined): string {
   if (!planned) return '';
 
@@ -33,17 +28,10 @@ export function plannedSummary(planned: PlannedTotals | undefined): string {
 export const formatSport = (workout: Workout): string =>
   workout.sub_sport ? `${workout.sport}, ${workout.sub_sport.replace(/_/g, ' ')}` : workout.sport;
 
-/** The step lines out of the server's summary, whose first line is a header. */
+/** The server's summary minus its first line, which is a header. */
 export const stepLines = (workout: Workout): string => (workout.summary ?? '').split('\n').slice(1).join('\n');
 
-/**
- * One emoji per sport, for the calendar.
- *
- * A glance at the month should say what kind of week it is without reading a
- * single workout name, and a sport is the coarsest useful distinction. The
- * sub-sport is left out deliberately: a treadmill run is still a run, and
- * fifteen near-identical pictograms would say less than eight distinct ones.
- */
+// One per sport, not per sub-sport: eight distinct pictograms read at a glance, fifteen do not.
 const SPORT_ICONS: Record<string, string> = {
   running: '\u{1F3C3}',
   cycling: '\u{1F6B4}',

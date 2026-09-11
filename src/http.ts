@@ -1,10 +1,4 @@
-/**
- * What every route shares: the context a handler is given, the shapes it
- * answers in, and `withUser` — the one place a credential becomes a `User`.
- *
- * The routes themselves live in `src/routes/`, a module per area, each
- * declaring its own paths. `src/app.ts` mounts them onto one router.
- */
+// What every route shares, including `withUser` — the one place a credential becomes a `User`.
 
 import * as auth from './auth';
 import type { Env, User } from './db';
@@ -40,16 +34,10 @@ export type AuthedRoute<Pattern extends string = string> = Handler<AuthedContext
 /** Paths that are the API rather than the dashboard, and so are behind the door. */
 export const isApiPath = (path: string): boolean => path.startsWith('/api/') || path.startsWith('/export/');
 
-/**
- * `.json` is a second spelling of an API path, for a browser or a `curl` that
- * wants to name the format. Stripping it here keeps each route declared once.
- */
+/** `.json` is a second spelling of an API path; stripping it keeps routes declared once. */
 export const routablePath = (pathname: string): string => pathname.replace(/^(\/api\/.+)\.json$/, '$1');
 
-/**
- * The bearer token, from the Authorization header or — for FIT downloads only —
- * a `token` query parameter, since a watch or a plain link cannot set headers.
- */
+/** The query parameter is for FIT downloads only: a watch cannot set a header. */
 function readToken({ request, url, path }: Context): string | null {
   const header = request.headers.get('Authorization');
   if (header?.startsWith('Bearer ')) return header.slice('Bearer '.length).trim();
@@ -63,10 +51,7 @@ const unauthenticated = (url: URL, hadToken: boolean): Response =>
     'WWW-Authenticate': `Bearer resource_metadata="${url.origin}/.well-known/oauth-protected-resource/mcp"`,
   });
 
-/**
- * Require an athlete, and inject them. The credential is either the dashboard's
- * session cookie or a bearer token from an MCP client or a watch.
- */
+/** Require an athlete, and inject them: a session cookie, or a bearer token. */
 export const withUser =
   <Pattern extends string = string>(handler: AuthedRoute<Pattern>): Route<Pattern> =>
   async (context) => {
@@ -75,8 +60,7 @@ export const withUser =
       ? await auth.findTokenOwner(context.env, token)
       : await auth.readSession(context.env, context.request);
     if (!user) return unauthenticated(context.url, token !== null);
-    // Awaited rather than returned, so a handler that rejects does so inside
-    // this promise — a bare `return` adopts it a tick later, by which point
-    // the runtime has already called the rejection unhandled.
+    // Awaited, not returned: a bare `return` adopts the rejection a tick too late,
+    // by which point the runtime has already called it unhandled.
     return await handler({ ...context, user });
   };
