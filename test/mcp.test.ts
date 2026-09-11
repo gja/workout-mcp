@@ -60,6 +60,11 @@ describe('protocol', () => {
 
     expect(readOnly.sort()).toEqual(['export_workout_fit', 'get_workout', 'list_workouts']);
     expect(destructive.sort()).toEqual(['delete_workout', 'update_workout']);
+    // Completing is a write, but it cannot lose the plan it is recorded against.
+    expect(tools.find((tool) => tool.name === 'complete_workout')?.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+    });
     // Every tool says which it is, rather than leaving a client to guess.
     for (const tool of tools) expect(tool.annotations?.readOnlyHint).toBeTypeOf('boolean');
   });
@@ -165,6 +170,69 @@ describe('tools', () => {
     for (const result of results) {
       expect(JSON.stringify(result)).not.toMatch(/_url|https?:/);
     }
+  });
+
+  it('marks a workout done, at a time it is given', async () => {
+    const created = (await callTool('create_workout', intervals)) as { id: string };
+
+    const done = (await callTool('complete_workout', {
+      date: DAY,
+      id: created.id,
+      completed_at: `${DAY}T06:30:00Z`,
+    })) as { completed_at: string };
+    expect(done.completed_at).toBe(`${DAY}T06:30:00.000Z`);
+
+    const read = (await callTool('get_workout', { date: DAY, id: created.id })) as { completed_at: string };
+    expect(read.completed_at).toBe(`${DAY}T06:30:00.000Z`);
+  });
+
+  it('marks a workout done as of now when no time is given', async () => {
+    const created = (await callTool('create_workout', intervals)) as { id: string };
+    const before = Date.now();
+    const done = (await callTool('complete_workout', { date: DAY, id: created.id })) as { completed_at: string };
+    expect(Date.parse(done.completed_at)).toBeGreaterThanOrEqual(before - 1000);
+  });
+
+  it('clears the record on completed: false, leaving the plan alone', async () => {
+    const created = (await callTool('create_workout', intervals)) as { id: string };
+    await callTool('complete_workout', { date: DAY, id: created.id });
+
+    const cleared = (await callTool('complete_workout', {
+      date: DAY,
+      id: created.id,
+      completed: false,
+    })) as Record<string, unknown>;
+    expect(cleared).not.toHaveProperty('completed_at');
+
+    const read = (await callTool('get_workout', { date: DAY, id: created.id })) as { steps: unknown[] };
+    expect(read.steps).toHaveLength(intervals.steps.length);
+  });
+
+  it('refuses a time alongside completed: false, rather than guessing', async () => {
+    const created = (await callTool('create_workout', intervals)) as { id: string };
+    const response = await rpc('tools/call', {
+      name: 'complete_workout',
+      arguments: { date: DAY, id: created.id, completed: false, completed_at: `${DAY}T06:30:00Z` },
+    });
+    expect(response.result?.isError).toBe(true);
+  });
+
+  it('keeps the record when the plan is replaced or moved', async () => {
+    const created = (await callTool('create_workout', intervals)) as { id: string };
+    await callTool('complete_workout', { date: DAY, id: created.id, completed_at: `${DAY}T06:30:00Z` });
+
+    await callTool('update_workout', { id: created.id, current_date: DAY, ...intervals, date: NEXT_DAY });
+
+    const read = (await callTool('get_workout', { date: NEXT_DAY, id: created.id })) as { completed_at: string };
+    expect(read.completed_at).toBe(`${DAY}T06:30:00.000Z`);
+  });
+
+  it('reports completing a workout that is not there', async () => {
+    const response = await rpc('tools/call', {
+      name: 'complete_workout',
+      arguments: { date: DAY, id: 'nosuchid1' },
+    });
+    expect(response.result?.isError).toBe(true);
   });
 
   it('reports a bad workout as a tool error the model can act on', async () => {

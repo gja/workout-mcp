@@ -52,7 +52,9 @@ function Dashboard({ me }: { me: Me }) {
       {open && (
         <div className="day" ref={panel}>
           <h3>{relativeDate(open.date)}</h3>
-          <WorkoutCard workout={open} onChanged={reload} />
+          {/* Keyed, so the completion time in the card is seeded from the
+              workout being shown rather than the one shown before it. */}
+          <WorkoutCard key={selected} workout={open} onChanged={reload} />
         </div>
       )}
 

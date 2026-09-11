@@ -17,6 +17,8 @@ export type Workout = {
   sub_sport?: string;
   notes?: string;
   external_id?: string;
+  /** When the session was actually done, as an ISO instant; absent while planned. */
+  completed_at?: string;
   updated_at: string;
   /** Server-rendered prose. The first line is a header; the rest are the steps. */
   summary: string;
@@ -58,6 +60,16 @@ export const listProviders = (): Promise<{ providers: string[] }> => request('/a
 
 export const listWorkouts = (): Promise<{ workouts: Workout[] }> => request('/api/workouts.json');
 export const deleteWorkout = (workout: Workout): Promise<unknown> => request(workout.json_url, { method: 'DELETE' });
+
+const completionUrl = (workout: Workout): string => `/api/workouts/${workout.date}/${workout.id}/complete`;
+
+/** Mark a session done. `completedAt` is an ISO instant; the server uses now without one. */
+export const completeWorkout = (workout: Workout, completedAt?: string): Promise<Workout> =>
+  request(completionUrl(workout), { method: 'POST', body: { completed_at: completedAt ?? null } });
+
+/** Put a session back to merely planned, leaving the plan itself alone. */
+export const uncompleteWorkout = (workout: Workout): Promise<Workout> =>
+  request(completionUrl(workout), { method: 'DELETE' });
 
 export const listTokens = (): Promise<{ tokens: ApiToken[] }> => request('/api/tokens');
 export const createToken = (name: string): Promise<IssuedToken> => request('/api/tokens', { method: 'POST', body: { name } });
