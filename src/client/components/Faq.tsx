@@ -53,16 +53,15 @@ export function Faq() {
           <p className="note">
             What gets stored is the workouts you plan and whether you marked them done — nothing else about the
             session, and nothing at all about you beyond what signing in and syncing need: your email address, your
-            login session, and any training-platform key you connect, which is encrypted at rest. Planned workouts are
-            only readable inside the retention window, 7 days back and 14 ahead; past that they stop being visible,
-            because nothing here deletes training history you did not delete yourself.
+            login session, and any training-platform key you connect, which is encrypted at rest.
           </p>
           <p className="note">
             Put plainly: I don't want your data. No heart-rate streams, no GPS tracks, no activity history — there is
             nothing I would do with any of it, and no plans to start collecting it.
           </p>
           <p className="note">
-            The long version, including who else sees what: <a href="/privacy-policy">the privacy policy</a>.
+            Want it all deleted? Write to <a href="mailto:tejas@gja.in">tejas@gja.in</a> and it goes. The long version,
+            including who else sees what, is in <a href="/privacy-policy">the privacy policy</a>.
           </p>
         </Section>
       </Accordion>
