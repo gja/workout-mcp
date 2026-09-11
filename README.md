@@ -553,11 +553,17 @@ src/describe.ts   human-readable rendering, shared by MCP and the dashboard
 src/db.ts         D1 queries and retention
 src/identity.ts   signing in with Google or Apple
 src/auth.ts       sessions, accounts and API tokens
-src/http.ts       the JSON and CORS conventions every handler shares
 src/tools.ts      the tool surface shared by MCP and REST
 src/mcp.ts        JSON-RPC over Streamable HTTP
 src/router.ts     a small path router: `:params`, and 405 apart from 404
-src/app.ts        the OAuth provider's defaultHandler: login, consent, REST, assets
+src/http.ts       the context a route is given, `withUser`, and the JSON shapes
+src/routes/       one module per group of routes, each declaring its own paths
+  signin.ts         /auth/* and /api/auth/logout
+  oauth.ts          /oauth/authorize and /oauth/client: how an MCP client gets in
+  account.ts        /api/me, /api/tokens, /api/connections
+  workouts.ts       /api/workouts, /api/tools and /export
+  sync.ts           /api/sync, for every platform at once
+src/app.ts        the OAuth provider's defaultHandler: the table the rest mount onto
 src/index.ts      the provider itself, and the protected /mcp handler
 src/sync.ts       what a sync is, and which platforms to sync to
 
@@ -569,7 +575,7 @@ src/garmin/payload.ts  plan -> the Training API's workout JSON (pure, and lossy)
 src/garmin/api.ts      the Training API itself: workouts, and calendar entries
 src/garmin/activities.ts  what the athlete recorded, matched back to the plan
 src/garmin/sync.ts     the diff, and what to do about each side of it
-src/garmin/routes.ts   /garmin/* and /api/garmin/*
+src/garmin/routes.ts   /garmin/* and /api/garmin/*, as their own mounted group
 ```
 
 `src/garmin/` mirrors the shape of the FIT side rather than inventing a new
@@ -582,13 +588,29 @@ workout.
 claims the OAuth endpoints and `/mcp`, and passes every other request to
 `src/app.ts`.
 
-Routing lives in one table at the bottom of `src/app.ts`. Each route is a
-single handler, and the ones declared through `withUser` are given the athlete
-they are acting for, so no handler has to read a cookie or a bearer token. A
-path the table does not claim is the dashboard — except under `/api/` and
-`/export/`, which answer an unknown or wrongly-addressed path the way they
-would a known one: 401 before 404 or 405, so a caller without a credential
-cannot map the API by reading status codes back.
+`src/app.ts` is only the routing table: it builds the router and mounts each
+group from `src/routes/`, which keeps every path next to the handler that
+answers it. A route is a single handler, and the ones declared through
+`withUser` are given the athlete they are acting for, so no handler has to read
+a cookie or a bearer token. A path the table does not claim is the dashboard —
+except under `/api/` and `/export/`, which answer an unknown or
+wrongly-addressed path the way they would a known one: 401 before 404 or 405,
+so a caller without a credential cannot map the API by reading status codes
+back.
+
+The browser journeys — connecting a watch platform, where the athlete is walked
+out to a third party and back — use `withUserOrSignIn` instead. It differs in
+the only two ways that matter for a redirect flow: session cookie only, since a
+bearer token belongs to an MCP client with no browser to complete a consent
+screen in, and a missing athlete lands on the dashboard with a message rather
+than on a JSON 401 they can neither read nor act on.
+
+There is deliberately no CORS. Everything here is same-origin (the dashboard
+fetching `/api/*` off the host that served it) or not a browser at all (a watch
+or `curl` holding a bearer token). The one surface with real cross-origin
+browser callers is `/mcp`, which belongs to the OAuth provider: it answers the
+preflight and sets `Access-Control-Allow-Origin` itself, for `/mcp` and the
+OAuth endpoints alike.
 
 The browser journeys out to a watch platform go through `withUserOrSignIn`
 instead, which sends a signed-out athlete to the dashboard with a message. A
@@ -640,7 +662,7 @@ asserted as one calendar entry on the new date rather than as two API calls in
 some order.
 
 ```bash
-npm test        # 305 tests
+npm test        # 306 tests
 npm run typecheck
 ```
 

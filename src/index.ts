@@ -15,7 +15,7 @@
  */
 
 import { OAuthProvider } from '@cloudflare/workers-oauth-provider';
-import { SCOPE, app } from './app';
+import { app } from './app';
 import * as auth from './auth';
 import * as db from './db';
 import * as identity from './identity';
@@ -23,6 +23,7 @@ import type { Env, User } from './db';
 import * as garminStore from './garmin/store';
 import { syncEveryone } from './sync';
 import { handleMcp } from './mcp';
+import { SCOPE } from './routes/oauth';
 import { ToolError } from './tools';
 import { WorkoutError } from './workout';
 

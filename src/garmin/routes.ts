@@ -12,20 +12,19 @@
  *     syncing is provider-neutral and lives at `/api/sync`, so one action
  *     covers every platform the athlete has linked.
  *
- * Each is a handler over `GarminContext`, which is the subset of the app's
- * authenticated context these need. Declared here rather than imported from
- * `app.ts` so the dependency runs one way: `app.ts` knows about Garmin's
- * routes, and Garmin's routes know nothing about `app.ts`.
+ * The group declares its own paths at the bottom, the way every module under
+ * `src/routes/` does, and `app.ts` mounts it. The dependency runs one way:
+ * `app.ts` knows about Garmin's routes, and Garmin's routes know nothing about
+ * `app.ts` — only the shared context in `src/http.ts`.
  */
 
-import type { Env, User } from '../db';
-import { error, json } from '../http';
+import type { Env } from '../db';
+import type { AuthedRoute, Context } from '../http';
+import { error, json, withUser, withUserOrSignIn } from '../http';
+import type { Router } from '../router';
 import { GarminAuthError, authorizationUrl, deregister, exchangeCode, fetchGarminUserId, isConfigured, randomVerifier } from './oauth';
 import * as store from './store';
 import { status } from './sync';
-
-/** What these handlers need of the app's authenticated context. */
-export type GarminContext = { request: Request; url: URL; env: Env; user: User };
 
 /** Same-origin paths only, so the connect flow cannot become an open redirect. */
 function safeReturnTo(value: string | null): string | null {
@@ -58,7 +57,7 @@ const declined = (origin: string, message: string): Response =>
  * The athlete is already signed in here, so the account the connection lands
  * on is never in doubt.
  */
-export async function startGarminConnect({ url, env, user }: GarminContext): Promise<Response> {
+export const startGarminConnect: AuthedRoute = async ({ url, env, user }) => {
   if (!isConfigured(env)) return declined(url.origin, 'Garmin sync is not configured on this server');
 
   // The state is the only thing standing between this flow and someone else's
@@ -70,10 +69,10 @@ export async function startGarminConnect({ url, env, user }: GarminContext): Pro
   await store.startConnect(env, user.id, state, verifier, safeReturnTo(url.searchParams.get('return_to')));
 
   return Response.redirect(await authorizationUrl(env, url.origin, state, verifier), 302);
-}
+};
 
 /** `GET /garmin/callback` — back from Garmin, with a code to exchange. */
-export async function finishGarminConnect({ url, env, user }: GarminContext): Promise<Response> {
+export const finishGarminConnect: AuthedRoute = async ({ url, env, user }) => {
   if (url.searchParams.get('error')) return declined(url.origin, 'the Garmin connection was declined');
 
   const code = url.searchParams.get('code');
@@ -112,28 +111,26 @@ export async function finishGarminConnect({ url, env, user }: GarminContext): Pr
   }
 
   return backToDashboard(url.origin, flow.returnTo ?? '/', { garmin_connected: '1' });
-}
+};
 
 // ---------------------------------------------------------------------------
 // The connection
 // ---------------------------------------------------------------------------
 
 /** `GET /api/garmin/status`. */
-export const garminStatus = async ({ env, user }: GarminContext): Promise<Response> =>
-  json(await status(env, user.id));
+export const garminStatus: AuthedRoute = async ({ env, user }) => json(await status(env, user.id));
 
 /** `PUT /api/garmin/settings` — `{auto_sync}`. */
-export async function setGarminSettings({ request, env, user }: GarminContext): Promise<Response> {
+export const setGarminSettings: AuthedRoute = async ({ request, env, user }) => {
   const body = (await request.json().catch(() => ({}))) as { auto_sync?: unknown };
   if (typeof body.auto_sync !== 'boolean') return error('auto_sync must be true or false', 400);
   if (!(await store.getConnection(env, user.id))) return error('no Garmin account is connected', 404);
   await store.setAutoSync(env, user.id, body.auto_sync);
   return json(await status(env, user.id));
-}
+};
 
 /** `POST /api/garmin/disconnect`. */
-export const disconnectGarmin = async ({ env, user }: GarminContext): Promise<Response> =>
-  json(await disconnectAccount(env, user.id));
+export const disconnectGarmin: AuthedRoute = async ({ env, user }) => json(await disconnectAccount(env, user.id));
 
 /**
  * Forget the athlete's Garmin account.
@@ -162,3 +159,19 @@ export async function disconnectAccount(
       : 'No Garmin account was connected.',
   };
 }
+
+// ---------------------------------------------------------------------------
+// The table
+// ---------------------------------------------------------------------------
+
+export const routes = (app: Router<Context>): void => {
+  app
+    // The browser journeys, so a caller without a session is sent to sign in
+    // rather than handed a 401 it cannot act on.
+    .get('/garmin/connect', withUserOrSignIn(startGarminConnect))
+    .get('/garmin/callback', withUserOrSignIn(finishGarminConnect))
+
+    .get('/api/garmin/status', withUser(garminStatus))
+    .put('/api/garmin/settings', withUser(setGarminSettings))
+    .post('/api/garmin/disconnect', withUser(disconnectGarmin));
+};
