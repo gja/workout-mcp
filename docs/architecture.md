@@ -110,9 +110,11 @@ state in React, and the panels still work with JavaScript half-loaded. The FAQ
 uses the same pair and renders signed out as well, which is the only part of the
 page a first-time visitor sees. Under it, one link: the privacy policy.
 
-Three Vite entries, not one: the dashboard, the OAuth consent screen, and
-`/privacy-policy`, which is a file on disk and so is served by the assets
-binding on its own. `/workout/<id>` is not a file — `src/app.ts` answers it with
-the dashboard, and the client resolves the id against the first list that
-arrives, because an id is only unique within a date. A workout outside the
-window is a note rather than an empty calendar.
+Two Vite entries, not one: the dashboard and the OAuth consent screen. The
+privacy policy is neither — `public/privacy-policy.html` is a static file with
+its own inline styles and no script at all, copied through the build and served
+by the assets binding at `/privacy-policy`, extension and all handled there.
+`/workout/<id>` is the one page path the table does claim: it is not a file, so
+`src/app.ts` answers it with the dashboard, and the client resolves the id
+against the first list that arrives, because an id is only unique within a
+date. A workout outside the window is a note rather than an empty calendar.

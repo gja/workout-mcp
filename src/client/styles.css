@@ -330,10 +330,3 @@ code { background: var(--line); padding: 1px 5px; border-radius: 4px; font-size:
   font-size: 13px;
 }
 .colophon a { color: inherit; }
-
-/* --- Privacy policy ----------------------------------------------------- */
-
-.policy ul { padding-left: 20px; }
-.policy li { margin-bottom: 8px; }
-.policy p, .policy ul { max-width: 68ch; }
-.policy a { color: var(--accent); }

@@ -1,0 +1,153 @@
+<!doctype html>
+<!--
+  A static file: no React, no bundle, no script of any kind. Vite copies public/
+  as-is, and the assets binding serves it at /privacy-policy without the
+  extension. The styles are inline because they are the only ones this page
+  needs — the dashboard's stylesheet is built with a hashed name it could not
+  link to anyway.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy policy</title>
+    <style>
+      :root {
+        --bg: #fbfbf9;
+        --ink: #1a1a17;
+        --muted: #6b6b63;
+        --line: #e4e4de;
+        --accent: #1f6feb;
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #16161a;
+          --ink: #ececec;
+          --muted: #9a9a95;
+          --line: #2e2e35;
+          --accent: #63a2ff;
+        }
+      }
+      body {
+        margin: 0 auto;
+        max-width: 68ch;
+        padding: 24px 16px 64px;
+        background: var(--bg);
+        color: var(--ink);
+        font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+      }
+      h1 { font-size: 20px; margin: 0 0 4px; }
+      h2 { font-size: 16px; margin: 32px 0 10px; }
+      p, ul { color: var(--muted); font-size: 14px; }
+      ul { padding-left: 20px; }
+      li { margin-bottom: 8px; }
+      a { color: var(--accent); }
+      footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 13px; }
+      footer a { color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <h1>Privacy policy</h1>
+    <p>
+      What WorkoutsMCP stores, who else sees it, and how to get rid of it. Last updated 11 September 2026.
+    </p>
+
+    <p>
+      This covers the hosted instance at <strong>workouts-mcp.com</strong>, run as a free, open-source side project
+      rather than a company. The short version is the same as the one on the front page: I don't want your data. What
+      is stored is what planning a workout and syncing it somewhere needs, and nothing else.
+    </p>
+
+    <h2>What is stored</h2>
+    <ul>
+      <li>
+        <strong>Your account.</strong> The provider you signed in with (Google or Apple), that provider's stable id for
+        you, your email address, and when the account was created and last used. Apple's private relay addresses are
+        kept as-is — if that is what Apple sends, that is all I have.
+      </li>
+      <li>
+        <strong>Your sign-in session.</strong> One httpOnly cookie, stored server-side as a hash rather than the cookie
+        itself, with an expiry. In-flight sign-ins are held for ten minutes and then swept.
+      </li>
+      <li>
+        <strong>Your workouts.</strong> The plan you made — date, name, sport, notes, and the steps — and whether you
+        marked it done. No heart-rate streams, no GPS tracks, no activity history, no files from your watch.
+      </li>
+      <li>
+        <strong>API tokens and connected apps.</strong> Tokens you create are stored as a hash plus the first few
+        characters, so the dashboard can show you which is which; the full token is shown once and never again. Apps
+        you connect over OAuth have their grant recorded so you can revoke them.
+      </li>
+      <li>
+        <strong>Training-platform connections.</strong> If you connect intervals.icu, its API key is stored encrypted
+        at rest, along with the account name it belongs to and the error from the last failed sync. Without the
+        encryption key configured, a connection is refused rather than stored in the clear.
+      </li>
+    </ul>
+
+    <h2>What is not</h2>
+    <p>
+      No analytics, no tracking pixels, no advertising, no third-party scripts on any page here — the GitHub logo in
+      the FAQ is inlined so that even a badge does not call out to anyone. Nothing is sold, rented or shared for
+      marketing, and there is no profiling or automated decision-making. Your data is not used to train anything.
+    </p>
+
+    <h2>Who else sees it</h2>
+    <ul>
+      <li>
+        <strong>Cloudflare</strong> hosts the site, the database and the session store, and sees the request traffic
+        that reaches it.
+      </li>
+      <li>
+        <strong>Google or Apple</strong>, whichever you sign in with, tell me who you are; what they log about the
+        sign-in is between you and them.
+      </li>
+      <li>
+        <strong>intervals.icu</strong>, and only if you connect it: workouts you sync are pushed there, and completions
+        are read back hourly.
+      </li>
+      <li>
+        <strong>The MCP client you connect</strong> — Claude, or whatever else you authorize — can read and write the
+        workouts in your window, because that is the point of it. Revoke it and that stops.
+      </li>
+    </ul>
+    <p>
+      Beyond that, data is disclosed only if the law actually requires it. There is no other recipient and no sale.
+    </p>
+
+    <h2>How long it is kept</h2>
+    <p>
+      Workouts are only readable inside a rolling window — 7 days back and 14 days ahead. A session that ages out of
+      that window stops being visible and is not deleted: nothing here throws away training history you did not ask it
+      to. Expired login sessions, abandoned sign-ins and stale OAuth grants are swept nightly. Everything else stays
+      until you delete it or ask for the account to go.
+    </p>
+
+    <h2>What you can do about it</h2>
+    <ul>
+      <li>Delete any workout from the dashboard, or through your MCP client.</li>
+      <li>Revoke an API token, or a connected app, from the Setup section of the dashboard.</li>
+      <li>Disconnect a training platform, which deletes the stored credential.</li>
+      <li>
+        Ask for the account itself — identity row, tokens, sessions and every workout — to be deleted, by opening an
+        issue at <a href="https://github.com/gja/workout-mcp/issues">github.com/gja/workout-mcp</a>. A copy of what is
+        held can be asked for the same way.
+      </li>
+      <li>
+        Or skip trusting someone else's copy entirely: it is MIT-licensed, so you can
+        <a href="https://github.com/gja/workout-mcp">run your own</a>, on your own Cloudflare account, where none of
+        the above involves me.
+      </li>
+    </ul>
+
+    <h2>Changes and contact</h2>
+    <p>
+      If this policy changes, the date at the top changes with it, and the diff is public in the repository's history.
+      Questions, corrections and complaints go to
+      <a href="https://github.com/gja/workout-mcp/issues">the issue tracker</a>.
+    </p>
+
+    <footer><a href="/">Back to the dashboard</a></footer>
+  </body>
+</html>
