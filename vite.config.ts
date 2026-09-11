@@ -14,7 +14,8 @@ export default defineConfig({
       build: {
         rollupOptions: {
           // Two pages: the dashboard, and the OAuth consent screen the Worker
-          // serves at /oauth/authorize.
+          // serves at /oauth/authorize. The privacy policy needs no build, so it
+          // is a plain file under public/.
           input: { index: 'index.html', authorize: 'authorize.html' },
         },
       },

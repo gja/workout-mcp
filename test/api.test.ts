@@ -92,6 +92,19 @@ describe('dashboard', () => {
     expect(response.headers.get('Content-Type')).toContain('text/html');
     expect(await response.text()).toContain('<title>WorkoutsMCP</title>');
   });
+
+  it('serves the dashboard for a link to one workout, which the client opens', async () => {
+    const response = await SELF.fetch(`${BASE}/workout/abcd1234`);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('<title>WorkoutsMCP</title>');
+  });
+
+  it('serves the privacy policy at /privacy-policy, without the extension', async () => {
+    const response = await SELF.fetch(`${BASE}/privacy-policy`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toContain('text/html');
+    expect(await response.text()).toContain('<title>Privacy policy</title>');
+  });
 });
 
 describe('workout CRUD', () => {
