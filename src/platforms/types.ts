@@ -14,6 +14,25 @@ export type Outbound = { workout: Workout; syncKey: string };
 /** A session the platform says was actually done, named by our remote id. */
 export type Completion = { remote_id: string; completed_at: string };
 
+/** A race the athlete recorded on the platform, theirs entirely — we never pushed it. */
+export type Competition = {
+  /** The platform's id for the recorded session. */
+  remote_id: string;
+  /** The athlete's local day it was recorded on, `YYYY-MM-DD`. */
+  date: string;
+  name: string;
+  /** The extension of the file the athlete actually uploaded, when the platform says. */
+  original_type: string | null;
+};
+
+/** A recording on its way somewhere else: handed over as a stream, never buffered here. */
+export type RecordedFile = {
+  body: ReadableStream;
+  content_type: string;
+  /** Absent when the platform did not say, which costs the reader its streaming path. */
+  content_length: number | null;
+};
+
 export type Platform = {
   id: PlatformId;
   /** Shown on the dashboard. */
@@ -32,6 +51,12 @@ export type Platform = {
 
   /** Sessions the platform has matched to the workouts we pushed, by date. */
   completions(key: string, from: string, to: string): Promise<Completion[]>;
+
+  /** Races recorded on the platform. Optional: only `src/drive/` asks, and only if offered. */
+  competitions?(key: string, from: string, to: string): Promise<Competition[]>;
+
+  /** The FIT recording behind one of those races. Required if `competitions` is offered. */
+  recording?(key: string, competition: Competition): Promise<RecordedFile>;
 };
 
 /** Theirs, not ours: shown on the dashboard, and never allowed to fail a write. */

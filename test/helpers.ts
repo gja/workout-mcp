@@ -21,6 +21,8 @@ const statementsOf = (sql: string): string[] =>
 /** Fresh tables for each test file, built by replaying every migration. */
 export async function resetDatabase(): Promise<void> {
   const tables = [
+    'drive_copies',
+    'drive_connections',
     'platform_links',
     'platform_connections',
     'workouts',

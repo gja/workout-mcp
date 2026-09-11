@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vitest/config';
 import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
 import { generateTestApplePrivateKey } from './test/apple-key.js';
+import { generateTestDrivePrivateKey } from './test/drive-key.js';
 
 // Tests run inside workerd, so the FIT encoder and the D1 queries are
 // exercised on the same runtime that serves production traffic.
@@ -22,6 +23,8 @@ export default defineConfig({
           APPLE_KEY_ID: 'KEY1234567',
           APPLE_PRIVATE_KEY: await generateTestApplePrivateKey(),
           CREDENTIALS_SECRET: 'test-credentials-secret',
+          GOOGLE_DRIVE_CLIENT_EMAIL: 'workouts@test-project.iam.gserviceaccount.com',
+          GOOGLE_DRIVE_PRIVATE_KEY: await generateTestDrivePrivateKey(),
         },
         // Every outbound fetch goes to the stand-in provider instead of the
         // internet, so the real arctic code path still runs.

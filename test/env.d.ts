@@ -6,7 +6,7 @@ type AppEnv = import('../src/db').Env;
 
 declare namespace Cloudflare {
   interface Env extends AppEnv {
-    /** The stand-in worker, so a test can arrange and read intervals.icu state. */
+    /** The stand-in worker, so a test can arrange and read intervals.icu and Drive state. */
     INTERVALS: Fetcher;
   }
 }

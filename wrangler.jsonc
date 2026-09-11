@@ -28,6 +28,11 @@
 		// platform. Any passphrase; without it those connections are refused
 		// rather than stored in the clear:
 		//   CREDENTIALS_SECRET
+		//
+		// The service account races are copied to Google Drive as. Both are
+		// needed, and both come out of the JSON key Google downloads; see
+		// docs/drive.md:
+		//   GOOGLE_DRIVE_CLIENT_EMAIL, GOOGLE_DRIVE_PRIVATE_KEY
 	},
 	// The OAuth provider stores clients, grants and tokens here.
 	"kv_namespaces": [
@@ -46,8 +51,9 @@
 	],
 	// Nightly credential housekeeping (03:00 UTC) — expired sessions,
 	// abandoned sign-ins, stale OAuth grants — and an hourly pass that reads
-	// completions back off the connected training platforms. src/index.ts
-	// tells the two apart by the cron that fired.
+	// completions back off the connected training platforms and copies any new
+	// race into the athlete's Google Drive. src/index.ts tells the two apart by
+	// the cron that fired.
 	//
 	// Workouts are not swept: the retention window and the per-user cap are
 	// enforced on the way in and on every read, so nothing has to delete an

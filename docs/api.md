@@ -27,6 +27,10 @@ session cookie set at login.
 | `PUT /api/platforms/:platform` | `{key}` — verify a credential, store it, and sync |
 | `DELETE /api/platforms/:platform` | Disconnect, forgetting the key and the links |
 | `POST /api/platforms/:platform/sync` | Push what has changed, read completions back |
+| `GET /api/drive` | The Google Drive races are copied to, and what has gone there |
+| `PUT /api/drive` | `{drive}` — a shared drive link or id: check it, store it, and copy |
+| `DELETE /api/drive` | Forget the drive, leaving the files already copied alone |
+| `POST /api/drive/sync` | Copy any race not yet copied |
 | `GET /export/:date-:id.fit` | The FIT file |
 | `POST /api/tools/:name` | Any MCP tool, over REST |
 

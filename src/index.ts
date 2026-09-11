@@ -5,6 +5,7 @@ import { OAuthProvider } from '@cloudflare/workers-oauth-provider';
 import { app } from './app';
 import * as auth from './auth';
 import * as db from './db';
+import * as drive from './drive';
 import * as identity from './identity';
 import type { Env, User } from './db';
 import { handleMcp } from './mcp';
@@ -67,8 +68,15 @@ export default {
       return 0;
     });
 
+    // Also guarded, and after the completions: someone else's Drive is one more
+    // server that can be down, and the housekeeping below must still run.
+    const copied = await drive.copyForEveryone(env).catch((err: unknown) => {
+      console.error('copying races to Google Drive failed', err);
+      return 0;
+    });
+
     if (event.cron !== NIGHTLY) {
-      console.log(`hourly pass marked ${completed} workouts done`);
+      console.log(`hourly pass marked ${completed} workouts done and copied ${copied} races to Drive`);
       return;
     }
 
@@ -81,7 +89,8 @@ export default {
     const abandoned = await identity.pruneLoginStates(env);
     const purged = await provider.purgeExpiredData(env);
     console.log(
-      `nightly sweep marked ${completed} workouts done, brought ${retried} platform connections back, ` +
+      `nightly sweep marked ${completed} workouts done, copied ${copied} races to Drive, ` +
+        `brought ${retried} platform connections back, ` +
         `and removed ${links} stale platform links, ${credentials} expired sessions, ` +
         `${abandoned} abandoned sign-ins and ${purged.grantsPurged ?? 0} stale grants`,
     );

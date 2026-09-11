@@ -38,6 +38,7 @@ does not, so that button is only usable on a real domain.
 | `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY` | Apple sign-in |
 | `ALLOWED_EMAILS` | Restricting who may sign up |
 | `CREDENTIALS_SECRET` | Connecting a training platform |
+| `GOOGLE_DRIVE_CLIENT_EMAIL`, `GOOGLE_DRIVE_PRIVATE_KEY` | Copying races to an athlete's Google Drive |
 
 `APP_NAME` is an optional plain variable, shown on the dashboard and the
 consent page.
@@ -46,8 +47,9 @@ consent page.
 
 Two crons, told apart in `src/index.ts` by which one fired.
 
-- **Hourly** — read completions back off the connected training platforms.
-  There is no webhook to subscribe to; see [integrations.md](integrations.md).
+- **Hourly** — read completions back off the connected training platforms, and
+  copy any new race into the drive an athlete configured. There is no webhook to
+  subscribe to; see [integrations.md](integrations.md) and [drive.md](drive.md).
 - **Nightly (`0 3 * * *`)** — the same completion pass, plus credential
   housekeeping (expired sessions, abandoned sign-ins, stale OAuth grants), a
   retry of platform connections stuck on an error, and a prune of platform

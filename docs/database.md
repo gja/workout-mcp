@@ -96,6 +96,8 @@ are asked about a row that is about to be written over rather than read back:
 | `login_states` | In-flight sign-ins, single use, ten minutes |
 | `platform_connections` | An encrypted platform credential and its standing error |
 | `platform_links` | Where a workout lives upstream, its fingerprint, and the completion already applied |
+| `drive_connections` | The Google shared drive an athlete's races are copied to |
+| `drive_copies` | One row per race already copied, so it is never copied twice |
 
 Ids are eight characters from a vowel-free alphabet, so they are short,
 URL-safe, and cannot spell anything by accident.
