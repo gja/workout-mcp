@@ -5,7 +5,10 @@
 type AppEnv = import('../src/db').Env;
 
 declare namespace Cloudflare {
-  interface Env extends AppEnv {}
+  interface Env extends AppEnv {
+    /** The stand-in worker, so a test can arrange and read intervals.icu state. */
+    INTERVALS: Fetcher;
+  }
 }
 
 declare module '*.sql?raw' {

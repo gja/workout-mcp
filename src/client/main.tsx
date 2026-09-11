@@ -6,6 +6,7 @@ import { Calendar } from './components/Calendar';
 import { SignIn } from './components/SignIn';
 import { WorkoutCard } from './components/WorkoutCard';
 import { ConnectToClaude } from './components/ConnectToClaude';
+import { Platforms } from './components/Platforms';
 import './styles.css';
 
 function Dashboard({ me }: { me: Me }) {
@@ -58,6 +59,7 @@ function Dashboard({ me }: { me: Me }) {
         </div>
       )}
 
+      <Platforms onSynced={reload} />
       <ConnectToClaude />
     </>
   );

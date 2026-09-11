@@ -7,6 +7,7 @@ import * as db from '../db';
 import { encodeWorkoutFit, fitFilename } from '../fit';
 import type { AuthedRoute, Context } from '../http';
 import { CORS_HEADERS, error, json, withUser } from '../http';
+import * as plan from '../plan';
 import type { Router } from '../router';
 import { callTool, present, presentBrief } from '../tools';
 import { parseDate, parseTimestamp } from '../units';
@@ -31,7 +32,7 @@ const listWorkouts: AuthedRoute = async ({ url, env, user }) => {
 };
 
 const createWorkout: AuthedRoute = async ({ request, url, env, user }) => {
-  const workout = await db.putWorkout(env, user.id, parseWorkout(await request.json()));
+  const workout = await plan.createWorkout(env, user, parseWorkout(await request.json()));
   return json(presentBrief(workout, url.origin), 201);
 };
 
@@ -43,23 +44,14 @@ const getWorkout: AuthedRoute<WorkoutRoute> = async ({ url, env, user, params })
 
 const replaceWorkout: AuthedRoute<WorkoutRoute> = async ({ request, url, env, user, params }) => {
   const date = parseDate(params.date, 'date');
-  const existing = await db.getWorkout(env, user.id, date, params.id);
-  if (!existing) return error(`no workout ${params.id} on ${date}`, 404);
-
   const input = parseWorkout(await request.json());
-  // Replacing the plan is not un-doing the session, and a move deletes the
-  // row the completion would otherwise have been carried across from.
-  if (existing.completed_at) input.completed_at = existing.completed_at;
-  // Before the delete below, so a refused date does not also cost the
-  // workout the caller was trying to move.
-  db.assertRetainable(input.date);
-  if (input.date !== date) await db.deleteWorkout(env, user.id, date, params.id);
-  return json(presentBrief(await db.putWorkout(env, user.id, input, params.id), url.origin));
+  const workout = await plan.replaceWorkout(env, user, date, params.id, input);
+  return workout ? json(presentBrief(workout, url.origin)) : error(`no workout ${params.id} on ${date}`, 404);
 };
 
 const deleteWorkout: AuthedRoute<WorkoutRoute> = async ({ env, user, params }) => {
   const date = parseDate(params.date, 'date');
-  const deleted = await db.deleteWorkout(env, user.id, date, params.id);
+  const deleted = await plan.deleteWorkout(env, user, date, params.id);
   return deleted ? json({ deleted: true, date, id: params.id }) : error(`no workout ${params.id} on ${date}`, 404);
 };
 
@@ -73,7 +65,7 @@ const setCompletion = async (
 ): Promise<Response> => {
   const { url, env, user, params } = context;
   const date = parseDate(params.date, 'date');
-  const workout = await db.setCompleted(env, user.id, date, params.id, completedAt);
+  const workout = await plan.setCompleted(env, user, date, params.id, completedAt);
   return workout ? json(presentBrief(workout, url.origin)) : error(`no workout ${params.id} on ${date}`, 404);
 };
 

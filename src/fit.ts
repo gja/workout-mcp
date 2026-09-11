@@ -265,6 +265,17 @@ export function encodeWorkoutFit(workout: Workout, now: Date = new Date()): Uint
   return encoder.close();
 }
 
+/**
+ * FIT bytes as base64, for the callers that cannot hand back a file: the MCP
+ * tool, which has only JSON to answer with, and the platform adapters, which
+ * upload the workout as an attachment.
+ */
+export function base64Encode(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
 /** Download filename for a workout: `2026-09-12-a1b2c3d4.fit`. Mirrors the export URL. */
 export const fitFilename = (workout: Pick<Workout, 'date' | 'id'>): string => `${workout.date}-${workout.id}.fit`;
 

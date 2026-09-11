@@ -21,12 +21,16 @@ import * as db from './db';
 import * as identity from './identity';
 import type { Env, User } from './db';
 import { handleMcp } from './mcp';
+import * as platforms from './platforms';
 import { SCOPE } from './routes/oauth';
 import { ToolError } from './tools';
 import { WorkoutError } from './workout';
 
 /** What `completeAuthorization` stores on the grant, and hands back here. */
 type AuthProps = { userId: string; email: string | null };
+
+/** The sweep's cron, as `wrangler.jsonc` spells it. The other one is hourly. */
+const NIGHTLY = '0 3 * * *';
 
 const mcpHandler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -73,15 +77,49 @@ const provider = new OAuthProvider<Env>({
 export default {
   fetch: (request: Request, env: Env, ctx: ExecutionContext) => provider.fetch(request, env, ctx),
 
-  /** Nightly sweep: workout retention, expired logins, and stale OAuth data. */
-  async scheduled(_event: ScheduledController, env: Env): Promise<void> {
-    const workouts = await db.pruneAll(env);
+  /**
+   * Two schedules, told apart by which cron fired.
+   *
+   * Hourly: read completions back off the connected platforms. intervals.icu
+   * delivers webhooks only to OAuth applications it has approved, and this
+   * integration is a key the athlete pastes in, so there is no callback to
+   * register — a session recorded there becomes a workout marked done here
+   * within the hour instead.
+   *
+   * Nightly (`NIGHTLY`): the credential housekeeping — expired sessions,
+   * abandoned sign-ins, stale OAuth grants — plus a retry of any platform
+   * connection stuck on an error, since nothing else picks those up.
+   *
+   * Workouts are deliberately not swept. The window and the per-user cap are
+   * enforced on the way in and on every read, so an older session stops being
+   * visible without anything having to delete it; see `src/db.ts`.
+   */
+  async scheduled(event: ScheduledController, env: Env): Promise<void> {
+    // Guarded, and first: reading completions means talking to somebody
+    // else's server, and none of the housekeeping below should be skipped
+    // because that went wrong.
+    const completed = await platforms.pullEveryCompletion(env).catch((err: unknown) => {
+      console.error('reading completions back failed', err);
+      return 0;
+    });
+
+    if (event.cron !== NIGHTLY) {
+      console.log(`hourly pass marked ${completed} workouts done`);
+      return;
+    }
+
+    const retried = await platforms.retryFailedConnections(env).catch((err: unknown) => {
+      console.error('retrying stuck platform connections failed', err);
+      return 0;
+    });
+    const links = await platforms.pruneOrphanedLinks(env);
     const credentials = await auth.pruneExpired(env);
     const abandoned = await identity.pruneLoginStates(env);
     const purged = await provider.purgeExpiredData(env);
     console.log(
-      `nightly sweep removed ${workouts} workouts, ${credentials} expired sessions, ` +
-        `${abandoned} abandoned sign-ins, and ${purged.grantsPurged ?? 0} stale grants`,
+      `nightly sweep marked ${completed} workouts done, brought ${retried} platform connections back, ` +
+        `and removed ${links} stale platform links, ${credentials} expired sessions, ` +
+        `${abandoned} abandoned sign-ins and ${purged.grantsPurged ?? 0} stale grants`,
     );
   },
 } satisfies ExportedHandler<Env>;
