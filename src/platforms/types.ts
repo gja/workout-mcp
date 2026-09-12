@@ -1,7 +1,7 @@
 // What a training platform has to be able to do. Adapters are stateless — handed
 // the athlete's OAuth access token on every call, storing nothing. See docs/architecture.md.
 
-import type { Workout } from '../workout';
+import type { Sport, Workout } from '../workout';
 
 export type PlatformId = 'intervals';
 
@@ -23,6 +23,13 @@ export type Recorded = {
   name: string;
   /** The extension of the file the athlete actually uploaded, when the platform says. */
   original_type: string | null;
+  /** The platform's own name for the activity, e.g. `TrailRun`. Shown, never matched on. */
+  activity_type: string | null;
+  /** That placed on our own scale, or null when we cannot place it. See `sportOf`. */
+  sport: Sport | null;
+  /** Summary figures, for picking sessions out of a list. Null where the platform is silent. */
+  distance_m: number | null;
+  moving_time_s: number | null;
 };
 
 /** A recording on its way somewhere else: handed over as a stream, never buffered here. */

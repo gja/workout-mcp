@@ -16,6 +16,13 @@ From there it is yours. Point an assistant at the folder, open it in whatever
 analysis tool you like, keep it for the decade — none of that involves this
 server, which is exactly the arrangement we want.
 
+> **You may not need this.** If what you want is a batch of recent files rather
+> than an archive that keeps itself, [recordings.md](recordings.md) hands you a
+> date range as one ZIP, over MCP or over HTTP, with nothing to set up and no
+> Workspace account. A drive is for *durability* — it keeps the files after the
+> platform, or this server, stops being somewhere you can reach them. The two
+> name each file identically, on purpose.
+
 Everything you record is copied, not only the races. That was once the other way
 round, and the race flag turned out to be the wrong filter: an athlete who wants
 their executed files wants all of them, and the flag is usually ticked well

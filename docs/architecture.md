@@ -9,7 +9,8 @@ src/describe.ts   human-readable rendering, shared by MCP and the dashboard
 src/db.ts         D1 queries, the readable window and the per-athlete cap
 src/plan.ts       every write to the plan, and the platforms it tells
 src/platforms/    training platforms: the interface, the store, intervals.icu
-src/drive/        copying recorded races into an athlete's own Google Drive
+src/drive/        copying recorded sessions into an athlete's own Google Drive
+src/recordings/   those same sessions as one signed, streaming ZIP download
 src/identity.ts   signing in with Google or Apple
 src/auth.ts       sessions, accounts and API tokens
 src/tools.ts      the tool surface shared by MCP and REST
@@ -74,6 +75,7 @@ plan.ts                the rules for a write, and who to tell
 db.ts                  storage, the window, the cap
 platforms/             the sync layer, then one adapter per platform
 drive/                 recordings out of a platform and into the athlete's own Drive
+recordings/            those same recordings out as one signed ZIP download
 ```
 
 Nothing above `src/platforms/` knows what intervals.icu is: `plan.ts` calls the

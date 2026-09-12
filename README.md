@@ -147,6 +147,16 @@ will do — which makes this Workspace-only. Then the path each file lands at,
 why the race filter was dropped, that a session is copied exactly once, and
 that the recording is relayed without ever being stored here.
 
+### [docs/recordings.md](docs/recordings.md)
+
+Asking for the sessions you actually recorded, over a date range on one
+platform, and getting back a signed link that streams them as a ZIP of FIT
+files. Why the link carries no credential and lives outside `/api/`, what it
+costs to be a four-hour bearer token, and why the range and the archive are both
+capped by a Worker's subrequest budget rather than by storage. Then the
+streaming ZIP itself, stored rather than deflated to spend no CPU, and the
+manifest it writes last.
+
 ### [docs/database.md](docs/database.md)
 
 D1 and the schema. How migrations are written and tested, and why the steps are

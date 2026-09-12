@@ -6,9 +6,12 @@ import { describeWorkout, plannedTotals } from './describe';
 import * as db from './db';
 import type { Env, User } from './db';
 import * as plan from './plan';
+import { PLATFORMS } from './platforms';
+import * as recordings from './recordings';
 import { WorkoutError, parseWorkout } from './workout';
 import type { Workout } from './workout';
 import { parseDate, parseTimestamp } from './units';
+import { SPORTS } from './workout';
 
 const RANGE_DOC =
   'A range as [floor, ceiling]; either end may be "-" to leave it open, ' +
@@ -224,6 +227,41 @@ export const TOOLS = [
       required: ['date', 'id'],
     },
   },
+  {
+    name: 'list_recorded_workouts',
+    annotations: { title: 'List sessions actually recorded', readOnlyHint: true, openWorldHint: true },
+    description:
+      'List the sessions the athlete actually recorded on a connected training platform — what ' +
+      'they did, not what was planned — and get a link to download those sessions as a ZIP of ' +
+      'FIT files. Use this to analyse real training: call it for the range of interest, then ' +
+      'fetch download_url and read the FIT files out of the archive. The link carries no ' +
+      `credential, so it can be handed on, and it expires after ${recordings.LINK_TTL_SECONDS / 3600} hours. ` +
+      `The range may cover at most ${recordings.MAX_RANGE_DAYS} days, and one archive holds at ` +
+      `most ${recordings.MAX_RECORDINGS} sessions; the reply says how many matched but were left out. ` +
+      'The archive also holds a manifest.json naming every file in it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        platform: {
+          type: 'string',
+          enum: Object.keys(PLATFORMS),
+          description: 'The platform the sessions were recorded on. Required, and it must be connected.',
+        },
+        from: { type: 'string', description: 'Earliest day to include, YYYY-MM-DD, in the athlete\'s own local days.' },
+        to: { type: 'string', description: 'Latest day to include, YYYY-MM-DD, inclusive.' },
+        sport: {
+          description:
+            'Keep only these sports. One sport or several; omit for everything. A session whose ' +
+            'activity type we cannot place on this scale is left out when this is set.',
+          oneOf: [
+            { type: 'string', enum: [...SPORTS] },
+            { type: 'array', items: { type: 'string', enum: [...SPORTS] } },
+          ],
+        },
+      },
+      required: ['platform', 'from', 'to'],
+    },
+  },
 ] as const;
 
 export type ToolName = (typeof TOOLS)[number]['name'];
@@ -262,7 +300,19 @@ export function presentBrief(workout: Workout, baseUrl?: string) {
   return { ...rest, ...(baseUrl ? urls(workout, baseUrl) : {}) };
 }
 
-export async function callTool(name: string, rawArgs: unknown, env: Env, user: User): Promise<unknown> {
+/**
+ * `origin` is only ever used to build a link a caller can follow. Most tools
+ * want nothing to do with it — see "No tool result carries a URL" in
+ * docs/mcp.md — and `list_recorded_workouts` is the documented exception,
+ * because what it points at is signed rather than credential-bound.
+ */
+export async function callTool(
+  name: string,
+  rawArgs: unknown,
+  env: Env,
+  user: User,
+  origin: string,
+): Promise<unknown> {
   const args = asObject(rawArgs);
 
   switch (name) {
@@ -351,6 +401,9 @@ export async function callTool(name: string, rawArgs: unknown, env: Env, user: U
         base64: base64Encode(bytes),
       };
     }
+
+    case 'list_recorded_workouts':
+      return await recordings.list(env, user, recordings.parseQuery(args), origin);
 
     default:
       throw new ToolError(`unknown tool "${name}"`);
