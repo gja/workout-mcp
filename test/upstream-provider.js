@@ -223,8 +223,8 @@ const freshState = () => ({
   athlete: { id: 'i99999', name: 'Test Athlete' },
   /** Calendar events by their numeric id. */
   events: new Map(),
-  /** Our upsert key -> the event id it landed on. */
-  byUid: new Map(),
+  /** The caller's `external_id` -> the event id it landed on, as their upsert matches. */
+  byExternalId: new Map(),
   /** Recorded activities, as `completions` reads them. */
   activities: [],
   nextId: 7000,
@@ -373,17 +373,36 @@ async function intervals(request, url) {
     });
   }
 
-  // POST /api/v1/athlete/0/events?upsertOnUid=true
+  // POST /api/v1/athlete/0/events/bulk?upsert=true — their documented create-or-update.
+  // `uid` is theirs, not the caller's: one is minted per event and anything sent in is
+  // dropped, which is why upserting on it left duplicates behind.
+  if (request.method === 'POST' && path.endsWith('/events/bulk')) {
+    const body = JSON.parse(payload);
+    if (!Array.isArray(body)) return new Response('events/bulk takes an array', { status: 400 });
+
+    const upsert = url.searchParams.get('upsert') === 'true';
+    const saved = body.map((event) => {
+      const { uid: _ignored, ...fields } = event;
+      const existing = upsert && fields.external_id ? state.byExternalId.get(fields.external_id) : undefined;
+      const id = existing ?? state.nextId++;
+      const uid = state.events.get(id)?.uid ?? `uid-${id}`;
+      state.events.set(id, { ...fields, uid });
+      if (fields.external_id) state.byExternalId.set(fields.external_id, id);
+      return { id, ...fields, uid };
+    });
+    return Response.json(saved);
+  }
+
+  // POST /api/v1/athlete/0/events — the single-event endpoint, which is not what a
+  // re-push should use: `upsertOnUid` cannot match a key the caller chose.
   if (request.method === 'POST' && path.endsWith('/events')) {
     const body = JSON.parse(payload);
     if (!body.file_contents_base64) return new Response('no workout in the event', { status: 400 });
 
-    const upsert = url.searchParams.get('upsertOnUid') === 'true';
-    const existing = upsert && body.uid ? state.byUid.get(body.uid) : undefined;
-    const id = existing ?? state.nextId++;
-    state.events.set(id, { ...body });
-    if (body.uid) state.byUid.set(body.uid, id);
-    return Response.json({ id, ...body });
+    const id = state.nextId++;
+    state.events.set(id, { ...body, uid: `uid-${id}` });
+    if (body.external_id) state.byExternalId.set(body.external_id, id);
+    return Response.json({ id, ...body, uid: `uid-${id}` });
   }
 
   // DELETE /api/v1/athlete/0/events/{id}
@@ -393,7 +412,7 @@ async function intervals(request, url) {
     const event = state.events.get(id);
     if (!event) return new Response('no such event', { status: 404 });
     state.events.delete(id);
-    if (event.uid) state.byUid.delete(event.uid);
+    if (event.external_id) state.byExternalId.delete(event.external_id);
     return Response.json({ deleted: true });
   }
 

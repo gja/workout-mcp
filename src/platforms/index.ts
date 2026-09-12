@@ -23,8 +23,14 @@ export const isPlatformId = (value: string): value is PlatformId =>
 /** Below the Worker's outbound subrequest cap; a big first sync spans several runs. */
 export const PUSH_LIMIT = 40;
 
-/** The upsert key upstream: built from ids alone, so an edit or a move cannot change it. */
-const syncKey = (userId: string, workout: Pick<Workout, 'id'>): string => `workout-mcp-${userId}-${workout.id}`;
+/**
+ * The upsert key upstream: the workout's own id, so an edit or a move cannot change
+ * it, and a link row we lost is not a second event either. Not scoped by user on
+ * purpose — a platform matches it against the events this app created for *that*
+ * athlete, so two of our accounts sharing one would have to have drawn the same
+ * random id to collide.
+ */
+const syncKey = (workout: Pick<Workout, 'id'>): string => workout.id;
 
 // Decides what is stale. Not `updated_at`: a completion read back off a platform bumps that.
 const fingerprint = (workout: Workout): Promise<string> =>
@@ -137,7 +143,7 @@ async function pushOne(
   token: string,
   workout: Workout,
 ): Promise<void> {
-  const remoteId = await platform.push(token, { workout, syncKey: syncKey(userId, workout) });
+  const remoteId = await platform.push(token, { workout, syncKey: syncKey(workout) });
   await store.saveLink(env, userId, platform.id, workout.date, workout.id, remoteId, await fingerprint(workout));
 }
 

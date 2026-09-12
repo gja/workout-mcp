@@ -200,6 +200,7 @@ describe('pushing workout changes', () => {
 
   it('updates the same calendar event instead of adding a second one', async () => {
     const planned = await createWorkout();
+    const before = (await calendar())[0].id;
 
     const response = await call(`/api/workouts/${planned.date}/${planned.id}`, {
       method: 'PUT',
@@ -209,7 +210,26 @@ describe('pushing workout changes', () => {
 
     const events = await calendar();
     expect(events).toHaveLength(1);
+    expect(events[0].id).toBe(before);
     expect(events[0].name).toBe('Renamed');
+  });
+
+  // The upsert key travels with the workout, so the link row is a shortcut rather
+  // than the only thing standing between an edit and a duplicate.
+  it('lands on the event already there even with no link row left', async () => {
+    const planned = await createWorkout();
+    const before = (await calendar())[0].id;
+    await env.DB.prepare('DELETE FROM platform_links WHERE user_id = ?').bind(userId).run();
+
+    const response = await call(`/api/workouts/${planned.date}/${planned.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...WORKOUT, name: 'Renamed' }),
+    });
+    expect(response.status).toBe(200);
+
+    const events = await calendar();
+    expect(events).toHaveLength(1);
+    expect(events[0].id).toBe(before);
   });
 
   it('moves an event with the workout rather than leaving a copy behind', async () => {
