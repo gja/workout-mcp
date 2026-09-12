@@ -176,22 +176,31 @@ export const intervals: Platform = {
     'Targets are read against your intervals.icu thresholds. If a pace or a power target looks ' +
     'wrong there, set your threshold pace and FTP in their settings.',
 
+  // Upserted on `external_id`, which they match against the events this app itself
+  // created, so a re-push updates the one already there. Not `uid` and the single-event
+  // endpoint's `upsertOnUid`: `uid` is a UUID intervals.icu generates for an event, not
+  // a key we get to choose, so ours never matched and every edit left a second event
+  // behind. See "How a push works" in docs/integrations.md.
   async push(token, { workout, syncKey }: Outbound) {
-    const event = await readJson<Event>(
-      await postJson(token, `/athlete/${ATHLETE}/events?upsertOnUid=true`, {
-        uid: syncKey,
-        category: 'WORKOUT',
-        // Their calendar is keyed on the athlete's local day, which is what our `date` is.
-        start_date_local: `${workout.date}T00:00:00`,
-        type: activityType(workout),
-        name: workout.name,
-        indoor: isIndoor(workout),
-        // A label only — `uid` is the upsert key — so a person can see where the event came from.
-        external_id: workout.id,
-        filename: fitFilename(workout),
-        file_contents_base64: base64Encode(encodeWorkoutFit(workout)),
-      }),
+    const saved = await readJson<Event[]>(
+      await postJson(token, `/athlete/${ATHLETE}/events/bulk?upsert=true`, [
+        {
+          external_id: syncKey,
+          category: 'WORKOUT',
+          // Their calendar is keyed on the athlete's local day, which is what our `date` is.
+          start_date_local: `${workout.date}T00:00:00`,
+          type: activityType(workout),
+          name: workout.name,
+          indoor: isIndoor(workout),
+          filename: fitFilename(workout),
+          file_contents_base64: base64Encode(encodeWorkoutFit(workout)),
+        },
+      ]),
     );
+
+    // One event in, one event back: anything else and we do not know what is on the calendar.
+    if (!Array.isArray(saved) || saved.length !== 1) fail('intervals.icu did not say what it saved');
+    const event = saved[0];
 
     // The call can succeed while the FIT file inside it did not parse, leaving an event with no steps.
     if (Array.isArray(event.push_errors) && event.push_errors.length > 0) {
