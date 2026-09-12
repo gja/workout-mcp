@@ -12,16 +12,6 @@ import { zipStream } from './zip';
 import type { ZipEntry } from './zip';
 
 /**
- * The widest range a single link may cover.
- *
- * Not a storage limit — nothing is stored — but a limit on one request: every
- * session in the range is a download the archive's own request has to make, and
- * a Worker gets a fixed number of those. A month plus a couple of days lets
- * "last month" be asked for by its own edges rather than by counting.
- */
-export const MAX_RANGE_DAYS = 32;
-
-/**
  * Sessions in one archive.
  *
  * One list call plus one download each, against the Worker's 50-subrequest
@@ -31,11 +21,37 @@ export const MAX_RANGE_DAYS = 32;
  */
 export const MAX_RECORDINGS = 40;
 
+/**
+ * The widest range a single link may cover, as a caller counts it.
+ *
+ * Not a storage limit — nothing is stored — but the range that keeps a request
+ * comfortably inside `MAX_RECORDINGS` above: a fortnight of training is rarely
+ * forty sessions, so the cap almost never bites and an archive is almost always
+ * the whole answer. A caller wanting a month asks twice, which is cheap; a
+ * caller silently handed two thirds of a month is not.
+ */
+export const MAX_RANGE_DAYS = 14;
+
+/**
+ * One day of slack on top, for the same reason `READ_SLACK_DAYS` exists.
+ *
+ * A fortnight named by its own edges — `from` a fortnight ago, `to` today — is
+ * fifteen days once both ends are counted. Refusing that would make every
+ * caller discover an off-by-one before their first successful call, so the
+ * check allows it and everything we say still says fourteen.
+ */
+export const RANGE_SLACK_DAYS = 1;
+
 /** How long a signed link stays good for. Long enough to hand over, short enough to forget. */
 export const LINK_TTL_SECONDS = 4 * 60 * 60;
 
-/** Where a signed link lives: outside `/api/`, because it carries no credential of its own. */
-export const DOWNLOAD_PREFIX = '/downloads/recordings';
+/**
+ * Where a signed link lives: outside `/api/`, because it carries no credential
+ * of its own — and ending in a plain, fixed `.zip`, so anything that names a
+ * download after its path gets `completed-workouts.zip` rather than a hundred
+ * characters of base64. The claims and the signature ride in the query instead.
+ */
+export const DOWNLOAD_PATH = '/downloads/completed-workouts.zip';
 
 // --- Naming ------------------------------------------------------------------
 
@@ -115,7 +131,7 @@ export function parseQuery(raw: {
   if (to < from) fail('to', `"${to}" is before from "${from}"`);
 
   const days = daysBetween(from, to);
-  if (days > MAX_RANGE_DAYS) {
+  if (days > MAX_RANGE_DAYS + RANGE_SLACK_DAYS) {
     fail('to', `${from} to ${to} is ${days} days; ask for at most ${MAX_RANGE_DAYS} at a time`);
   }
 
@@ -243,7 +259,7 @@ type Claims = {
 
 export type Link = { url: string; expires_at: string };
 
-/** `<claims>.<signature>`, both base64url, which is the whole of what is stored anywhere. */
+/** `?claims=…&signature=…`, both base64url, which is the whole of what is stored anywhere. */
 export async function signLink(
   env: Env,
   userId: string,
@@ -265,10 +281,9 @@ export async function signLink(
   const payload = toBase64Url(new TextEncoder().encode(JSON.stringify(claims)));
   const signature = await crypto.subtle.sign('HMAC', await signingKey(env), new TextEncoder().encode(payload));
 
-  return {
-    url: `${origin}${DOWNLOAD_PREFIX}/${payload}.${toBase64Url(new Uint8Array(signature))}.zip`,
-    expires_at: expiresAt.toISOString(),
-  };
+  // Both are base64url, whose alphabet needs no escaping in a query string.
+  const search = new URLSearchParams({ claims: payload, signature: toBase64Url(new Uint8Array(signature)) });
+  return { url: `${origin}${DOWNLOAD_PATH}?${search}`, expires_at: expiresAt.toISOString() };
 }
 
 export type Opened = { userId: string; query: Query; expiresAt: string };
@@ -282,24 +297,26 @@ export class LinkRejected extends Error {}
  * The signature is checked before anything inside is looked at, let alone
  * trusted: every field — the athlete included — is the caller's until it holds.
  */
-export async function openLink(env: Env, token: string, now: Date = new Date()): Promise<Opened> {
-  const bare = token.replace(/\.zip$/, '');
-  const split = bare.lastIndexOf('.');
-  if (split <= 0) throw new LinkRejected('that is not a download link');
+export async function openLink(
+  env: Env,
+  claimsParam: string | null,
+  signatureParam: string | null,
+  now: Date = new Date(),
+): Promise<Opened> {
+  if (!claimsParam || !signatureParam) throw new LinkRejected('that is not a download link');
 
-  const payload = bare.slice(0, split);
-  const signature = fromBase64Url(bare.slice(split + 1));
+  const signature = fromBase64Url(signatureParam);
   if (!signature) throw new LinkRejected('that is not a download link');
 
   const valid = await crypto.subtle.verify(
     'HMAC',
     await signingKey(env),
     signature,
-    new TextEncoder().encode(payload),
+    new TextEncoder().encode(claimsParam),
   );
   if (!valid) throw new LinkRejected('this link has been altered, or was signed by someone else');
 
-  const body = fromBase64Url(payload);
+  const body = fromBase64Url(claimsParam);
   if (!body) throw new LinkRejected('that is not a download link');
 
   let claims: Claims;

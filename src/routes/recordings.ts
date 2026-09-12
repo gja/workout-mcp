@@ -35,10 +35,10 @@ const listRecordings: AuthedRoute = async ({ url, env, user }) => {
  * to fetch. `/webhooks/intervals` is outside the door for the same kind of
  * reason, and docs/api.md lists both.
  */
-const downloadArchive: Route<'/downloads/recordings/:token'> = async ({ env, params }) => {
+const downloadArchive: Route = async ({ env, url }) => {
   let opened;
   try {
-    opened = await recordings.openLink(env, params.token);
+    opened = await recordings.openLink(env, url.searchParams.get('claims'), url.searchParams.get('signature'));
   } catch (err) {
     if (err instanceof recordings.LinkRejected) return error(err.message, 403);
     throw err;
@@ -61,5 +61,5 @@ const downloadArchive: Route<'/downloads/recordings/:token'> = async ({ env, par
 export const routes = (app: Router<Context>): void => {
   app
     .get('/api/recordings', withUser(listRecordings))
-    .get('/downloads/recordings/:token', downloadArchive);
+    .get(recordings.DOWNLOAD_PATH, downloadArchive);
 };

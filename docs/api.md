@@ -26,21 +26,23 @@ session cookie set at login.
 | `POST /api/workouts/:date/:id/complete` | Mark it done; `{completed_at}` optional, defaults to now |
 | `DELETE /api/workouts/:date/:id/complete` | Clear that, leaving the plan alone |
 | `GET /api/config` | Every integration and where each one stands |
-| `PUT /api/config/:integration` | Verify a drive, store it, and sync. A platform answers 400: it is connected by OAuth |
+| `PUT /api/config/:integration` | Answers 400: a platform is connected by OAuth, not by a body |
 | `DELETE /api/config/:integration` | Disconnect, forgetting what was stored for it |
 | `POST /api/sync/:integration` | Run that integration's sync now |
 | `GET /api/recordings?platform=&from=&to=&sport=` | Sessions you actually recorded, and a signed link to their files |
 | `GET /export/:date-:id.fit` | The FIT file |
 | `POST /api/tools/:name` | Any MCP tool, over REST |
 | `POST /webhooks/intervals` | intervals.icu's own callback; theirs to call, not yours |
-| `GET /downloads/recordings/:signed.zip` | Those files as one ZIP. No auth: the signature is the credential |
+| `GET /downloads/completed-workouts.zip?claims=&signature=` | Those files as one ZIP. No auth: the signature is the credential |
 
-`:integration` is a training platform's id (`intervals`) or `drive`. One read
-covers the lot, and each Setup panel takes its own slice. `DELETE` and the sync
-`POST` are the same shape whatever is behind them; `PUT` is the drive's alone,
-taking `{drive}`, a shared drive link or id. A platform has no `PUT` body
+`:integration` is a training platform's id (`intervals`). One read covers the
+lot, and each Setup panel takes its own slice. A platform has no `PUT` body
 because it is connected by an OAuth round — the two `/auth/intervals/connect*`
 routes above — so that path answers 400 and says so.
+
+Google Drive used to be an `:integration` here too, with a `PUT` taking a shared
+drive link. That surface is gone; the copier behind it still runs on its
+schedule for the drives already connected. See "Retired" in [drive.md](drive.md).
 
 Two routes sit outside `/api/` without being the dashboard, and both
 deliberately, because both carry their own authentication and so must not meet
@@ -48,7 +50,7 @@ deliberately, because both carry their own authentication and so must not meet
 
 - `/webhooks/intervals` is authenticated by the secrets intervals.icu sends
   rather than by a credential of ours. See [integrations.md](integrations.md).
-- `/downloads/recordings/:signed.zip` is authenticated by its own signature,
+- `/downloads/completed-workouts.zip` is authenticated by its own signature,
   which names the athlete and the range and expires after four hours. The point
   of it is to be followable by something holding no account at all — an
   assistant, a browser, `curl`. See [recordings.md](recordings.md).

@@ -1,6 +1,12 @@
 import { SELF, env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { LINK_TTL_SECONDS, MAX_RANGE_DAYS, MAX_RECORDINGS, signLink } from '../src/recordings';
+import {
+  LINK_TTL_SECONDS,
+  MAX_RANGE_DAYS,
+  MAX_RECORDINGS,
+  RANGE_SLACK_DAYS,
+  signLink,
+} from '../src/recordings';
 import { shiftDate, today } from '../src/units';
 import { connectIntervals, resetDatabase, seedUser } from './helpers';
 
@@ -145,7 +151,7 @@ describe('listing recorded sessions', () => {
     });
     expect(body.sessions[1]).toMatchObject({ sport: 'cycling', activity_type: 'Ride' });
 
-    expect(body.download_url).toContain('/downloads/recordings/');
+    expect(body.download_url).toContain('/downloads/completed-workouts.zip?claims=');
     const ttl = Date.parse(body.expires_at!) - Date.now();
     expect(ttl).toBeGreaterThan((LINK_TTL_SECONDS - 60) * 1000);
     expect(ttl).toBeLessThanOrEqual(LINK_TTL_SECONDS * 1000);
@@ -191,10 +197,17 @@ describe('listing recorded sessions', () => {
   });
 
   it('refuses a range wider than one archive may cover', async () => {
-    const to = shiftDate(DAY, MAX_RANGE_DAYS);
+    const to = shiftDate(DAY, MAX_RANGE_DAYS + RANGE_SLACK_DAYS);
     const { status, body } = await listing(`platform=intervals&from=${DAY}&to=${to}`);
     expect(status).toBe(400);
     expect(body.error).toMatch(new RegExp(`at most ${MAX_RANGE_DAYS}`));
+  });
+
+  it('allows a fortnight named by its own edges, which is a day more than fourteen', async () => {
+    // `from` a fortnight back and `to` today is 15 days once both ends count.
+    const from = shiftDate(today(), -MAX_RANGE_DAYS);
+    const { status } = await listing(`platform=intervals&from=${from}&to=${today()}`);
+    expect(status).toBe(200);
   });
 
   it('insists on being told which platform, even though there is only one', async () => {
@@ -298,19 +311,31 @@ describe('the archive', () => {
 // --- The signature -----------------------------------------------------------
 
 describe('the signed link', () => {
-  const pathOf = (url: string) => new URL(url).pathname;
-
-  it('refuses one that has been edited', async () => {
+  it('refuses one whose claims have been edited', async () => {
     await control('setup', { activities: [recorded('i1')] });
     const { body } = await listing(RANGE);
 
-    // Flip a character of the claims, leaving the signature over the original.
-    const path = pathOf(body.download_url!);
-    const tampered = `${path.slice(0, 40)}${path[40] === 'a' ? 'b' : 'a'}${path.slice(41)}`;
+    // Widen the range by a year, leaving the signature over what was asked for.
+    const url = new URL(body.download_url!);
+    const claims = JSON.parse(atob(url.searchParams.get('claims')!)) as { f: string; t: string };
+    expect(claims.t).toBe(shiftDate(DAY, 1));
+    claims.t = shiftDate(DAY, 300);
+    url.searchParams.set('claims', btoa(JSON.stringify(claims)).replace(/=+$/, ''));
 
-    const response = await download(`${BASE}${tampered}`);
+    const response = await download(url.toString());
     expect(response.status).toBe(403);
-    expect(((await response.json()) as { error: string }).error).toMatch(/altered|not a download link/);
+    expect(((await response.json()) as { error: string }).error).toMatch(/altered/);
+  });
+
+  it('refuses one with the signature taken off', async () => {
+    await control('setup', { activities: [recorded('i1')] });
+    const { body } = await listing(RANGE);
+
+    const url = new URL(body.download_url!);
+    url.searchParams.delete('signature');
+
+    const response = await download(url.toString());
+    expect(response.status).toBe(403);
   });
 
   it('refuses one that has expired', async () => {
@@ -331,8 +356,11 @@ describe('the signed link', () => {
   });
 
   it('refuses nonsense in place of a link', async () => {
-    const response = await download(`${BASE}/downloads/recordings/not-a-link.zip`);
-    expect(response.status).toBe(403);
+    const bare = await download(`${BASE}/downloads/completed-workouts.zip`);
+    expect(bare.status).toBe(403);
+
+    const junk = await download(`${BASE}/downloads/completed-workouts.zip?claims=nope&signature=nope`);
+    expect(junk.status).toBe(403);
   });
 
   it('names the athlete inside the signature, so it cannot be pointed at anyone else', async () => {
@@ -368,7 +396,7 @@ describe('over the tool surface', () => {
 
     const body = (await response.json()) as Listing;
     expect(body.count).toBe(1);
-    expect(body.download_url).toContain(`${BASE}/downloads/recordings/`);
+    expect(body.download_url).toContain(`${BASE}/downloads/completed-workouts.zip?`);
 
     const files = await archiveFrom(body.download_url!);
     expect(files.map((file) => file.name)).toContain(`${DAY}-i1-Morning-Run.fit`);

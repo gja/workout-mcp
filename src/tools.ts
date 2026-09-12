@@ -236,8 +236,9 @@ export const TOOLS = [
       'FIT files. Use this to analyse real training: call it for the range of interest, then ' +
       'fetch download_url and read the FIT files out of the archive. The link carries no ' +
       `credential, so it can be handed on, and it expires after ${recordings.LINK_TTL_SECONDS / 3600} hours. ` +
-      `The range may cover at most ${recordings.MAX_RANGE_DAYS} days, and one archive holds at ` +
-      `most ${recordings.MAX_RECORDINGS} sessions; the reply says how many matched but were left out. ` +
+      `The range may cover at most ${recordings.MAX_RANGE_DAYS} days — for a longer period, call ` +
+      'this once per fortnight of it and fetch each archive — and one archive holds at most ' +
+      `${recordings.MAX_RECORDINGS} sessions; the reply says how many matched but were left out. ` +
       'The archive also holds a manifest.json naming every file in it.',
     inputSchema: {
       type: 'object',

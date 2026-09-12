@@ -1,6 +1,7 @@
 import { SELF, createScheduledController, env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import worker from '../src/index';
+import * as drive from '../src/drive';
 import { COPY_LIMIT, LOOKBACK_DAYS } from '../src/drive';
 import { shiftDate, today } from '../src/units';
 import { connectIntervals, resetDatabase, seedUser } from './helpers';
@@ -11,6 +12,7 @@ const BASE = 'https://workouts.example';
 const DRIVE = 'shared-drive-1';
 
 let token: string;
+let user: { id: string; email: string | null };
 
 /** Arrange or read the stand-in upstream, through its service binding. */
 const control = async <T>(path: string, body?: unknown): Promise<T> => {
@@ -39,27 +41,29 @@ const connectPlatform = () => connectIntervals({ Authorization: `Bearer ${token}
 
 type Report = { copied: number; remaining: number; paths: string[]; error: string | null };
 
-const connectDrive = async (drive = `https://drive.google.com/drive/folders/${DRIVE}`) => {
-  const response = await call('/api/config/drive', { method: 'PUT', body: JSON.stringify({ drive }) });
-  return { response, body: (await response.json()) as { drive_name?: string; sync?: Report; error?: string } };
+/**
+ * The drive has no HTTP surface any more — see "Retired" in docs/drive.md — so
+ * these drive the module the routes used to call. `configure` throws where the
+ * route answered 400, which is the only shape difference worth carrying here.
+ */
+const connectDrive = async (
+  pasted = `https://drive.google.com/drive/folders/${DRIVE}`,
+): Promise<{ ok: boolean; error: string | null; drive_name: string | null; sync: Report | null }> => {
+  try {
+    const found = await drive.configure(env, user, pasted);
+    // The route ran the first copy straight away, and what it reported is asserted on.
+    return { ok: true, error: null, drive_name: found.name, sync: await drive.copyNow(env, user) };
+  } catch (err) {
+    if (err instanceof drive.DriveError || err instanceof drive.DriveUnavailable) {
+      return { ok: false, error: err.message, drive_name: null, sync: null };
+    }
+    throw err;
+  }
 };
 
-const copyNow = async (): Promise<Report> =>
-  (await (await call('/api/sync/drive', { method: 'POST' })).json()) as Report;
+const copyNow = (): Promise<Report> => drive.copyNow(env, user);
 
-/** The drive's slice of the one config read every Setup panel uses. */
-const driveStatus = async () =>
-  ((await (await call('/api/config')).json()) as { drive: DriveStatus }).drive;
-
-type DriveStatus = {
-  configured: boolean;
-  service_account: string | null;
-  connected: boolean;
-  drive_name: string | null;
-  last_error: string | null;
-  copied: number;
-  recent: Array<{ path: string }>;
-};
+const driveStatus = () => drive.status(env, user);
 
 const SESSION_DAY = shiftDate(today(), -2);
 const MONTH = SESSION_DAY.slice(0, 7);
@@ -76,14 +80,16 @@ const recorded = (id: string, over: Record<string, unknown> = {}) => ({
 beforeEach(async () => {
   await resetDatabase();
   await control('reset');
-  ({ token } = await seedUser());
+  const seeded = await seedUser();
+  token = seeded.token;
+  user = { id: seeded.id, email: seeded.email };
 });
 
 describe('configuring a drive', () => {
   it('names the drive, and says which address to share it with', async () => {
-    const { response, body } = await connectDrive();
-    expect(response.status).toBe(200);
-    expect(body).toMatchObject({ drive_name: 'Race Files' });
+    const connected = await connectDrive();
+    expect(connected.ok).toBe(true);
+    expect(connected.drive_name).toBe('Race Files');
 
     const status = await driveStatus();
     expect(status).toMatchObject({ configured: true, connected: true, drive_name: 'Race Files', copied: 0 });
@@ -91,40 +97,39 @@ describe('configuring a drive', () => {
   });
 
   it('accepts a bare drive id as well as a link', async () => {
-    expect((await connectDrive(DRIVE)).response.status).toBe(200);
+    expect((await connectDrive(DRIVE)).ok).toBe(true);
   });
 
   it('refuses a drive the service account cannot see, and stores nothing', async () => {
-    const { response, body } = await connectDrive('https://drive.google.com/drive/folders/somebody-elses-drive');
-    expect(response.status).toBe(400);
-    expect(body.error).toContain('does not recognise');
+    const refused = await connectDrive('https://drive.google.com/drive/folders/somebody-elses-drive');
+    expect(refused.ok).toBe(false);
+    expect(refused.error).toContain('does not recognise');
     expect((await driveStatus()).connected).toBe(false);
   });
 
   it('refuses a folder, even one it can see, because a service account has no quota there', async () => {
-    const { response, body } = await connectDrive('https://drive.google.com/drive/u/2/folders/personal-folder-1');
-    expect(response.status).toBe(400);
-    expect(body.error).toContain('not a shared drive');
+    const refused = await connectDrive('https://drive.google.com/drive/u/2/folders/personal-folder-1');
+    expect(refused.ok).toBe(false);
+    expect(refused.error).toContain('not a shared drive');
     expect((await driveStatus()).connected).toBe(false);
   });
 
   it('refuses a drive it can read but not write to, so a Viewer fails at the form', async () => {
     await control('setup', { driveFailing: { '/drive/v3/files': 403 } });
 
-    const { response } = await connectDrive();
-    expect(response.status).toBe(400);
+    expect((await connectDrive()).ok).toBe(false);
     expect((await driveStatus()).connected).toBe(false);
   });
 
   it('refuses something that is not a drive link at all', async () => {
-    const { response, body } = await connectDrive('not a drive');
-    expect(response.status).toBe(400);
-    expect(body.error).toContain('Google Drive link');
+    const refused = await connectDrive('not a drive');
+    expect(refused.ok).toBe(false);
+    expect(refused.error).toContain('Google Drive link');
   });
 
   it('forgets the drive, leaving what was copied where it is', async () => {
     await connectDrive();
-    expect((await call('/api/config/drive', { method: 'DELETE' })).status).toBe(200);
+    expect(await drive.forget(env, user)).toBe(true);
     expect((await driveStatus()).connected).toBe(false);
   });
 
@@ -146,8 +151,8 @@ describe('copying a recorded session', () => {
   it('puts the recording at workouts-mcp/<platform>/yyyy-mm/yyyy-mm-dd-<id>-<name>.fit', async () => {
     await control('setup', { activities: [recorded('i555')] });
 
-    const { body } = await connectDrive();
-    expect(body.sync).toMatchObject({ copied: 1, remaining: 0, error: null });
+    const connected = await connectDrive();
+    expect(connected.sync).toMatchObject({ copied: 1, remaining: 0, error: null });
 
     const { files } = await driveState();
     expect(files).toHaveLength(1);
@@ -166,8 +171,8 @@ describe('copying a recorded session', () => {
       ],
     });
 
-    const { body } = await connectDrive();
-    expect(body.sync).toMatchObject({ copied: 2 });
+    const connected = await connectDrive();
+    expect(connected.sync).toMatchObject({ copied: 2 });
     expect((await driveState()).files.map((file) => file.path).sort()).toEqual([
       `workouts-mcp/intervals.icu/${MONTH}/${SESSION_DAY}-i555-City-Marathon.fit`,
       `workouts-mcp/intervals.icu/${MONTH}/${SESSION_DAY}-i556-Easy-Ride.fit`,
@@ -228,7 +233,7 @@ describe('copying a recorded session', () => {
     const old = shiftDate(today(), -(LOOKBACK_DAYS + 5));
     await control('setup', { activities: [recorded('i563', { start_date_local: `${old}T08:00:00` })] });
 
-    expect((await connectDrive()).body.sync).toMatchObject({ copied: 0 });
+    expect((await connectDrive()).sync).toMatchObject({ copied: 0 });
     expect((await driveState()).files).toHaveLength(0);
   });
 
@@ -236,7 +241,7 @@ describe('copying a recorded session', () => {
     const many = Array.from({ length: COPY_LIMIT + 2 }, (_, index) => recorded(`i6${index}`));
     await control('setup', { activities: many });
 
-    expect((await connectDrive()).body.sync).toMatchObject({ copied: COPY_LIMIT, remaining: 2 });
+    expect((await connectDrive()).sync).toMatchObject({ copied: COPY_LIMIT, remaining: 2 });
     // A backlog clears itself next hour, so it is never reported as a failed copy.
     expect((await driveStatus()).last_error).toBeNull();
 
@@ -253,10 +258,10 @@ describe('copying a recorded session', () => {
       failing: { '/activity/i570/': 404 },
     });
 
-    const { body } = await connectDrive();
-    expect(body.sync).toMatchObject({ copied: 1 });
+    const connected = await connectDrive();
+    expect(connected.sync).toMatchObject({ copied: 1 });
     // The failure is reported rather than swallowed, but it did not stop the run.
-    expect(body.sync!.error).toContain('404');
+    expect(connected.sync!.error).toContain('404');
     expect((await driveState()).files.map((file) => file.path)).toEqual([
       `workouts-mcp/intervals.icu/${MONTH}/${SESSION_DAY}-i571-Manual-Entry.fit`,
     ]);
@@ -273,8 +278,8 @@ describe('copying a recorded session', () => {
   it('records the failure against the drive rather than throwing', async () => {
     await control('setup', { activities: [recorded('i565')], failing: { '/activity/': 500 } });
 
-    const { body } = await connectDrive();
-    expect(body.sync?.error).toContain('500');
+    const connected = await connectDrive();
+    expect(connected.sync?.error).toContain('500');
     expect((await driveStatus()).last_error).toContain('500');
     expect((await driveState()).files).toHaveLength(0);
 
@@ -318,7 +323,7 @@ describe('copying a recorded session', () => {
     expect(files[0].path).toBe(`workouts-mcp/intervals.icu/${MONTH}/${SESSION_DAY}-i567-City-Marathon.fit`);
   });
 
-  it('lists the most recent copies on the dashboard', async () => {
+  it('reports the most recent copies, for anything that asks what has gone', async () => {
     await control('setup', { activities: [recorded('i568')] });
     await connectDrive();
 
@@ -331,7 +336,7 @@ describe('copying a recorded session', () => {
 describe('without a training platform', () => {
   it('has nothing to copy, and does not call Google for a file', async () => {
     await control('setup', { activities: [recorded('i569')] });
-    expect((await connectDrive()).body.sync).toMatchObject({ copied: 0, remaining: 0, error: null });
+    expect((await connectDrive()).sync).toMatchObject({ copied: 0, remaining: 0, error: null });
     expect((await driveState()).files).toHaveLength(0);
   });
 });

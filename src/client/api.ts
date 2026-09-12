@@ -94,7 +94,7 @@ export type SyncReport = {
 };
 
 /** Every integration's state in one read: each Setup panel takes its own slice. */
-export type Config = { credentials_configured: boolean; platforms: Platform[]; drive: DriveStatus };
+export type Config = { credentials_configured: boolean; platforms: Platform[] };
 
 export const getConfig = (): Promise<Config> => request('/api/config');
 
@@ -103,34 +103,6 @@ export const disconnectPlatform = (id: string): Promise<unknown> =>
 
 export const syncPlatform = (id: string): Promise<SyncReport> =>
   request(`/api/sync/${id}`, { method: 'POST' });
-
-/** One completed workout already relayed into the athlete's drive. */
-export type DriveCopy = { platform: string; remote_id: string; path: string; copied_at: string };
-
-export type DriveStatus = {
-  /** Whether this deployment has a service account at all. */
-  configured: boolean;
-  /** The address the athlete has to share their drive with. */
-  service_account: string | null;
-  connected: boolean;
-  drive_id: string | null;
-  drive_name: string | null;
-  last_error: string | null;
-  path_template: string;
-  copied: number;
-  recent: DriveCopy[];
-  updated_at: string | null;
-};
-
-/** `remaining` is what the per-run cap left behind. */
-export type DriveReport = { copied: number; remaining: number; paths: string[]; error: string | null };
-
-export const configureDrive = (drive: string): Promise<{ drive_name: string; sync: DriveReport }> =>
-  request('/api/config/drive', { method: 'PUT', body: { drive } });
-
-export const disconnectDrive = (): Promise<unknown> => request('/api/config/drive', { method: 'DELETE' });
-
-export const syncDrive = (): Promise<DriveReport> => request('/api/sync/drive', { method: 'POST' });
 
 export const listTokens = (): Promise<{ tokens: ApiToken[] }> => request('/api/tokens');
 export const createToken = (name: string): Promise<IssuedToken> => request('/api/tokens', { method: 'POST', body: { name } });

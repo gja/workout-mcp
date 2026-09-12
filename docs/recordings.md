@@ -45,7 +45,7 @@ more — and a caller that never had to say what it meant has no way to notice.
       "file": "2026-09-07-i44031892-Long-Run.fit"
     }
   ],
-  "download_url": "https://<worker>/downloads/recordings/<claims>.<signature>.zip",
+  "download_url": "https://<worker>/downloads/completed-workouts.zip?claims=…&signature=…",
   "expires_at": "2026-09-12T14:22:31.000Z",
   "note": "Follow download_url within 4 hours for a ZIP of 4 FIT file(s)…"
 }
@@ -66,27 +66,61 @@ and only the second should match.
 
 ### Two limits
 
-**At most 32 days** in one range, and **at most 40 sessions** in one archive.
-Neither is about storage. Every session in the archive is a download its own
-request has to make, and a Worker gets fifty outbound subrequests on the free
-plan — so the archive is sized to fit inside one. 32 days lets "last month" be
-asked for by its own edges rather than by counting backwards from today.
+**At most 40 sessions** in one archive, and **at most 14 days** in one range.
 
-A range holding more than forty is not refused. It comes back with the oldest
-forty and `omitted`, counting what was left, so a caller narrows the range
-rather than starting again wondering what it missed.
+The first is the real constraint, and it is not about storage: every session in
+the archive is a download its own request has to make, and a Worker gets fifty
+outbound subrequests on the free plan. Forty leaves headroom for the listing
+call and whatever else the request does.
+
+The second follows from the first. A fortnight of training is rarely forty
+sessions, so the cap almost never bites and an archive is almost always the
+whole answer — which is the property worth having. A caller wanting a month asks
+twice and gets two complete archives; a caller silently handed two thirds of a
+month has a gap it has to notice. Working around a range limit is cheap.
+Noticing a truncated answer is not.
+
+The range check actually allows **fifteen** days, for the same reason
+`READ_SLACK_DAYS` exists in [database.md](database.md): a fortnight named by its
+own edges — `from` a fortnight ago, `to` today — is fifteen days once both ends
+are counted, and refusing that would make every caller meet an off-by-one before
+their first successful call. Everything we *say* still says fourteen.
+
+A range holding more than forty sessions is not refused either. It comes back
+with the oldest forty and `omitted`, counting what was left, so a caller narrows
+the range rather than starting again wondering what it missed.
 
 ## The link
 
 ```
-/downloads/recordings/<base64url claims>.<base64url HMAC-SHA-256>.zip
+/downloads/completed-workouts.zip?claims=<base64url>&signature=<base64url>
 ```
 
-The claims are the athlete, the platform, the range, the sports and an expiry.
-The signature is over exactly that text, with a key derived from
-`CREDENTIALS_SECRET` under its own label — the same passphrase
-`src/platforms/store.ts` encrypts tokens with, and a different key, so neither
-is usable in the other's place.
+The path is a fixed, plain `.zip`: anything that names a download after its URL
+gets `completed-workouts.zip` rather than a hundred characters of base64, so the
+credential rides in the query instead. Both values are base64url, whose alphabet
+needs no escaping there.
+
+The claims are a small JSON object — version, athlete, platform, range, sports,
+expiry — and the signature is HMAC-SHA-256 over exactly that base64url text, 32
+bytes, 43 characters:
+
+```
+{"v":1,"u":"a1b2c3d4e5f6","p":"intervals","f":"2026-08-30","t":"2026-09-12","s":"running","x":1789222951}
+  → claims=eyJ2IjoxLCJ1IjoiYTFiMmMzZDRlNWY2Ii…  (140 chars)
+  → signature=-ZM13nUOKUnDILB2BWGbrsK_RfrDGxZ_B0pmuvSpTow
+```
+
+The key is derived from `CREDENTIALS_SECRET` under its own label — the same
+passphrase `src/platforms/store.ts` encrypts tokens with, and a different key,
+so neither is usable in the other's place.
+
+**The claims are signed, not encrypted.** Anyone holding the link can base64-decode
+them and read the athlete id, the range and the sports. That is not a leak worth
+closing: they can also just follow the link and read the files themselves, which
+says all of that and more. What the signature buys is that they cannot *change*
+any of it — widen the range, swap the athlete, extend the expiry — because the
+HMAC is over the whole of it.
 
 It is outside `/api/`, and deliberately: `withUser` guards everything under that
 prefix, and the whole purpose of this link is that it can be handed to something

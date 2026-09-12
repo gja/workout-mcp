@@ -1,5 +1,28 @@
 # Google Workspace Drive
 
+> ## Retired
+>
+> **This integration has no interface any more.** The Setup panel is gone, and so
+> are `PUT`/`DELETE /api/config/drive` and `POST /api/sync/drive`. No new drive
+> can be connected, and a connected one cannot be disconnected from the
+> dashboard.
+>
+> What is still here is the copier itself — `src/drive/`, the two tables, and the
+> hourly pass in `src/index.ts` — so a drive connected before this still receives
+> every session, on the hour, exactly as below. Nothing was taken away from
+> anyone already using it; it simply stopped being offered.
+>
+> [recordings.md](recordings.md) is why. A signed ZIP download answers "let me
+> look at what I did" without a Google Workspace account, a service account, or a
+> drive to share — which is most of what this was for, at none of the setup cost.
+> What a drive still does that the download does not is *keep* the files: it is
+> durable, and the download is a relay. That is worth something, which is why the
+> code stays rather than going.
+>
+> Everything below describes the copier as it still behaves. To bring the
+> integration back, restore the routes in `src/routes/integrations.ts` and the
+> panel in `src/client/`; nothing underneath them changed.
+
 Nothing here keeps your training data. That is the point of the project, and it
 is also the limit of it: there is no heart-rate stream to look at, no GPS track,
 no history to plot. So instead of collecting any of that, this integration
@@ -16,12 +39,11 @@ From there it is yours. Point an assistant at the folder, open it in whatever
 analysis tool you like, keep it for the decade — none of that involves this
 server, which is exactly the arrangement we want.
 
-> **You may not need this.** If what you want is a batch of recent files rather
-> than an archive that keeps itself, [recordings.md](recordings.md) hands you a
-> date range as one ZIP, over MCP or over HTTP, with nothing to set up and no
-> Workspace account. A drive is for *durability* — it keeps the files after the
-> platform, or this server, stops being somewhere you can reach them. The two
-> name each file identically, on purpose.
+> **Reaching for a batch of recent files instead?** That is
+> [recordings.md](recordings.md), and it needs none of the setup below. A drive
+> is for *durability* — it keeps the files after the platform, or this server,
+> stops being somewhere you can reach them. The two name each file identically,
+> on purpose.
 
 Everything you record is copied, not only the races. That was once the other way
 round, and the race flag turned out to be the wrong filter: an athlete who wants
