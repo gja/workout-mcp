@@ -1,6 +1,12 @@
 // Google Drive as a service account: a signed JWT for a token, then folders and
-// one streamed upload. Why a service account and not the athlete's own Google
-// sign-in is in docs/drive.md.
+// one streamed upload.
+//
+// A service account rather than the athlete's own Google sign-in, because the
+// copy runs on a schedule with nobody present: an OAuth grant taken at the
+// dashboard would need refreshing, and would put this server's reach over a
+// person's whole Drive. A service account reaches exactly what it has been made
+// a member of, and nothing else, which is a bound that holds without a token to
+// keep alive.
 
 import type { Env } from '../db';
 
@@ -10,7 +16,7 @@ const UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files';
 
 // `drive.file` would be narrower, but it only reaches files the app itself created:
 // it cannot look up the athlete's drive, nor put a folder inside it. What actually
-// bounds this credential is membership — see "Why a service account" in docs/drive.md.
+// bounds this credential is membership: it sees the drives it was added to.
 const SCOPE = 'https://www.googleapis.com/auth/drive';
 
 const FOLDER_TYPE = 'application/vnd.google-apps.folder';
@@ -144,7 +150,14 @@ export function readDriveId(pasted: string): string | null {
 
 export type Drive = { id: string; name: string };
 
-/** Why a folder is refused outright rather than used. See "Only a shared drive" in docs/drive.md. */
+/**
+ * Why a folder is refused outright rather than used.
+ *
+ * It is not a policy choice. A service account owns whatever it uploads and has
+ * no storage quota of its own, so a folder inside a person's own Drive has
+ * nothing to charge the bytes to and the upload fails — later, and less
+ * legibly, than this does.
+ */
 const NOT_A_SHARED_DRIVE =
   'that is a folder, not a shared drive. A service account owns whatever it uploads and has no ' +
   'storage of its own, so a folder in someone’s Drive has no quota to charge the file to. Make a ' +
@@ -258,8 +271,8 @@ async function readBounded(body: ReadableStream, what: string): Promise<Uint8Arr
  *
  * The bytes are assembled in memory rather than streamed because Google's
  * multipart endpoint wants a `Content-Length`, and a Worker cannot put one on a
- * streamed request body. They are held for the one call and written nowhere:
- * see "Nothing is kept here" in docs/drive.md.
+ * streamed request body. They are held for the one call and written nowhere —
+ * no column here holds a recording, only a note that one went.
  */
 export async function uploadFile(token: string, upload: Upload): Promise<string> {
   // Before a byte is read, when the platform said: refusing early beats refusing late.

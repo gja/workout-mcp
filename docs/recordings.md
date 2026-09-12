@@ -51,8 +51,8 @@ more — and a caller that never had to say what it meant has no way to notice.
 }
 ```
 
-`file` is the name that session has inside the archive, and the same name a
-[connected drive](drive.md) gives it: one file, two routes out, named once.
+`file` is the name that session has inside the archive, and the same name
+`src/drive/` gives it: one file, two routes out, named once.
 Nothing matched means no link — there is no point signing an empty archive.
 
 ### Sport
@@ -184,8 +184,8 @@ Every archive carries one, written **last** so it can report what happened:
 A session whose file cannot be fetched lands in `failed` and is stepped over
 rather than failing the archive. Some sessions have no file to fetch at all — a
 manual entry, or one that arrived from Strava with no streams to build a FIT
-from — and one of those must not cost the athlete the other thirty. The drive
-copy tolerates the same thing for the same reason.
+from — and one of those must not cost the athlete the other thirty. The
+scheduled copier in `src/drive/` tolerates the same thing for the same reason.
 
 ## Nothing is kept
 
@@ -209,5 +209,5 @@ src/routes/recordings.ts  GET /api/recordings, and the download outside the door
 ```
 
 The file naming lives in `src/recordings/index.ts` and `src/drive/` imports it,
-rather than the other way round: a copy landing in a drive and a copy leaving in
-an archive are the same file by different routes.
+rather than the other way round: a file the copier writes and a file leaving in
+an archive are the same session by different routes.

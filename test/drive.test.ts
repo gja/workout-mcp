@@ -42,9 +42,9 @@ const connectPlatform = () => connectIntervals({ Authorization: `Bearer ${token}
 type Report = { copied: number; remaining: number; paths: string[]; error: string | null };
 
 /**
- * The drive has no HTTP surface any more — see "Retired" in docs/drive.md — so
- * these drive the module the routes used to call. `configure` throws where the
- * route answered 400, which is the only shape difference worth carrying here.
+ * The copier has no HTTP surface, so these call it directly. `configure` throws
+ * where a caller would want a refusal, which is the one shape worth flattening
+ * here so a test can assert on it.
  */
 const connectDrive = async (
   pasted = `https://drive.google.com/drive/folders/${DRIVE}`,

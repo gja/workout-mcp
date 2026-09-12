@@ -9,7 +9,7 @@ src/describe.ts   human-readable rendering, shared by MCP and the dashboard
 src/db.ts         D1 queries, the readable window and the per-athlete cap
 src/plan.ts       every write to the plan, and the platforms it tells
 src/platforms/    training platforms: the interface, the store, intervals.icu
-src/drive/        copying recorded sessions into an athlete's own Google Drive (no routes: see drive.md)
+src/drive/        a scheduled copier, no routes of its own
 src/recordings/   those same sessions as one signed, streaming ZIP download
 src/identity.ts   signing in with Google or Apple
 src/auth.ts       sessions, accounts and API tokens
@@ -75,7 +75,7 @@ plan.ts                the rules for a write, and who to tell
       ↓
 db.ts                  storage, the window, the cap
 platforms/             the sync layer, then one adapter per platform
-drive/                 recordings into the athlete's own Drive, on a schedule only
+drive/                 the scheduled copier, which nothing above it calls
 recordings/            those same recordings out as one signed ZIP download
 ```
 

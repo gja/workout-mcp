@@ -57,7 +57,7 @@ own consoles.
 | `INTERVALS_WEBHOOK_SECRET` | Accepting their webhooks at all |
 | `INTERVALS_WEBHOOK_AUTHORIZATION` | The header they send with one, when you set one |
 | `CREDENTIALS_SECRET` | Connecting a training platform |
-| `GOOGLE_DRIVE_CLIENT_EMAIL`, `GOOGLE_DRIVE_PRIVATE_KEY` | Copying recorded sessions to an athlete's Google shared drive |
+| `GOOGLE_DRIVE_CLIENT_EMAIL`, `GOOGLE_DRIVE_PRIVATE_KEY` | The scheduled copier in `src/drive/`. Leave unset and it does nothing |
 
 `APP_NAME` is an optional plain variable, shown on the dashboard and the
 consent page.
@@ -71,10 +71,10 @@ Three crons, told apart in `src/index.ts` by which one fired.
   connected training
   platforms. There is no webhook to subscribe to; see
   [integrations.md](integrations.md).
-- **Hourly (`40 * * * *`)** — copy any new race into the drive an athlete
-  configured. Its own cron rather than a second job on the pass above, so it
-  gets its own subrequest allowance instead of that sweep's leftovers; see
-  [drive.md](drive.md).
+- **Hourly (`40 * * * *`)** — the copier in `src/drive/`, for the athletes it
+  has somewhere to copy to. Its own cron rather than a second job on the pass
+  above, so it gets its own subrequest allowance instead of that sweep's
+  leftovers.
 - **Nightly (`0 3 * * *`)** — the same completion pass, plus credential
   housekeeping (expired sessions, abandoned sign-ins, stale OAuth grants), a
   retry of platform connections stuck on an error, and a prune of platform

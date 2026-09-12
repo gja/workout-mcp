@@ -1,10 +1,6 @@
 // The integrations an athlete can turn on, in two namespaces: `/api/config` is what
 // is set up, `/api/sync` is making it happen now. Syncing is an action, not a setting,
 // so it does not live under config. What they do lives in `src/platforms/`.
-//
-// Google Drive was the other integration here and no longer has a surface: see
-// "Retired" in docs/drive.md. `src/drive/` still runs on its own schedule for
-// the drives already connected, but nothing routes to it.
 
 import type { AuthedContext, AuthedRoute, Context } from '../http';
 import { error, json, withUser } from '../http';

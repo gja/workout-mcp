@@ -1,5 +1,9 @@
 // Copying the sessions an athlete recorded on a training platform into their own
-// Google Drive. One pass over the platforms, one file each, nothing kept. See docs/drive.md.
+// Google Drive. One pass over the platforms, one file each, nothing kept.
+//
+// Nothing routes here: this runs from the hourly cron in `src/index.ts` and from
+// nowhere else, for the athletes whose `drive_connections` row is already there.
+// `src/recordings/` is what a caller reaches for instead.
 
 import type { Env, User } from '../db';
 import * as platforms from '../platforms';
@@ -43,7 +47,7 @@ const message = (err: unknown): string => (err instanceof Error ? err.message : 
 // leaving in an archive are the same file by two routes, and they are named once.
 export { fileName };
 
-/** `workouts-mcp/<platform>/yyyy-mm/<file>`, as docs/drive.md spells the path out. */
+/** `workouts-mcp/<platform>/yyyy-mm/<file>`, for the ledger. */
 const pathOf = (label: string, recorded: Recorded): string =>
   `${ROOT_FOLDER}/${label}/${recorded.date.slice(0, 7)}/${fileName(recorded)}`;
 

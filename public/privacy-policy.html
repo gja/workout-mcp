@@ -84,12 +84,6 @@
         at rest, along with the account name it belongs to and the error from the last failed sync. Without the
         encryption key configured, a connection is refused rather than stored in the clear.
       </li>
-      <li>
-        <strong>Google Drive connections.</strong> If you connect a drive for your completed workouts, its id and
-        name are stored, along with the error from the last failed copy, and one row per workout copied recording
-        which workout it was and the path the file went to. The recording itself is not stored: it is relayed from
-        the training platform to your drive inside a single request and held nowhere afterwards.
-      </li>
     </ul>
 
     <h2>What is not</h2>
@@ -114,9 +108,9 @@
         are read back hourly.
       </li>
       <li>
-        <strong>Google Drive</strong>, and only if you connect a drive: the completed workouts copied into it pass
-        through this server on the way, and land in a drive you own and control. Remove this server's service account
-        from that drive and the copying stops; the files already there are yours and stay.
+        <strong>Whoever you give a download link to.</strong> When you ask for the sessions you recorded, you get a
+        link that needs no password, so anyone holding it can fetch those files for the four hours it lasts. The
+        files are pulled from your training platform as the link is followed and are not stored here.
       </li>
       <li>
         <strong>The MCP client you connect</strong> — Claude, or whatever else you authorize — can read and write the

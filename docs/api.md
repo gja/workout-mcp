@@ -40,10 +40,6 @@ lot, and each Setup panel takes its own slice. A platform has no `PUT` body
 because it is connected by an OAuth round — the two `/auth/intervals/connect*`
 routes above — so that path answers 400 and says so.
 
-Google Drive used to be an `:integration` here too, with a `PUT` taking a shared
-drive link. That surface is gone; the copier behind it still runs on its
-schedule for the drives already connected. See "Retired" in [drive.md](drive.md).
-
 Two routes sit outside `/api/` without being the dashboard, and both
 deliberately, because both carry their own authentication and so must not meet
 `withUser`:
@@ -60,7 +56,7 @@ Everything else outside `/api/` is the dashboard.
 Syncing is under `/api/sync`, not `/api/config`: configuring an integration and
 telling it to run now are different things, and only the first is a setting.
 Nothing has to call it — every integration syncs on its own schedule (see
-[integrations.md](integrations.md) and [drive.md](drive.md)) — it is the
+[integrations.md](integrations.md)) — it is the
 dashboard's "Sync now" and "Copy now" buttons, for when waiting for the next
 pass is not what you want.
 

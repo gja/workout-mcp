@@ -19,7 +19,7 @@ const listRecordings: AuthedRoute = async ({ url, env, user }) => {
     return json(await recordings.list(env, user, query, url.origin));
   } catch (err) {
     // A deployment with no passphrase cannot sign a link, which is the
-    // deployment's problem and not the caller's. 503, as the drive answers it.
+    // deployment's problem and not the caller's, so it is a 503 rather than a 400.
     if (err instanceof recordings.LinksUnavailable) return error(err.message, 503);
     throw err;
   }
