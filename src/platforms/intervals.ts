@@ -47,6 +47,44 @@ const INDOOR_SUB_SPORTS = new Set<SubSport>([
   'virtual_activity',
 ]);
 
+/**
+ * Their activity types placed back on our scale, for the sport filter in
+ * `src/recordings/`.
+ *
+ * Derived from the maps above wherever it can be, so a sport added there is
+ * matched here without a second edit, and listed by hand only where it cannot:
+ * a sub-sport type does not say which sport it belongs to, and an athlete
+ * records plenty of types we would never push. Anything still unplaced stays
+ * `null` rather than becoming `generic` — "we could not tell" and "a generic
+ * workout" are different answers, and only the second should match a filter.
+ */
+const SPORT_BY_TYPE = new Map<string, Sport>([
+  ...Object.entries(ACTIVITY_TYPE).map(([sport, type]) => [type.toLowerCase(), sport as Sport] as const),
+  ...Object.entries(VIRTUAL).map(([sport, type]) => [type.toLowerCase(), sport as Sport] as const),
+  // The sub-sport types from `BY_SUB_SPORT`, plus the ones they record and we do not write.
+  ...(
+    [
+      ['TrailRun', 'running'],
+      ['OpenWaterSwim', 'swimming'],
+      ['MountainBikeRide', 'cycling'],
+      ['GravelRide', 'cycling'],
+      ['EBikeRide', 'cycling'],
+      ['EMountainBikeRide', 'cycling'],
+      ['Handcycle', 'cycling'],
+      ['Velomobile', 'cycling'],
+      ['VirtualRow', 'rowing'],
+      ['Elliptical', 'training'],
+      ['StairStepper', 'training'],
+      ['Crossfit', 'training'],
+      ['Yoga', 'training'],
+    ] satisfies Array<[string, Sport]>
+  ).map(([type, sport]) => [type.toLowerCase(), sport] as const),
+]);
+
+/** What sport a recorded activity counts as, or null when we cannot place it. */
+export const sportOf = (type: string | null | undefined): Sport | null =>
+  (type && SPORT_BY_TYPE.get(type.trim().toLowerCase())) || null;
+
 export function activityType(workout: Pick<Workout, 'sport' | 'sub_sport'>): string {
   if (workout.sub_sport === 'virtual_activity') {
     return VIRTUAL[workout.sport] ?? ACTIVITY_TYPE[workout.sport];
@@ -104,11 +142,19 @@ type RecordedActivity = Activity & {
   name?: string | null;
   /** What the athlete uploaded — `fit`, `gpx`, `tcx` — or absent for Strava and manual entries. */
   file_type?: string | null;
+  /** Their activity type, e.g. `Run`, `TrailRun`, `VirtualRide`. */
+  type?: string | null;
+  distance?: number | null;
+  moving_time?: number | null;
 };
 
 /** The athlete's own day, which is the day a session belongs to however far east they flew. */
 const localDay = (activity: RecordedActivity): string =>
   (activity.start_date_local ?? activity.start_date ?? '').slice(0, 10);
+
+/** Their numbers come back as numbers, but a null or a string is not worth trusting on. */
+const number = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null;
 
 /** `start_date` is UTC; the local fallback carries no offset, so it is read as UTC too. */
 function startedAt(activity: Activity): string | null {
@@ -203,7 +249,7 @@ export const intervals: Platform = {
     const query = new URLSearchParams({
       oldest: from,
       newest: to,
-      fields: 'id,name,start_date,start_date_local,file_type',
+      fields: 'id,name,start_date,start_date_local,file_type,type,distance,moving_time',
     });
     const activities = await readJson<RecordedActivity[]>(
       await call(token, `/athlete/${ATHLETE}/activities?${query}`),
@@ -219,6 +265,10 @@ export const intervals: Platform = {
         date,
         name: activity.name?.trim() || 'workout',
         original_type: activity.file_type ?? null,
+        activity_type: activity.type ?? null,
+        sport: sportOf(activity.type),
+        distance_m: number(activity.distance),
+        moving_time_s: number(activity.moving_time),
       });
     }
     return recorded;

@@ -76,8 +76,8 @@ const completeWorkout: AuthedRoute<CompletionRoute> = async (context) => {
 const uncompleteWorkout: AuthedRoute<CompletionRoute> = (context) => setCompletion(context, null);
 
 /** The MCP tools, reachable over plain REST. */
-const runTool: AuthedRoute<'/api/tools/:name([a-z_]+)'> = async ({ request, env, user, params }) =>
-  json(await callTool(params.name, await request.json(), env, user));
+const runTool: AuthedRoute<'/api/tools/:name([a-z_]+)'> = async ({ request, url, env, user, params }) =>
+  json(await callTool(params.name, await request.json(), env, user, url.origin));
 
 /** `2026-09-12-a1b2c3d4` -> its parts. */
 function splitDateId(slug: string): { date: string; id: string } | null {

@@ -1,9 +1,14 @@
 // Copying the sessions an athlete recorded on a training platform into their own
-// Google Drive. One pass over the platforms, one file each, nothing kept. See docs/drive.md.
+// Google Drive. One pass over the platforms, one file each, nothing kept.
+//
+// Nothing routes here: this runs from the hourly cron in `src/index.ts` and from
+// nowhere else, for the athletes whose `drive_connections` row is already there.
+// `src/recordings/` is what a caller reaches for instead.
 
 import type { Env, User } from '../db';
 import * as platforms from '../platforms';
 import type { ActivitySource, Recorded } from '../platforms';
+import { fileName, safe } from '../recordings';
 import { shiftDate, today } from '../units';
 import * as google from './google';
 import * as store from './store';
@@ -38,22 +43,11 @@ const message = (err: unknown): string => (err instanceof Error ? err.message : 
 
 // --- Naming -----------------------------------------------------------------
 
-/** Drive allows almost anything in a name; a path separator is the one thing it must not be. */
-const safe = (value: string, limit: number): string =>
-  value
-    .replace(/[\\/\p{C}]+/gu, ' ')
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/[^\p{L}\p{N}._-]/gu, '')
-    .replace(/-{2,}/g, '-')
-    .replace(/^[-.]+|[-.]+$/g, '')
-    .slice(0, limit) || 'workout';
+// The file's own name is `src/recordings/`: a copy landing here and a copy
+// leaving in an archive are the same file by two routes, and they are named once.
+export { fileName };
 
-/** `yyyy-mm-dd-<id>-<name>.fit`, as docs/drive.md spells the path out. */
-export const fileName = (recorded: Recorded): string =>
-  `${recorded.date}-${safe(recorded.remote_id, 40)}-${safe(recorded.name, 80)}.fit`;
-
-/** `workouts-mcp/<platform>/yyyy-mm/<file>`, for the dashboard and the ledger. */
+/** `workouts-mcp/<platform>/yyyy-mm/<file>`, for the ledger. */
 const pathOf = (label: string, recorded: Recorded): string =>
   `${ROOT_FOLDER}/${label}/${recorded.date.slice(0, 7)}/${fileName(recorded)}`;
 

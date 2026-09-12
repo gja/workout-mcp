@@ -14,8 +14,8 @@ a line in `PLATFORMS`, not another call site.
 
 An adapter may offer three more, all optional. `revoke` hands the token back
 when an athlete disconnects. `activities` and `recording` are how the sessions
-an athlete records get copied to their own Google Drive; only `src/drive/` asks
-for those, and only if they are offered — see [drive.md](drive.md).
+an athlete records are handed over whole, as a file; `src/drive/` and
+`src/recordings/` are what ask for those, and only if a platform offers them.
 
 ## Connecting intervals.icu
 

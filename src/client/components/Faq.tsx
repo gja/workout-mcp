@@ -60,9 +60,9 @@ export function Faq() {
             nothing I would do with any of it, and no plans to start collecting it.
           </p>
           <p className="note">
-            The one thing that passes through is a completed workout on its way to your own Google Drive, if you
-            turn that on. It is relayed straight across in a single request and never written down here; all that is
-            kept is a note that it went, so it is not copied twice.
+            The one thing that passes through is a session you recorded, on its way to you when you ask for it. It is
+            relayed straight from your training platform to your download in a single request and never written down
+            here — not the file, not a note that you asked.
           </p>
           <p className="note">
             Want it all deleted? Write to <a href="mailto:tejas@gja.in">tejas@gja.in</a> and it goes. The long version,
@@ -70,27 +70,22 @@ export function Faq() {
           </p>
         </Section>
 
-        <Section group="faq" title="How do I analyse my data?" hint="Sync it to your own Workspace Drive">
+        <Section group="faq" title="How do I analyse my data?" hint="Download what you recorded">
           <p className="note">
-            Connect a Google shared drive under <strong>Setup</strong>, and every completed workout you record on a
-            connected training platform is copied into it as the FIT file your watch produced, filed as{' '}
-            <code>{'workouts-mcp/intervals.icu/yyyy-mm/yyyy-mm-dd-<id>-<name>.fit'}</code>.
+            Ask an assistant for the sessions you recorded over a date range and it hands you a link; follow it and
+            you get a <code>.zip</code> of the FIT files your watch produced, one per session, plus a{' '}
+            <code>manifest.json</code> saying what is in it. Up to a fortnight at a time — for longer, ask twice.
           </p>
           <p className="note">
-            Then analyse it there. That is the honest answer to "where are my charts?" — there are none here, because
-            keeping the data needed to draw them is exactly what this doesn't do. Once the file is in your Drive it is
-            yours: point an assistant at the folder, open it in whatever tool you like, keep it as long as you want.
+            Then analyse them there. That is the honest answer to "where are my charts?" — there are none here,
+            because keeping the data needed to draw them is exactly what this doesn't do. The files are yours the
+            moment you have them: open them in whatever tool you like, keep them as long as you want.
           </p>
           <p className="note">
-            You will need to add this server's service account to the drive as a <strong>Contributor</strong>; the
-            panel shows you which address, and it writes a folder there to prove it can before storing anything. Every
-            session you record there is copied, so the executed file sits next to the plan you wrote.
-          </p>
-          <p className="note">
-            It has to be a shared drive, and those are a Google Workspace feature — so on a free Gmail account this
-            one is not available. A folder in your own Drive is refused rather than accepted and then quietly failing:
-            a service account owns whatever it uploads and has no storage of its own, so there is no quota to charge
-            the file to.
+            Nothing is stored to make this work. The link carries what you asked for and a signature saying it was us
+            who wrote it, the files are fetched from your training platform when you follow it, and it stops working
+            after four hours. Which also means: while it works, anyone holding the link can use it, so treat it like
+            the download it is.
           </p>
         </Section>
       </Accordion>

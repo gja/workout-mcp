@@ -3,8 +3,8 @@
 Plan structured workouts over MCP or a plain REST API, then export them as
 Garmin **FIT** workout files. One Cloudflare Worker, a D1 database, and a
 static dashboard, all on the free tier. Sign in with Google or Apple; connect
-intervals.icu and the plan syncs both ways, with the races you record copied
-into a Google Drive of your own to analyse.
+intervals.icu and the plan syncs both ways, with the sessions you record
+downloadable as a zip of FIT files to analyse wherever you like.
 
 New here? Start with [docs/deployment.md](docs/deployment.md) to get it
 running, then [docs/workouts.md](docs/workouts.md) to write one.
@@ -137,15 +137,15 @@ fails your write, completions arrive by webhook with an hourly poll behind
 them, which event to trust and why the body is never believed for more than
 the athlete it names.
 
-### [docs/drive.md](docs/drive.md)
+### [docs/recordings.md](docs/recordings.md)
 
-Copying every session you record into your own Google shared drive, so there is
-somewhere to analyse data this server deliberately does not keep. Walks through
-creating the service account and sharing a drive with it, and explains why a
-service account rather than your Google sign-in, and why only a shared drive
-will do — which makes this Workspace-only. Then the path each file lands at,
-why the race filter was dropped, that a session is copied exactly once, and
-that the recording is relayed without ever being stored here.
+Asking for the sessions you actually recorded, over a date range on one
+platform, and getting back a signed link that streams them as a ZIP of FIT
+files. Why the link carries no credential and lives outside `/api/`, what it
+costs to be a four-hour bearer token, and why a fortnight and forty sessions are
+the caps — a Worker's subrequest budget, not storage. Then the streaming ZIP
+itself, stored rather than deflated to spend no CPU, and the manifest it writes
+last.
 
 ### [docs/database.md](docs/database.md)
 
@@ -179,9 +179,10 @@ it outright.
 How the suite is put together and why. Tests run inside `workerd`, on the same
 runtime that serves production, which is the only place some of the encoder
 bugs reproduce at all. FIT files are asserted by decoding them again with
-Garmin's own decoder. Google, Apple, intervals.icu and Google Drive are stood
-in for by an auxiliary Worker that Miniflare routes outbound traffic to, so the
-real sign-in path runs offline. Lists what each suite covers.
+Garmin's own decoder. Google, Apple and intervals.icu are stood in for by an
+auxiliary Worker that Miniflare routes outbound traffic to, so the real sign-in
+path runs offline. Lists what each suite covers, and how an archive is read
+back by a ZIP reader written the way a real one works.
 
 ---
 

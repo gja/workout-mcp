@@ -43,7 +43,7 @@ export type Env = {
   /** The `Authorization` header configured on their end, when one is. Checked as well as the secret. */
   INTERVALS_WEBHOOK_AUTHORIZATION?: string;
 
-  /** The Google service account recordings are copied as. Both are needed. See docs/drive.md. */
+  /** The Google service account the scheduled copier uploads as. Both are needed, or it does nothing. */
   GOOGLE_DRIVE_CLIENT_EMAIL?: string;
   /** Its private key, PEM PKCS#8, straight out of the JSON Google downloads. */
   GOOGLE_DRIVE_PRIVATE_KEY?: string;

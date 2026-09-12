@@ -1,5 +1,5 @@
 // The athlete's drive, and the ledger of sessions already copied to it. Nothing about
-// a session itself is written here — only that it went. See docs/drive.md.
+// a session itself is written here — only that it went.
 
 import type { Env } from '../db';
 
