@@ -8,6 +8,9 @@ import type { Sport, SubSport, Workout } from './workout';
 /** The encoder's scratch buffer ceiling. A workout file is a few hundred bytes. */
 const MAX_FIT_BYTES = 1024 * 1024;
 
+/** What a watch or an importer shows as the origin of the file. */
+const FIT_PRODUCT_NAME = 'WorkoutsMCP';
+
 /** `workoutHr`: 0-100 is a percentage of max HR, above 100 is bpm + 100. */
 const encodeHr = (hr: HrValue): number => (hr.unit === 'percent' ? hr.value : hr.value + 100);
 
@@ -233,6 +236,9 @@ export function encodeWorkoutFit(workout: Workout, now: Date = new Date()): Uint
     type: 'workout',
     manufacturer: 'development',
     product: 0,
+    // The only place our name survives: `development` is the manufacturer id for
+    // anyone Garmin has not assigned one, so the string field is what a reader shows.
+    productName: FIT_PRODUCT_NAME,
     serialNumber: serialFor(workout.id),
     timeCreated: now,
   });
