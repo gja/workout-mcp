@@ -67,7 +67,11 @@ describe('the encoder buffer', () => {
 describe('file structure', () => {
   it('writes a workout file the SDK can read back', () => {
     const result = roundTrip(build([{ name: 'Easy', goal_s: 1800 }]));
-    expect(result.fileIdMesgs[0]).toMatchObject({ type: 'workout', manufacturer: 'development' });
+    expect(result.fileIdMesgs[0]).toMatchObject({
+      type: 'workout',
+      manufacturer: 'development',
+      productName: 'WorkoutsMCP',
+    });
     expect(result.workoutMesgs[0]).toMatchObject({ wktName: 'Session', sport: 'running', numValidSteps: 1 });
   });
 
