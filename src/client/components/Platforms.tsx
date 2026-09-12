@@ -71,7 +71,7 @@ function PlatformCard({
             {platform.synced === 0
               ? 'Nothing pushed yet.'
               : `${platform.synced} workout${platform.synced === 1 ? '' : 's'} on your calendar there.`}{' '}
-            Sessions you record on {platform.label} come back here as done.
+            Sessions you record on {platform.label} come back here as done, usually within about 15 minutes.
           </p>
           {platform.connected_note && <p className="note">{platform.connected_note}</p>}
           {platform.last_error && <p className="error">Last sync failed — {platform.last_error}</p>}
