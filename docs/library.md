@@ -13,9 +13,9 @@ harmless.
 
 ## The default is not a copy
 
-`src/library.md` ships in the build, imported as a string. An athlete who has
-never edited theirs has **no row** in `workout_libraries` — they are served the
-built-in document directly.
+`src/library/default.ts` ships in the build. An athlete who has never edited
+theirs has **no row** in `workout_libraries` — they are served the built-in
+document directly.
 
 That is deliberate. Seeding a copy per athlete on first sign-in would have been
 simpler at read time and wrong everywhere else: the moment the default improves,
@@ -30,6 +30,17 @@ Saving copies the text in as it stands; resetting deletes the row, and the
 default takes over again — including any improvements made since. Saving an
 empty document means the same thing as resetting, because there is no useful
 reading of "my library is nothing".
+
+### Why it is a `.ts` file and not a `.md` one
+
+It reads as markdown and would be nicer to edit as a markdown file, and it was
+one for about an hour. It cannot be: `wrangler deploy` bundles the Worker with
+**esbuild** and `vite build` bundles it with **rolldown**, and the two have no
+import spelling in common. `./default.md?raw` is what Vite wants and esbuild
+rejects for want of a loader; a bare `./default.md` is what esbuild takes, given
+a `Text` rule in `wrangler.jsonc`, and Vite then tries to parse the markdown as
+JavaScript. Neither tool is wrong, and the Workers build is the one that has to
+work. A module exporting a template literal needs nothing from either.
 
 ## Read-only over MCP
 

@@ -1,12 +1,11 @@
 // The workout library: reference prose an assistant reads before writing a session.
 // Read-only over MCP, editable from the dashboard or the API. See docs/library.md.
 
-import DEFAULT_MARKDOWN from './library.md?raw';
-import type { Env } from './db';
-import { fail } from './units';
+import type { Env } from '../db';
+import { DEFAULT_LIBRARY } from './default';
+import { fail } from '../units';
 
-/** What ships in the box, used by every athlete who has not written their own. */
-export const DEFAULT_LIBRARY = DEFAULT_MARKDOWN;
+export { DEFAULT_LIBRARY };
 
 /** Generous for prose, small enough that one read stays one cheap D1 row. */
 export const MAX_LIBRARY_CHARS = 100_000;
