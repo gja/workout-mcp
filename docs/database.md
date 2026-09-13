@@ -73,13 +73,14 @@ are asked about a row that is about to be written over rather than read back:
 - `storedCompletion`, which reads the completion a row already carries so a
   rewrite can carry it across.
 
-## A row means "I have an opinion"
+## A row means "I have said something"
 
-`workout_libraries` holds a row only for an athlete who has edited their
-library; everyone else is served the built-in document straight out of the
-build. Nothing seeds a copy on sign-up, so improving the default reaches every
-athlete who has not overridden it, and a row is unambiguous evidence that
-somebody chose their text. See [workout-library.md](workout-library.md).
+`contexts` holds a row only for a kind an athlete has actually written. The
+built-in workout library is served straight out of the build, so improving it
+reaches everyone who has not overridden it; the other three kinds have no
+built-in document, so no row means the athlete has said nothing and an assistant
+is told so rather than handed a guess. `kind` is deliberately unconstrained in
+SQL — the set of kinds lives in `src/context.ts`. See [context.md](context.md).
 
 ## Ordering rules for writes
 
@@ -99,7 +100,7 @@ somebody chose their text. See [workout-library.md](workout-library.md).
 | --- | --- |
 | `workouts` | The plan, one row per workout |
 | `users` | An account per *(provider, subject)* |
-| `workout_libraries` | An athlete's own workout library, only once they have written one |
+| `contexts` | An athlete's context documents, one row per kind they have written |
 | `sessions` | Session id hashes |
 | `tokens` | API token hashes and their prefixes |
 | `login_states` | In-flight sign-ins, single use, ten minutes |

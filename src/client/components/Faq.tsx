@@ -126,6 +126,20 @@ export function Faq() {
             the download it is.
           </p>
         </Section>
+
+        <Section group="faq" title="Can I take my context with me?" hint="Export context">
+          <p className="note">
+            Yes, and without asking anyone. Open <em>Setup → Context</em> and press <em>Export context</em>: you get a{' '}
+            <code>backup-context.zip</code> holding one markdown file per document — your workout library, your
+            current plan, your scheduling instructions, your zones — plus a <code>manifest.json</code> saying which of
+            them you wrote and when you last touched each one.
+          </p>
+          <p className="note">
+            Those four documents are the part of this that is genuinely yours: the workouts can be rebuilt from a
+            plan, but what you have told an assistant about how you train cannot. Keep a copy somewhere that isn't
+            here. Markdown in a zip reads fine in any editor, and it will still read fine if this site stops existing.
+          </p>
+        </Section>
       </Accordion>
     </section>
   );

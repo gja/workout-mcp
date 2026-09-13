@@ -332,10 +332,10 @@ code { background: var(--line); padding: 1px 5px; border-radius: 4px; font-size:
 }
 .colophon a { color: inherit; }
 
-/* --- The workout library ------------------------------------------------ */
+/* --- Context documents -------------------------------------------------- */
 
 /* Monospace and tall: it is markdown being edited, not a field being filled in. */
-textarea.library {
+textarea.context {
   display: block;
   width: 100%;
   box-sizing: border-box;

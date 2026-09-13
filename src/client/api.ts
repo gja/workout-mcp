@@ -104,15 +104,28 @@ export const disconnectPlatform = (id: string): Promise<unknown> =>
 export const syncPlatform = (id: string): Promise<SyncReport> =>
   request(`/api/sync/${id}`, { method: 'POST' });
 
-/** The reference prose an assistant reads before writing a session. */
-export type WorkoutLibrary = { markdown: string; custom: boolean; updated_at: string | null };
+/** One of the markdown documents an assistant reads before it plans. */
+export type ContextDocument = {
+  kind: string;
+  label: string;
+  purpose: string;
+  /** Null when nothing is set and the kind has no built-in document. */
+  markdown: string | null;
+  custom: boolean;
+  /** True when clearing theirs leaves a document behind rather than nothing. */
+  has_built_in: boolean;
+  writable_over_mcp: boolean;
+  updated_at: string | null;
+};
 
-export const getWorkoutLibrary = (): Promise<WorkoutLibrary> => request('/api/workout-library');
-export const saveWorkoutLibrary = (markdown: string): Promise<WorkoutLibrary> =>
-  request('/api/workout-library', { method: 'PUT', body: { markdown } });
-/** Back to the built-in library, forgetting the athlete's own copy. */
-export const resetWorkoutLibrary = (): Promise<WorkoutLibrary> =>
-  request('/api/workout-library', { method: 'DELETE' });
+export const listContexts = (): Promise<{ contexts: ContextDocument[] }> => request('/api/context');
+
+export const saveContext = (kind: string, markdown: string): Promise<ContextDocument> =>
+  request(`/api/context/${kind}`, { method: 'PUT', body: { markdown } });
+
+/** Back to the built-in document, or to nothing where there is no built-in one. */
+export const clearContext = (kind: string): Promise<ContextDocument> =>
+  request(`/api/context/${kind}`, { method: 'DELETE' });
 
 export const listTokens = (): Promise<{ tokens: ApiToken[] }> => request('/api/tokens');
 export const createToken = (name: string): Promise<IssuedToken> => request('/api/tokens', { method: 'POST', body: { name } });
@@ -130,15 +143,22 @@ export const approveAuthorization = (query: string): Promise<{ redirect: string 
 export const signOut = (): Promise<unknown> => request('/api/auth/logout', { method: 'POST' });
 
 // Fetched as a blob so the session credential never lands in a URL or a history entry.
-export async function downloadFit(workout: Workout): Promise<void> {
-  const response = await fetch(workout.fit_url);
-  if (!response.ok) throw new Error(`could not export the FIT file (${response.status})`);
+async function download(path: string, filename: string, whatFailed: string): Promise<void> {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error(`could not ${whatFailed} (${response.status})`);
 
   const url = URL.createObjectURL(await response.blob());
-  const link = Object.assign(document.createElement('a'), { href: url, download: `${workout.date}-${workout.id}.fit` });
+  const link = Object.assign(document.createElement('a'), { href: url, download: filename });
   document.body.append(link);
   link.click();
   link.remove();
   // A later tick: revoking synchronously races the start of the download.
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
+
+export const downloadFit = (workout: Workout): Promise<void> =>
+  download(workout.fit_url, `${workout.date}-${workout.id}.fit`, 'export the FIT file');
+
+/** Every context document as one ZIP, so what you wrote is never only here. */
+export const downloadContextBackup = (): Promise<void> =>
+  download('/api/context.zip', 'backup-context.zip', 'export your context');

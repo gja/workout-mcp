@@ -66,8 +66,8 @@ identically:
 ## Tools
 
 `list_workouts`, `get_workout`, `create_workout`, `update_workout`,
-`delete_workout`, `complete_workout`, `export_workout_fit`,
-`get_workout_library`, `list_recorded_workouts`.
+`delete_workout`, `complete_workout`, `export_workout_fit`, `get_context`,
+`update_context`, `list_recorded_workouts`.
 
 Each is also reachable over REST at `POST /api/tools/<name>` with the same
 arguments, so a non-MCP client gets identical behaviour. The schemas live in
@@ -84,15 +84,20 @@ to reach for when the job is analysing real training rather than writing a
 session. It answers with a link to the files rather than the files, for the
 reason the next section gives. See [recordings.md](recordings.md).
 
-### The library is read-only here
+### Reading the athlete's context, and writing it
 
-`get_workout_library` returns the athlete's workout library — reference prose on
-how they train, worth reading before writing them a session — along with a note
-saying that the dashboard and `PUT /api/workout-library` are the two ways to
-change it.
-There is deliberately no write tool: it is the athlete's standing instruction to
-an assistant, and an assistant that could edit it would be editing its own
-brief. See [workout-library.md](workout-library.md).
+`get_context` returns the markdown documents describing how this athlete trains
+— their workout library, the plan they are on, how they want sessions placed,
+and the zones a target should be anchored to. `create_workout` and
+`update_workout` both say to call it first, because a session written without it
+is a generic one.
+
+`update_context` is a **separate tool** rather than a mode of the first, so a
+client can be allowed to read the context freely and still ask every time
+something wants to rewrite it. It covers three of the four documents; the
+workout library is read-only here and is edited on the dashboard, because it is
+the athlete's standing brief and an assistant that could edit it would be
+editing its own. See [context.md](context.md).
 
 ### Only one tool result carries a URL
 
@@ -112,11 +117,12 @@ when the URL works for whoever ends up holding it, and not otherwise.
 
 ### Annotations
 
-`list_workouts`, `get_workout`, `get_workout_library`, `export_workout_fit`
-and `list_recorded_workouts` carry `readOnlyHint`,
+`list_workouts`, `get_workout`, `get_context`, `export_workout_fit` and
+`list_recorded_workouts` carry `readOnlyHint`,
 which is what lets a client group them apart from the writes and allow them
-without asking each time. `update_workout` and `delete_workout` carry
-`destructiveHint`. `complete_workout` is a write but not a destructive one — it
+without asking each time. `update_workout`, `delete_workout` and
+`update_context` carry `destructiveHint` — the last of those because it
+replaces a document the athlete wrote, in full. `complete_workout` is a write but not a destructive one — it
 cannot lose the plan it is recorded against. The hints only shape how a client
 presents a tool; the server checks everything regardless.
 

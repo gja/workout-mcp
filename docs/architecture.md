@@ -13,7 +13,7 @@ src/drive/              a scheduled copier, no routes of its own
 src/recordings/         those same sessions as one signed, streaming ZIP download
 src/identity.ts         signing in with Google or Apple
 src/auth.ts             sessions, accounts and API tokens
-src/workout-library.ts  what an assistant reads before planning; the default is the .md beside it
+src/context.ts          what an assistant reads before planning; the library default is the .md beside it
 src/tools.ts            the tool surface shared by MCP and REST
 src/mcp.ts              JSON-RPC over Streamable HTTP
 src/router.ts           a small path router: `:params`, and 405 apart from 404
@@ -23,7 +23,7 @@ src/routes/             one module per group of routes, each declaring its own p
   oauth.ts              /oauth/authorize and /oauth/client: how an MCP client gets in
   account.ts            /api/me, /api/tokens, /api/connections
   integrations.ts       /api/config and /api/sync: training platforms
-  workout-library.ts    /api/workout-library: that document, read and edited
+  context.ts            /api/context: those documents, read, edited and exported
   recordings.ts         /api/recordings, and the signed ZIP download outside the door
   workouts.ts           /api/workouts, /api/tools and /export
 src/app.ts              the OAuth provider's defaultHandler: the table the rest mount onto
@@ -109,8 +109,8 @@ every conversion in `src/client/dates.ts` goes through *local* midnight.
 `toISOString` would push the date back a day for anyone west of Greenwich.
 
 One page, in a fixed order: masthead, calendar, a **Setup** accordion, then the
-FAQ. Setup holds the five panels — Connect to Claude, Integrations, Workout
-library, API tokens, Connected apps — and each is a component that fetches its
+FAQ. Setup holds the five panels — Connect to Claude, Integrations, Context,
+API tokens, Connected apps — and each is a component that fetches its
 own slice, so opening one does not wait on the others. The accordion is
 `<details>` elements sharing a `name`, which is what makes a browser close the
 siblings: there is no open-panel state in React, and the panels still work with
@@ -118,9 +118,12 @@ JavaScript half-loaded. The FAQ
 uses the same pair and renders signed out as well, which is the only part of the
 page a first-time visitor sees. Under it, one link: the privacy policy.
 
-The Workout library panel is the one with an editor in it. Its textarea is
-seeded from the server once per load and never re-seeded, so a save that
-answers with the stored document cannot overwrite what is being typed.
+The Context panel is the one with editors in it, and it nests a second accordion
+of its own — one section per document, sharing their own `name` so the four
+close each other without touching the Setup group. Each editor seeds its
+textarea from the server once and never re-seeds it, so a save that answers with
+the stored document cannot overwrite what is being typed. See
+[context.md](context.md).
 
 Two Vite entries, not one: the dashboard and the OAuth consent screen. The
 privacy policy is neither — `public/privacy-policy.html` is a static file with

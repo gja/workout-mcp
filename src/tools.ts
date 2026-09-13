@@ -5,7 +5,7 @@ import { base64Encode, encodeWorkoutFit, fitDownloadName } from './fit';
 import { describeWorkout, plannedTotals } from './describe';
 import * as db from './db';
 import type { Env, User } from './db';
-import * as workoutLibrary from './workout-library';
+import * as context from './context';
 import * as plan from './plan';
 import { PLATFORMS } from './platforms';
 import * as recordings from './recordings';
@@ -126,6 +126,11 @@ const WORKOUT_PROPERTIES = {
   steps: STEP_SCHEMA,
 } as const;
 
+/** `"a", "b" and "c"` — the writable kinds named in prose, so the two descriptions cannot drift. */
+const WRITABLE_CONTEXTS = context.WRITABLE_KINDS.map((kind) => `"${kind}"`)
+  .join(', ')
+  .replace(/, ([^,]*)$/, ' and $1');
+
 /** The annotations are advisory — they shape how a client asks, not what the server allows. */
 export const TOOLS = [
   {
@@ -161,13 +166,17 @@ export const TOOLS = [
     annotations: { title: 'Create a planned workout', readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     description:
       'Create a planned workout on a date and return its id. ' +
-      'A date may hold several workouts; each gets its own id.',
+      'A date may hold several workouts; each gets its own id. ' +
+      'Call get_context first: it says how this athlete trains, what plan they are on, ' +
+      'which days they train, and the zones a target should be anchored to.',
     inputSchema: { type: 'object', properties: WORKOUT_PROPERTIES, required: ['date', 'steps'] },
   },
   {
     name: 'update_workout',
     annotations: { title: 'Replace a planned workout', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
-    description: 'Replace an existing workout in full. The id is kept; the date may be changed to move the workout.',
+    description:
+      'Replace an existing workout in full. The id is kept; the date may be changed to move the ' +
+      'workout. As with create_workout, get_context says how this athlete trains and when.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -229,15 +238,63 @@ export const TOOLS = [
     },
   },
   {
-    name: 'get_workout_library',
-    annotations: { title: 'Read the workout library', readOnlyHint: true, openWorldHint: false },
+    name: 'get_context',
+    annotations: { title: "Read the athlete's context", readOnlyHint: true, openWorldHint: false },
     description:
-      'Read the athlete\'s workout library: reference prose on the session types they train with, ' +
-      'the structures to build from, and how their plan is meant to progress. Read this before ' +
-      'writing or changing a session, so what you write matches how this athlete trains. ' +
-      'Returns markdown, and it is context rather than a schema — nothing in it is a tool argument. ' +
-      'Read-only here: the library is edited on the dashboard, or over the REST API at PUT /api/workout-library.',
-    inputSchema: { type: 'object', properties: {} },
+      "Read the athlete's context: the markdown documents describing how they train. " +
+      'Read this before planning a session or choosing a date for one — it is what makes a ' +
+      'workout theirs rather than generic, and the zones every target should be anchored to ' +
+      'are in it. Omit "kind" to get all of them in one call, which is the usual way to use ' +
+      'this. Each document comes back with what belongs in it, so an empty one is still worth ' +
+      'reading: it says what to ask the athlete for. This is context rather than schema — ' +
+      'nothing in it is a tool argument. ' +
+      `${WRITABLE_CONTEXTS} can be replaced with update_context; the workout library is ` +
+      'read-only here and is edited on the dashboard, or over the REST API at ' +
+      'PUT /api/context/workout-library.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kind: {
+          type: 'string',
+          enum: [...context.CONTEXT_KINDS],
+          description: 'One document. Omit this for all of them, which is usually what you want.',
+        },
+      },
+    },
+  },
+  {
+    name: 'update_context',
+    annotations: {
+      title: "Replace one of the athlete's context documents",
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    description:
+      'Replace one context document in full. This is the athlete\'s own standing brief to an ' +
+      'assistant rather than a workout, so it outlives the conversation it was written in: ' +
+      'read the document first with get_context, show the athlete what you mean to put there, ' +
+      'and call this only once they have agreed to it. Send the whole document — there is no ' +
+      'partial edit, and what you send replaces what is there. An empty document clears it, and ' +
+      `one over ${context.MAX_CONTEXT_BYTES / 1024} KB is refused rather than truncated. ` +
+      `Only ${WRITABLE_CONTEXTS} can be written here. The workout library cannot: it is edited ` +
+      'on the dashboard, or over the REST API at PUT /api/context/workout-library.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kind: {
+          type: 'string',
+          enum: [...context.WRITABLE_KINDS],
+          description: 'Which document to replace.',
+        },
+        markdown: {
+          type: 'string',
+          description: 'The whole document, as markdown. Empty clears it.',
+        },
+      },
+      required: ['kind', 'markdown'],
+    },
   },
   {
     name: 'list_recorded_workouts',
@@ -415,14 +472,24 @@ export async function callTool(
       };
     }
 
-    case 'get_workout_library': {
-      const stored = await workoutLibrary.readLibrary(env, user.id);
-      return {
-        ...stored,
-        note: stored.custom
-          ? 'The athlete\'s own library. Read-only here; they edit it on the dashboard, or over the API at PUT /api/workout-library.'
-          : 'The built-in library: this athlete has not written their own. Read-only here; it is edited on the dashboard, or over the API at PUT /api/workout-library.',
-      };
+    case 'get_context': {
+      if (args.kind === undefined || args.kind === null) {
+        return { contexts: await context.readEveryContext(env, user.id) };
+      }
+      if (!context.isContextKind(args.kind)) throw new ToolError(`unknown context "${String(args.kind)}"`);
+      return await context.readContext(env, user.id, args.kind);
+    }
+
+    case 'update_context': {
+      if (!context.isContextKind(args.kind)) throw new ToolError(`unknown context "${String(args.kind)}"`);
+      if (!context.CONTEXTS[args.kind].writableOverMcp) {
+        throw new ToolError(
+          `"${args.kind}" cannot be written here; it is edited on the dashboard, ` +
+            `or over the REST API at PUT /api/context/${args.kind}`,
+        );
+      }
+      if (typeof args.markdown !== 'string') throw new ToolError('markdown is required');
+      return await context.saveContext(env, user.id, args.kind, args.markdown);
     }
 
     case 'list_recorded_workouts':

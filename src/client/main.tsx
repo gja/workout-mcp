@@ -5,13 +5,14 @@ import { relativeDate } from './dates';
 import { Accordion, Section } from './components/Accordion';
 import { ApiTokens } from './components/ApiTokens';
 import { Calendar } from './components/Calendar';
+import { Contexts } from './components/Contexts';
 import { ConnectedApps } from './components/ConnectedApps';
 import { ConnectToClaude } from './components/ConnectToClaude';
 import { Faq } from './components/Faq';
 import { Platforms } from './components/Platforms';
 import { SignIn } from './components/SignIn';
 import { WorkoutCard } from './components/WorkoutCard';
-import { WorkoutLibrary } from './components/WorkoutLibrary';
+
 import './styles.css';
 
 /** `/workout/<id>` opens that session. The Worker serves the dashboard there; the path is read back here. */
@@ -78,8 +79,8 @@ function Dashboard({ me }: { me: Me }) {
           <Section group="setup" title="Integrations" hint="intervals.icu">
             <Platforms onSynced={reload} />
           </Section>
-          <Section group="setup" title="Workout library" hint="What the assistant reads">
-            <WorkoutLibrary />
+          <Section group="setup" title="Context" hint="What the assistant reads">
+            <Contexts />
           </Section>
           <Section group="setup" title="API tokens" hint="Other MCP hosts">
             <ApiTokens />

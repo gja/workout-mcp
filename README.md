@@ -117,14 +117,14 @@ retention window rather than letting a client compute it, why 401 is answered
 before 404 under the API prefixes, and the trade-off in accepting a token as a
 query parameter on FIT downloads.
 
-### [docs/workout-library.md](docs/workout-library.md)
+### [docs/context.md](docs/context.md)
 
-The markdown document an assistant reads before it writes you a session: your
-sets, how they are built, and how your plan progresses. Explains why it is
-context rather than configuration, why the built-in library is served from the
-source instead of being copied into every athlete's row, and why importing one
-markdown file takes both a Vite plugin and a wrangler rule. Then why MCP can
-only read it, and the dashboard and the API are the two ways to change it.
+The four markdown documents an assistant reads before it plans: the workout
+library, the current plan, the scheduling instructions and the zones. Explains
+why they are context rather than configuration, why only the library has a
+built-in document and absence is recorded as absence, why reading and writing
+them are two separate MCP tools, and why importing one markdown file takes both
+a Vite plugin and a wrangler rule. Ends with the backup archive.
 
 ### [docs/auth.md](docs/auth.md)
 

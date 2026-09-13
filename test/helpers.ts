@@ -25,7 +25,7 @@ export async function resetDatabase(): Promise<void> {
     'drive_connections',
     'platform_links',
     'platform_connections',
-    'workout_libraries',
+    'contexts',
     'workouts',
     'workouts_rebuilt',
     'tokens',
