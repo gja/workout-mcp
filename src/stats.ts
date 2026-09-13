@@ -19,6 +19,9 @@ const PAUSE_MULTIPLE = 4;
 /** A stop this long is worth telling the reader about. */
 const LONG_PAUSE_S = 120;
 
+/** The window a normalized-power average rolls over, as Coggan defined it. */
+const NORMALIZED_WINDOW_S = 30;
+
 /** Laps a watch may have collected before the session proper started. */
 const FALSE_STARTS = 2;
 
@@ -328,6 +331,70 @@ const mean = (values: Array<number | null>): number | null => {
   return Math.round(recorded.reduce((sum, value) => sum + value, 0) / recorded.length);
 };
 
+/**
+ * The lowest and highest a metric got, over what was actually recorded.
+ *
+ * A summary message is meant to carry these and often does not — a platform that builds
+ * its FIT out of streams leaves half of them empty — so the stream answers instead.
+ */
+function spanOf(samples: Sample[], metric: Metric): { low: number | null; high: number | null } {
+  let low: number | null = null;
+  let high: number | null = null;
+
+  for (const sample of samples) {
+    const value = sample[metric];
+    if (value === null) continue;
+    if (low === null || value < low) low = value;
+    if (high === null || value > high) high = value;
+  }
+  return { low, high };
+}
+
+/** Joules: power over the moving seconds each sample stands for. */
+function workOf(samples: Sample[]): number | null {
+  let joules: number | null = null;
+  for (const sample of samples) {
+    if (sample.power_w === null) continue;
+    joules = (joules ?? 0) + sample.power_w * sample.moving;
+  }
+  return joules;
+}
+
+/**
+ * Normalized power: a rolling 30-second average, raised to the fourth, averaged, rooted.
+ *
+ * The number a ride is actually judged by, and the one most often missing from a file
+ * built out of streams rather than written by the head unit. Coggan's method, computed
+ * per sample rather than per second — a watch on smart recording has no per-second to
+ * compute over — and refused outright for anything shorter than the window itself,
+ * where it would mean nothing.
+ */
+function normalizedPowerOf(samples: Sample[]): number | null {
+  const powered = samples.filter((sample) => sample.power_w !== null);
+  if (powered.length === 0) return null;
+
+  const start = powered[0].time;
+  if (powered[powered.length - 1].time - start < NORMALIZED_WINDOW_S * 1000) return null;
+
+  let rolling = 0;
+  let quartic = 0;
+  let counted = 0;
+  let from = 0;
+
+  for (const [index, sample] of powered.entries()) {
+    rolling += sample.power_w!;
+    while (powered[from].time < sample.time - NORMALIZED_WINDOW_S * 1000) {
+      rolling -= powered[from].power_w!;
+      from += 1;
+    }
+    // Nothing is counted until the window behind it is a full one.
+    if (sample.time - start < NORMALIZED_WINDOW_S * 1000) continue;
+    quartic += (rolling / (index - from + 1)) ** 4;
+    counted += 1;
+  }
+  return counted === 0 ? null : Math.round((quartic / counted) ** 0.25);
+}
+
 /** Four equal segments of moving time, or of distance where the step was written in it. */
 function quartersOf(samples: Sample[], splitBy: 'time' | 'distance'): Quarters | null {
   const weights = samples.map((sample) => (splitBy === 'time' ? sample.moving : sample.metres));
@@ -380,10 +447,18 @@ function timeInBand(samples: Sample[], band: { metric: Metric; low: number; high
   return { ...band, pct_time_in_band: share(inside), pct_time_above: share(above), pct_time_below: share(below) };
 }
 
-function sessionOf(session: SessionMesg, sport: string | null, indoor: boolean): SessionStats {
+function sessionOf(
+  session: SessionMesg,
+  sport: string | null,
+  indoor: boolean,
+  samples: Sample[],
+): SessionStats {
+  const hr = spanOf(samples, 'hr');
+  const power = spanOf(samples, 'power_w');
+
   const avgPower = positive(session.avgPower);
-  const normalized = positive(session.normalizedPower);
-  const work = positive(session.totalWork);
+  const normalized = positive(session.normalizedPower) ?? normalizedPowerOf(samples);
+  const work = positive(session.totalWork) ?? workOf(samples);
 
   return {
     sport,
@@ -395,12 +470,12 @@ function sessionOf(session: SessionMesg, sport: string | null, indoor: boolean):
     timer_s: round(number(session.totalTimerTime)),
     distance_m: round(positive(session.totalDistance), 1),
     avg_hr: positive(session.avgHeartRate),
-    max_hr: positive(session.maxHeartRate),
-    min_hr: positive(session.minHeartRate),
+    max_hr: positive(session.maxHeartRate) ?? hr.high,
+    min_hr: positive(session.minHeartRate) ?? hr.low,
     avg_pace_s_km: paceOf(number(session.enhancedAvgSpeed) ?? number(session.avgSpeed)),
     avg_cadence: round(cadenceOf(positive(session.avgCadence), sport)),
     avg_power_w: round(avgPower),
-    max_power_w: round(positive(session.maxPower)),
+    max_power_w: round(positive(session.maxPower) ?? power.high),
     normalized_power_w: round(normalized),
     work_kj: round(work === null ? null : work / 1000),
     intensity_factor: round(number(session.intensityFactor), 3),
@@ -509,13 +584,13 @@ export function statsFrom(
       moving_s: round(number(lap.totalMovingTime) ?? number(lap.totalTimerTime)),
       distance_m: round(positive(lap.totalDistance), 1),
       avg_hr: positive(lap.avgHeartRate),
-      max_hr: positive(lap.maxHeartRate),
-      min_hr: positive(lap.minHeartRate),
+      max_hr: positive(lap.maxHeartRate) ?? spanOf(mine, 'hr').high,
+      min_hr: positive(lap.minHeartRate) ?? spanOf(mine, 'hr').low,
       avg_pace_s_km: paceOf(number(lap.enhancedAvgSpeed) ?? number(lap.avgSpeed)),
       avg_cadence: round(cadenceOf(positive(lap.avgCadence), sport)),
       avg_power_w: round(positive(lap.avgPower)),
-      max_power_w: round(positive(lap.maxPower)),
-      normalized_power_w: round(positive(lap.normalizedPower)),
+      max_power_w: round(positive(lap.maxPower) ?? spanOf(mine, 'power_w').high),
+      normalized_power_w: round(positive(lap.normalizedPower) ?? normalizedPowerOf(mine)),
       elev_gain_m: round(number(lap.totalAscent)),
       elev_loss_m: round(number(lap.totalDescent)),
       quarters: null,
@@ -551,7 +626,7 @@ export function statsFrom(
     if (band) stats.target = timeInBand(mine, band);
   }
 
-  const stats = sessionOf(session, sport, indoor);
+  const stats = sessionOf(session, sport, indoor, samples);
 
   if (stats.avg_hr === null && withHr === 0) flags.push('no_hr');
   else if (samples.length > 0 && withHr < samples.length * 0.9) flags.push('hr_dropout');
