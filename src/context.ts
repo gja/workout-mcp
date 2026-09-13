@@ -128,10 +128,15 @@ export async function saveContext(
   markdown: unknown,
 ): Promise<ContextDocument> {
   if (typeof markdown !== 'string') fail('markdown', 'expected the document as a markdown string');
+  // Both in bytes: rounding the limit to KB and the size with it says "at most
+  // 100 KB, and that one is 100 KB" for the document one byte over.
   const size = byteLength(markdown);
   if (size > MAX_CONTEXT_BYTES) {
-    const asKb = (bytes: number) => Math.round(bytes / 1024);
-    fail('markdown', `a context document may be at most ${asKb(MAX_CONTEXT_BYTES)} KB, and that one is ${asKb(size)} KB`);
+    fail(
+      'markdown',
+      `a context document may be at most ${MAX_CONTEXT_BYTES} bytes (${MAX_CONTEXT_BYTES / 1024} KB), ` +
+        `and that one is ${size}`,
+    );
   }
 
   const text = markdown.trim();

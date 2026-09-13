@@ -21,9 +21,22 @@ const readOne = async ({ env, user, params }: Named) => {
   return kind instanceof Response ? kind : json(await context.readContext(env, user.id, kind));
 };
 
+/**
+ * A bound on what is parsed, not on the document: JSON escaping can multiply a
+ * document several times over, so this is far above the real limit and only
+ * there to keep an absurd body from being materialised before it is refused.
+ */
+const MAX_BODY_BYTES = context.MAX_CONTEXT_BYTES * 8;
+
 const saveOne = async ({ request, env, user, params }: Named) => {
   const kind = namedKind(params.kind);
   if (kind instanceof Response) return kind;
+
+  const declared = Number(request.headers.get('Content-Length'));
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+    return error(`that body is ${declared} bytes; a context document may be at most ${context.MAX_CONTEXT_BYTES}`, 413);
+  }
+
   const body = (await request.json()) as { markdown?: unknown };
   return json(await context.saveContext(env, user.id, kind, body?.markdown));
 };

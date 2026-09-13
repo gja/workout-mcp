@@ -86,6 +86,12 @@ the size it claimed. It is prose an assistant reads in full on every session it
 plans, so the binding constraint is the reader's context window rather than D1.
 Silently keeping the first half of a document would be worse than saying no.
 
+The message names both numbers in bytes. Rounding the limit to KB and the size
+with it would tell the athlete whose document is one byte over that it "may be
+at most 100 KB, and that one is 100 KB". A `Content-Length` far above the limit
+is refused with a 413 before the body is parsed at all, so an absurd PUT is a
+clear answer rather than an isolate running out of memory mid-parse.
+
 ## The backup
 
 `GET /api/context.zip` — *Export context* on the dashboard — is every document

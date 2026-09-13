@@ -6,22 +6,30 @@ import { Accordion, Section } from './Accordion';
 const hint = (document: ContextDocument): string =>
   document.custom ? 'Yours' : document.markdown === null ? 'Not set' : 'Built-in';
 
-function Editor({ document }: { document: ContextDocument }) {
-  const [saved, setSaved] = useState(document);
+/**
+ * The document is the parent's, so the section header and the editor cannot
+ * disagree about it after a save. Only the draft is held here, and it is seeded
+ * once: a write answers with what was stored, and adopting that is the only
+ * thing that may move the text out from under whoever is typing.
+ */
+function Editor({
+  document,
+  onChanged,
+}: {
+  document: ContextDocument;
+  onChanged: (next: ContextDocument) => void;
+}) {
   const [draft, setDraft] = useState(document.markdown ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const adopt = (next: ContextDocument) => {
-    setSaved(next);
-    setDraft(next.markdown ?? '');
-  };
 
   const run = async (action: () => Promise<ContextDocument>) => {
     setError(null);
     setBusy(true);
     try {
-      adopt(await action());
+      const next = await action();
+      setDraft(next.markdown ?? '');
+      onChanged(next);
     } catch (failure) {
       setError((failure as Error).message);
     } finally {
@@ -29,19 +37,23 @@ function Editor({ document }: { document: ContextDocument }) {
     }
   };
 
-  const revert = () => {
-    if (!confirm(`Discard your ${saved.label.toLowerCase()} and go back to the built-in one?`)) return;
-    void run(() => clearContext(saved.kind));
+  // Both of these throw the athlete's own words away; only one of them leaves something behind.
+  const discard = () => {
+    const warning = document.has_built_in
+      ? `Discard your ${document.label.toLowerCase()} and go back to the built-in one?`
+      : `Clear your ${document.label.toLowerCase()}? There is no built-in one to fall back to.`;
+    if (!confirm(warning)) return;
+    void run(() => clearContext(document.kind));
   };
 
-  const dirty = draft !== (saved.markdown ?? '');
-  const onBuiltIn = !saved.custom && saved.has_built_in;
+  const dirty = draft !== (document.markdown ?? '');
+  const onBuiltIn = !document.custom && document.has_built_in;
 
   return (
     <>
-      <p className="note">{saved.purpose}</p>
+      <p className="note">{document.purpose}</p>
       <p className="note">
-        {saved.writable_over_mcp ? (
+        {document.writable_over_mcp ? (
           <>
             An assistant can read this with <code>get_context</code> and replace it with{' '}
             <code>update_context</code> — so it will ask before changing it.
@@ -49,7 +61,7 @@ function Editor({ document }: { document: ContextDocument }) {
         ) : (
           <>
             Read-only over MCP, through <code>get_context</code>. This panel and{' '}
-            <code>PUT /api/context/{saved.kind}</code> are the two ways to change it.
+            <code>PUT /api/context/{document.kind}</code> are the two ways to change it.
           </>
         )}
       </p>
@@ -57,36 +69,37 @@ function Editor({ document }: { document: ContextDocument }) {
       <textarea
         className="context"
         spellCheck={false}
-        placeholder={saved.markdown === null ? 'Nothing set yet — write it in markdown.' : undefined}
+        // Disabled while a write is in flight, because its answer replaces this text.
+        disabled={busy}
+        placeholder={document.markdown === null ? 'Nothing set yet — write it in markdown.' : undefined}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
       />
 
       <div className="actions">
-        <button className="primary" disabled={busy || !dirty} onClick={() => void run(() => saveContext(saved.kind, draft))}>
+        <button
+          className="primary"
+          disabled={busy || !dirty}
+          onClick={() => void run(() => saveContext(document.kind, draft))}
+        >
           {busy ? 'Saving…' : 'Save'}
         </button>
         {dirty && (
-          <button className="link" disabled={busy} onClick={() => setDraft(saved.markdown ?? '')}>
+          <button className="link" disabled={busy} onClick={() => setDraft(document.markdown ?? '')}>
             Discard changes
           </button>
         )}
-        {saved.custom && saved.has_built_in && (
-          <button className="link danger" disabled={busy} onClick={revert}>
-            Use the built-in one
-          </button>
-        )}
-        {saved.custom && !saved.has_built_in && (
-          <button className="link danger" disabled={busy} onClick={() => void run(() => clearContext(saved.kind))}>
-            Clear
+        {document.custom && (
+          <button className="link danger" disabled={busy} onClick={discard}>
+            {document.has_built_in ? 'Use the built-in one' : 'Clear'}
           </button>
         )}
       </div>
 
       {error && <p className="error">{error}</p>}
       <p className="note">
-        {saved.custom
-          ? `Yours, last saved ${new Date(saved.updated_at!).toLocaleString()}.`
+        {document.custom
+          ? `Yours, last saved ${new Date(document.updated_at!).toLocaleString()}.`
           : onBuiltIn
             ? 'The built-in document. Saving makes it yours to edit.'
             : 'Not set — an assistant is told so rather than guessing.'}
@@ -98,29 +111,37 @@ function Editor({ document }: { document: ContextDocument }) {
 /** The four documents an assistant reads before it plans anything. */
 export function Contexts() {
   const [documents, setDocuments] = useState<ContextDocument[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Kept apart from the export's: unmounting the editors over a failed download
+  // would throw away every unsaved draft on the page.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
+  useEffect(() => {
+    listContexts().then(
+      ({ contexts }) => setDocuments(contexts),
+      (failure: Error) => setLoadError(failure.message),
+    );
+  }, []);
+
   const exportAll = async () => {
-    setError(null);
+    setExportError(null);
     setExporting(true);
     try {
       await downloadContextBackup();
     } catch (failure) {
-      setError((failure as Error).message);
+      setExportError((failure as Error).message);
     } finally {
       setExporting(false);
     }
   };
 
-  useEffect(() => {
-    listContexts().then(
-      ({ contexts }) => setDocuments(contexts),
-      (failure: Error) => setError(failure.message),
+  const replace = (next: ContextDocument) =>
+    setDocuments((current) =>
+      (current ?? []).map((document) => (document.kind === next.kind ? next : document)),
     );
-  }, []);
 
-  if (error) return <p className="error">{error}</p>;
+  if (loadError) return <p className="error">{loadError}</p>;
   if (!documents) return <p className="note">Loading…</p>;
 
   return (
@@ -132,7 +153,7 @@ export function Contexts() {
       <Accordion>
         {documents.map((document) => (
           <Section key={document.kind} group="context" title={document.label} hint={hint(document)}>
-            <Editor document={document} />
+            <Editor document={document} onChanged={replace} />
           </Section>
         ))}
       </Accordion>
@@ -142,6 +163,7 @@ export function Contexts() {
           {exporting ? 'Exporting…' : 'Export context'}
         </button>
       </div>
+      {exportError && <p className="error">{exportError}</p>}
       <p className="note">
         Every document above as one <code>backup-context.zip</code> — a markdown file each, plus a{' '}
         <code>manifest.json</code> saying what is in it.

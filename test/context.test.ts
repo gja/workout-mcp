@@ -118,6 +118,21 @@ describe('writing one over REST', () => {
     expect((await response.json<{ error: string }>()).error).toContain('markdown');
   });
 
+  it('refuses an absurd body before parsing it, rather than on the way out of the parser', async () => {
+    const response = await call('/api/context/current-plan', {
+      method: 'PUT',
+      body: JSON.stringify({ markdown: 'x'.repeat(MAX_CONTEXT_BYTES * 9) }),
+    });
+    expect(response.status).toBe(413);
+  });
+
+  it('says how far over the limit a document is, without rounding the two together', async () => {
+    const response = await write('current-plan', 'x'.repeat(MAX_CONTEXT_BYTES + 1));
+    const { error } = await response.json<{ error: string }>();
+    expect(error).toContain(`${MAX_CONTEXT_BYTES} bytes`);
+    expect(error).toContain(`${MAX_CONTEXT_BYTES + 1}`);
+  });
+
   it('refuses one past the size limit, in bytes rather than characters', async () => {
     expect((await write('current-plan', 'x'.repeat(MAX_CONTEXT_BYTES))).status).toBe(200);
     expect((await write('current-plan', 'x'.repeat(MAX_CONTEXT_BYTES + 1))).status).toBe(400);
