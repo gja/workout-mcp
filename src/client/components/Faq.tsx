@@ -14,7 +14,7 @@ const GITHUB_MARK =
 
 const STARTER_PROMPT = `I would like to create a 6 week training plan and to save it in WorkoutsMCP. Create a week by week plan, and list out the goal and the key sessions for each week. Do not assign the sessions to any particular date yet, that will be done later. If you are unclear on my goals, workout zones or instructions for scheduling, please ask me, and then save my instructions. Don't forget to ask more detailed questions if you need to build up a schedule, such as how much time I'll get on weekdays v/s weekends. If it's cycling in scope ask about FTP. If running related ask about easy run pace, recent relevant results. Walk me through the updates you've made, and help me make tweaks if needed. After you have enough clarity and have saved the plan, give me a sample set of workouts across the weeks, so I can provide feedback.
 
-Finally help me schedule a task via Claude for every Sunday at 3pm to analyse my previous week of workouts, print a progress report, and schedule next week's activities in WorkoutsMCP. Give me the prompt and help me find the right screen.`;
+Finally help me schedule a task via Claude for every Sunday at 3pm to analyse my previous week of workouts, print a progress report, and schedule next week's activities in WorkoutsMCP. This runs without supervision so be as independent as possible. Give me the prompt and help me find the right screen.`;
 
 function Badge({ href, label, value }: { href: string; label: string; value: string }) {
   return (
