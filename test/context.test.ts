@@ -225,13 +225,16 @@ describe('over MCP', () => {
     expect(update.inputSchema.properties.kind.enum).toEqual(WRITABLE_KINDS);
   });
 
-  it('says in each read tool what belongs in that document, and names the others', () => {
+  it('says in each read tool what belongs in that document and how to change it', () => {
     for (const kind of CONTEXT_KINDS) {
       const tool = TOOLS.find((candidate) => candidate.name === readToolName(kind))!;
       expect(tool.description).toContain(CONTEXTS[kind].purpose);
-      // Reading one without the rest is how a session ends up planned against half the picture.
+      // Where the next step is, without listing the siblings that tools/list already shows.
+      expect(tool.description).toContain(
+        CONTEXTS[kind].writableOverMcp ? 'update_context' : `PUT /api/context/${kind}`,
+      );
       for (const other of CONTEXT_KINDS) {
-        if (other !== kind) expect(tool.description).toContain(readToolName(other));
+        if (other !== kind) expect(tool.description).not.toContain(readToolName(other));
       }
     }
   });

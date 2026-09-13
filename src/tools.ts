@@ -150,10 +150,6 @@ const nameTools = (kinds: readonly context.ContextKind[]): string =>
     .join(', ')
     .replace(/, ([^,]*)$/, ' and $1');
 
-/** The other three, to read alongside whichever one a tool is the reader for. */
-const siblingTools = (kind: context.ContextKind): string =>
-  nameTools(context.CONTEXT_KINDS.filter((other) => other !== kind));
-
 /** Every context read tool: named per document, and all the same shape but the prose. */
 const CONTEXT_READ_TOOLS: Record<string, context.ContextKind> = Object.fromEntries(
   context.CONTEXT_KINDS.map((kind) => [context.readToolName(kind), kind]),
@@ -169,16 +165,13 @@ const readsContext = (kind: context.ContextKind) => {
   return {
     annotations: { title: `Read the athlete's ${label.toLowerCase()}`, readOnlyHint: true, openWorldHint: false },
     description:
-      `${purpose} Returns markdown, which is context rather than schema — nothing in it is a ` +
-      'tool argument. A document the athlete has not written comes back as markdown: null, and ' +
-      'that is worth reading as it stands: it says what to ask them for, and is not licence to ' +
-      'assume a default. ' +
+      `${purpose} Returns markdown — context to read, not a schema: nothing in it is a tool ` +
+      'argument. A document the athlete has not written comes back as markdown: null, which ' +
+      'says what to ask them for rather than licensing a default. ' +
       (writableOverMcp
-        ? 'Replace it with update_context, once the athlete has agreed to what would go in it. '
+        ? 'Replace it with update_context, once the athlete has agreed to what would go in it.'
         : 'Read-only here: it is edited on the dashboard, or over the REST API at ' +
-          `PUT /api/context/${kind}. `) +
-      `Read this alongside ${siblingTools(kind)} before planning a session or choosing a date ` +
-      'for one: together they are what makes a workout this athlete\'s rather than generic.',
+          `PUT /api/context/${kind}.`),
     inputSchema: { type: 'object', properties: {} },
   };
 };

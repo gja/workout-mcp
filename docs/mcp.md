@@ -92,9 +92,10 @@ reason the next section gives. See [recordings.md](recordings.md).
 athlete trains. A tool per document rather than one tool with a `kind`
 argument, because the tool list is what a client reads before it decides to call
 anything: an enum value is only discoverable to something that has already
-decided to look inside. Each says what belongs in its own document and names the
-other three, and `create_workout` and `update_workout` name all four, because a
-session written without them is a generic one.
+decided to look inside. Each says what belongs in its own document, what comes
+back, and how to change it — and nothing about its siblings, which the tool list
+already shows. `create_workout` and `update_workout` are the ones that name all
+four, because that is where reading them actually has to happen.
 
 `update_context` is a single tool going the other way, and deliberately separate
 from the readers: a client can be allowed to read the context freely and still

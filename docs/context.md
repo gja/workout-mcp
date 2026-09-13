@@ -82,17 +82,19 @@ athlete the document first, and there is no partial edit: what you send replaces
 what is there.
 
 `create_workout` and `update_workout` name all four readers, because the failure
-this is all meant to prevent is a session written without reading any of them.
+this is all meant to prevent is a session written without reading any of them,
+and those two are where it would happen. The readers themselves name only
+themselves: a tool description is not the place to re-list a tool list.
 
 ### The kinds are discoverable before anything is called
 
 A client reads the tool list to decide what to call, so a name alone is not
 enough: `"which document to replace"` is no help to something deciding what
 belongs in a document it has not read. Every read tool's description therefore
-opens with that document's `purpose`, and `update_context`'s `kind` property
-carries the purpose of each kind it accepts — all generated from `CONTEXTS`
-rather than written out again, so the enum, the tool prose and the dashboard
-cannot drift apart. `update_context` also names the library it *excludes*, so a
+opens with that document's `purpose` and closes with how to change it, and
+`update_context`'s `kind` property carries the purpose of each kind it accepts —
+all generated from `CONTEXTS` rather than written out again, so the enum, the
+tool prose and the dashboard cannot drift apart. `update_context` also names the library it *excludes*, so a
 client learns the library exists and is read-only rather than merely not finding
 it.
 
