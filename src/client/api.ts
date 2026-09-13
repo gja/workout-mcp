@@ -122,16 +122,6 @@ export const deleteWorkout = (workout: Workout): Promise<unknown> => request(wor
 export const getWorkoutStats = (workout: Workout): Promise<WorkoutStats> =>
   request(`/api/workouts/${workout.date}/${workout.id}/stats`);
 
-const completionUrl = (workout: Workout): string => `/api/workouts/${workout.date}/${workout.id}/complete`;
-
-/** `completedAt` is an ISO instant; the server uses now without one. */
-export const completeWorkout = (workout: Workout, completedAt?: string): Promise<Workout> =>
-  request(completionUrl(workout), { method: 'POST', body: { completed_at: completedAt ?? null } });
-
-/** Back to merely planned, leaving the plan itself alone. */
-export const uncompleteWorkout = (workout: Workout): Promise<Workout> =>
-  request(completionUrl(workout), { method: 'DELETE' });
-
 /** A training platform, and where it stands for this athlete. */
 export type Platform = {
   id: string;

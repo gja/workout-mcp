@@ -178,8 +178,9 @@ marking a session done as they finish it. Pass one to log a session after the
 fact; a bare `YYYY-MM-DD` is read as the start of that day. `completed: false`
 clears the record and puts the workout back to merely planned; naming a time
 alongside it is refused rather than guessed at. Over REST that is `POST` and
-`DELETE` on `/api/workouts/:date/:id/complete`, and on the dashboard it is the
-date field on the workout card.
+`DELETE` on `/api/workouts/:date/:id/complete`. The dashboard has no control for
+it: it shows what is done and leaves the marking to the assistant and to the
+training platforms.
 
 Because it is its own verb, rewriting the plan does not un-do the session:
 `update_workout`, a `PUT`, and a re-sync under the same `external_id` all carry
