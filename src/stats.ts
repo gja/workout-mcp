@@ -19,6 +19,15 @@ const PAUSE_MULTIPLE = 4;
 /** A stop this long is worth telling the reader about. */
 const LONG_PAUSE_S = 120;
 
+/**
+ * How far a barometric altitude has to move before it counts as climbing.
+ *
+ * Summing every rise in an unsmoothed trace turns sensor drift into hundreds of metres,
+ * so a rise is only taken once it clears the noise, and from wherever it was last taken
+ * from. Three metres is what the platforms that do this settle on.
+ */
+const ELEVATION_NOISE_M = 3;
+
 /** The window a normalized-power average rolls over, as Coggan defined it. */
 const NORMALIZED_WINDOW_S = 30;
 
@@ -42,6 +51,9 @@ export type Metric = 'hr' | 'pace_s_km' | 'power_w' | 'cadence';
 /** Four equal segments of a lap. An entry is null where the quarter recorded nothing. */
 export type Quarters = {
   split_by: 'time' | 'distance';
+  /** What the ground did in each quarter: the end of it minus the start, and how steep. */
+  elev_net_m: Array<number | null> | null;
+  grade_pct: Array<number | null> | null;
 } & Record<Metric, Array<number | null> | null>;
 
 /** The planned band this lap was run against, and how much of the lap sat inside it. */
@@ -78,6 +90,9 @@ export type LapStats = {
   normalized_power_w: number | null;
   elev_gain_m: number | null;
   elev_loss_m: number | null;
+  /** Where the lap finished against where it started, and the average grade between. */
+  elev_net_m: number | null;
+  avg_grade_pct: number | null;
   quarters: Quarters | null;
   target: LapTarget | null;
   flags: string[];
@@ -183,6 +198,7 @@ type Sample = {
   moving: number;
   /** And the metres, for a lap quartered by distance rather than by time. */
   metres: number;
+  altitude: number | null;
   hr: number | null;
   pace_s_km: number | null;
   power_w: number | null;
@@ -350,6 +366,37 @@ function spanOf(samples: Sample[], metric: Metric): { low: number | null; high: 
   return { low, high };
 }
 
+/**
+ * What the ground did across a run of samples.
+ *
+ * `net` is the end minus the start, which is one subtraction and so immune to the noise
+ * that makes `gain` and `loss` the hard ones: those count a move only once it clears
+ * `ELEVATION_NOISE_M` from wherever the last one was counted from.
+ */
+function climbOf(samples: Sample[]): { net: number | null; gain: number | null; loss: number | null } {
+  const climbed = samples.filter((sample): sample is Sample & { altitude: number } => sample.altitude !== null);
+  if (climbed.length === 0) return { net: null, gain: null, loss: null };
+
+  let gain = 0;
+  let loss = 0;
+  let from = climbed[0].altitude;
+
+  for (const sample of climbed) {
+    if (sample.altitude - from >= ELEVATION_NOISE_M) gain += sample.altitude - from;
+    else if (from - sample.altitude >= ELEVATION_NOISE_M) loss += from - sample.altitude;
+    else continue;
+    from = sample.altitude;
+  }
+  return { net: climbed[climbed.length - 1].altitude - climbed[0].altitude, gain, loss };
+}
+
+/** How steep the ground was, over the distance actually covered on it. */
+function gradeOf(samples: Sample[]): number | null {
+  const net = climbOf(samples).net;
+  const metres = samples.reduce((total, sample) => total + sample.metres, 0);
+  return net === null || metres <= 0 ? null : round((net / metres) * 100, 1);
+}
+
 /** Joules: power over the moving seconds each sample stands for. */
 function workOf(samples: Sample[]): number | null {
   let joules: number | null = null;
@@ -415,12 +462,20 @@ function quartersOf(samples: Sample[], splitBy: 'time' | 'distance'): Quarters |
     return quarters.some((value) => value !== null) ? quarters : null;
   };
 
+  const terrain = <T>(read: (bucket: Sample[]) => T | null): Array<T | null> | null => {
+    const quarters = buckets.map(read);
+    return quarters.some((value) => value !== null) ? quarters : null;
+  };
+
   return {
     split_by: splitBy,
     hr: averaged('hr'),
     pace_s_km: averaged('pace_s_km'),
     power_w: averaged('power_w'),
     cadence: averaged('cadence'),
+    // Why a quarter was slower than the one before it is often the hill it was run up.
+    elev_net_m: terrain((bucket) => round(climbOf(bucket).net, 1)),
+    grade_pct: terrain(gradeOf),
   };
 }
 
@@ -480,8 +535,8 @@ function sessionOf(
     work_kj: round(work === null ? null : work / 1000),
     intensity_factor: round(number(session.intensityFactor), 3),
     variability_index: round(avgPower !== null && normalized !== null ? normalized / avgPower : null, 3),
-    total_ascent_m: round(number(session.totalAscent)),
-    total_descent_m: round(number(session.totalDescent)),
+    total_ascent_m: round(number(session.totalAscent) ?? climbOf(samples).gain),
+    total_descent_m: round(number(session.totalDescent) ?? climbOf(samples).loss),
     calories: positive(session.totalCalories),
   };
 }
@@ -544,6 +599,7 @@ export function statsFrom(
       moving: gap > pauseGap ? 0 : gap,
       metres,
       hr,
+      altitude: number(record.enhancedAltitude) ?? number(record.altitude),
       pace_s_km: paceOf(number(record.enhancedSpeed) ?? number(record.speed)),
       power_w: number(record.power),
       cadence: cadenceOf(positive(record.cadence), sport),
@@ -591,8 +647,10 @@ export function statsFrom(
       avg_power_w: round(positive(lap.avgPower)),
       max_power_w: round(positive(lap.maxPower) ?? spanOf(mine, 'power_w').high),
       normalized_power_w: round(positive(lap.normalizedPower) ?? normalizedPowerOf(mine)),
-      elev_gain_m: round(number(lap.totalAscent)),
-      elev_loss_m: round(number(lap.totalDescent)),
+      elev_gain_m: round(number(lap.totalAscent) ?? climbOf(mine).gain),
+      elev_loss_m: round(number(lap.totalDescent) ?? climbOf(mine).loss),
+      elev_net_m: round(climbOf(mine).net, 1),
+      avg_grade_pct: round(number(lap.avgGrade), 1) ?? gradeOf(mine),
       quarters: null,
       target: null,
       flags: [],
