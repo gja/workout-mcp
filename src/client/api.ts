@@ -9,6 +9,8 @@ export type Workout = {
   sport: string;
   sub_sport?: string;
   notes?: string;
+  /** Free-form labels; absent rather than empty when there are none. */
+  tags?: string[];
   external_id?: string;
   /** An ISO instant, absent while the session is still only planned. */
   completed_at?: string;

@@ -1,8 +1,8 @@
 # The database
 
 D1, one row per workout, keyed by `(user, date, id)`. The scalar fields are
-real columns; only the steps are JSON, because only they have a shape that
-changes.
+real columns; the steps and the tags are JSON, because a tree and a list are
+the two things a column cannot hold.
 
 ## Migrations
 
@@ -33,6 +33,9 @@ queryable from SQL:
 ```sql
 SELECT json_array_length(steps) FROM workouts WHERE user_id = ?;
 ```
+
+The tags are the same bargain in miniature: a TEXT column holding a JSON array
+of strings, `CHECK (json_valid(tags))`, and NULL for none.
 
 Everything else about a workout — date, name, sport, notes — is a real column.
 

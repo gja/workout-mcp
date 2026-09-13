@@ -36,6 +36,7 @@ type StandInEvent = {
   name: string;
   type: string;
   category: string;
+  tags: string[];
   indoor: boolean;
   external_id: string;
   start_date_local: string;
@@ -259,6 +260,24 @@ describe('pushing workout changes', () => {
   it('carries the sub-sport across as the platform’s own activity type', async () => {
     await createWorkout({ ...WORKOUT, sport: 'cycling', sub_sport: 'indoor_cycling' });
     expect((await calendar())[0]).toMatchObject({ type: 'Ride', indoor: true });
+  });
+
+  it('carries the tags across as the event’s own', async () => {
+    await createWorkout({ ...WORKOUT, tags: ['key', 'threshold'] });
+    expect((await calendar())[0].tags).toEqual(['key', 'threshold']);
+  });
+
+  // The push is an upsert over the event already there, so a tag taken off here
+  // is only taken off there by the list arriving without it.
+  it('clears the tags upstream when they are taken off the workout', async () => {
+    const planned = await createWorkout({ ...WORKOUT, tags: ['key'] });
+
+    const response = await call(`/api/workouts/${planned.date}/${planned.id}`, {
+      method: 'PUT',
+      body: JSON.stringify(WORKOUT),
+    });
+    expect(response.status).toBe(200);
+    expect((await calendar())[0].tags).toEqual([]);
   });
 
   it('syncs a workout written over MCP, not only one written over REST', async () => {

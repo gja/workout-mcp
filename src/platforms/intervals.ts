@@ -191,6 +191,9 @@ export const intervals: Platform = {
           start_date_local: `${workout.date}T00:00:00`,
           type: activityType(workout),
           name: workout.name,
+          // Always sent, empty list and all: this is an upsert over the event already
+          // there, so a tag removed here has to arrive as its absence to be removed there.
+          tags: workout.tags ?? [],
           indoor: isIndoor(workout),
           filename: fitFilename(workout),
           file_contents_base64: base64Encode(encodeWorkoutFit(workout)),

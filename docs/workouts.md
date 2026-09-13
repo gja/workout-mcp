@@ -135,11 +135,20 @@ target, so there is nothing sensible to convert a range into. Use
 | `sport` | `running`, `cycling`, `swimming`, `walking`, `hiking`, `rowing`, `training`, `generic` |
 | `sub_sport` | How it is done: `treadmill`, `track`, `trail`, `road`, `indoor_cycling`, `lap_swimming`, … |
 | `notes` | Description of the session, written into the FIT file so the watch shows it |
+| `tags` | Free-form labels — see below |
 | `external_id` | Your own key — see below |
 | `completed_at` | Read-only here; set through the completion routes |
 
 `sub_sport` is worth setting: a watch picks its activity profile from it, so a
 treadmill session will not sit waiting for a GPS fix.
+
+`tags` are labels you choose — `["key"]`, `["quality", "long run"]` — up to ten
+of thirty characters each. Nothing here reads them; what they are for is the
+calendar at the other end, where a connected platform shows and filters on them,
+so the week's key session is one you can pick out there. On intervals.icu they
+land as the event's own tags. They are trimmed and de-duplicated
+case-insensitively, keeping the first spelling, and sending the field replaces
+the whole list — `"tags": []` clears it.
 
 `external_id` makes re-syncing safe. Create a workout again with the same key
 and it **updates that workout in place** — same id, moved if the date changed —

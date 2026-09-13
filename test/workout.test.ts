@@ -331,6 +331,42 @@ describe('workout fields', () => {
     expect(plain).not.toHaveProperty('sub_sport');
     expect(plain).not.toHaveProperty('external_id');
   });
+
+  it('takes tags, trimmed and in the order they were written', () => {
+    expect(parseWorkout({ date: '2026-09-12', tags: [' key ', 'long run'], steps: [{ goal_s: 60 }] })).toMatchObject({
+      tags: ['key', 'long run'],
+    });
+  });
+
+  it('keeps one spelling of a tag repeated in another case', () => {
+    expect(parseWorkout({ date: '2026-09-12', tags: ['Key', 'key', 'KEY'], steps: [{ goal_s: 60 }] })).toMatchObject({
+      tags: ['Key'],
+    });
+  });
+
+  // "No tags" has one spelling, so the field is absent rather than an empty list.
+  it('drops an empty list rather than storing one', () => {
+    const cleared = parseWorkout({ date: '2026-09-12', tags: ['', '  '], steps: [{ goal_s: 60 }] });
+    expect(cleared).not.toHaveProperty('tags');
+    expect(parseWorkout({ date: '2026-09-12', tags: [], steps: [{ goal_s: 60 }] })).not.toHaveProperty('tags');
+  });
+
+  it('refuses tags that are not a list of strings, too many, or too long', () => {
+    expect(() => parseWorkout({ date: '2026-09-12', tags: 'key', steps: [{ goal_s: 60 }] })).toThrow(/tags/);
+    expect(() => parseWorkout({ date: '2026-09-12', tags: [{ key: true }], steps: [{ goal_s: 60 }] })).toThrow(
+      /tags\[0\]/,
+    );
+    expect(() =>
+      parseWorkout({ date: '2026-09-12', tags: [`t${'a'.repeat(30)}g`], steps: [{ goal_s: 60 }] }),
+    ).toThrow(/at most 30 characters/);
+    expect(() =>
+      parseWorkout({
+        date: '2026-09-12',
+        tags: Array.from({ length: 11 }, (_value, i) => `tag-${i}`),
+        steps: [{ goal_s: 60 }],
+      }),
+    ).toThrow(/at most 10 tags/);
+  });
 });
 
 describe('intensity inference', () => {

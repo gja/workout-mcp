@@ -50,6 +50,8 @@ export type Workout = {
   sport: Sport;
   sub_sport?: SubSport;
   notes?: string;
+  /** Free-form labels, carried to a connected platform's calendar. Never absent as an empty list. */
+  tags?: string[];
   /** The caller's own key for this workout, for idempotent re-syncs. */
   external_id?: string;
   steps: PlanStep[];
@@ -73,7 +75,10 @@ const STEP_KEYS = new Set<string>([
 
 const REPEAT_KEYS = new Set<string>(['repeat', 'times', 'type', 'steps', 'name', 'notes']);
 
-const WORKOUT_KEYS = new Set(['date', 'name', 'sport', 'sub_sport', 'notes', 'external_id', 'steps']);
+const WORKOUT_KEYS = new Set(['date', 'name', 'sport', 'sub_sport', 'notes', 'tags', 'external_id', 'steps']);
+
+export const MAX_TAGS = 10;
+export const MAX_TAG_LENGTH = 30;
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -140,6 +145,30 @@ function planStep(value: unknown, path: string, depth: number): PlanStep {
   return step;
 }
 
+/**
+ * Free-form labels, in the order they were written.
+ *
+ * De-duplicated case-insensitively, keeping the first spelling: the platform
+ * that shows these lists a tag per distinct string, so `key` and `Key` sent
+ * together would read as two labels for one thing.
+ */
+function parseTags(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    fail('tags', `expected an array of strings, got ${Array.isArray(value) ? 'an array' : typeof value}`);
+  }
+  const tags: string[] = [];
+  const seen = new Set<string>();
+  (value as unknown[]).forEach((raw, i) => {
+    if (raw === undefined || raw === null) return;
+    const tag = parseText(raw, `tags[${i}]`, MAX_TAG_LENGTH);
+    if (!tag || seen.has(tag.toLowerCase())) return;
+    seen.add(tag.toLowerCase());
+    tags.push(tag);
+  });
+  if (tags.length > MAX_TAGS) fail('tags', `a workout may have at most ${MAX_TAGS} tags, got ${tags.length}`);
+  return tags;
+}
+
 /** Steps in a repeat count once each — the repeat itself is one more FIT step. */
 export function countSteps(steps: PlanStep[]): number {
   return steps.reduce((n, step) => n + ('repeat' in step ? 1 + countSteps(step.steps) : 1), 0);
@@ -188,6 +217,12 @@ export function parseWorkout(value: unknown): WorkoutInput {
   if (raw.notes !== undefined && raw.notes !== null) {
     const notes = parseText(raw.notes, 'notes', 1000);
     if (notes) workout.notes = notes;
+  }
+  // An empty list is dropped rather than stored: "no tags" has one spelling, and
+  // `tags: []` is how a caller clears them, which is the same thing.
+  if (raw.tags !== undefined && raw.tags !== null) {
+    const tags = parseTags(raw.tags);
+    if (tags.length > 0) workout.tags = tags;
   }
   if (raw.external_id !== undefined && raw.external_id !== null) {
     const externalId = parseText(raw.external_id, 'external_id', 128);

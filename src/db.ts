@@ -58,6 +58,8 @@ type WorkoutRow = {
   sport: string;
   sub_sport: string | null;
   notes: string | null;
+  /** A JSON array of strings, or null for none. */
+  tags: string | null;
   external_id: string | null;
   steps: string;
   completed_at: string | null;
@@ -66,7 +68,7 @@ type WorkoutRow = {
 
 /** The columns every read needs, in one place. */
 const WORKOUT_COLUMNS =
-  'id, date, name, sport, sub_sport, notes, external_id, steps, completed_at, updated_at';
+  'id, date, name, sport, sub_sport, notes, tags, external_id, steps, completed_at, updated_at';
 
 /** Short, URL-safe, unambiguous — no vowels, so no accidental words. */
 const ID_ALPHABET = '0123456789bcdfghjkmnpqrstvwxyz';
@@ -104,6 +106,10 @@ function parseRow(row: WorkoutRow): Workout {
   };
   if (row.sub_sport) workout.sub_sport = row.sub_sport as SubSport;
   if (row.notes) workout.notes = row.notes;
+  if (row.tags) {
+    const tags = JSON.parse(row.tags) as string[];
+    if (tags.length > 0) workout.tags = tags;
+  }
   if (row.external_id) workout.external_id = row.external_id;
   if (row.completed_at) workout.completed_at = row.completed_at;
   return workout;
@@ -213,11 +219,11 @@ export async function putWorkout(env: Env, userId: string, input: WorkoutInput, 
   if (completedAt) workout.completed_at = completedAt;
   else delete workout.completed_at;
   await env.DB.prepare(
-    `INSERT INTO workouts (user_id, date, id, name, sport, sub_sport, notes, external_id, steps, completed_at, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)
+    `INSERT INTO workouts (user_id, date, id, name, sport, sub_sport, notes, tags, external_id, steps, completed_at, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)
      ON CONFLICT (user_id, date, id) DO UPDATE SET
        name = excluded.name, sport = excluded.sport, sub_sport = excluded.sub_sport,
-       notes = excluded.notes, external_id = excluded.external_id,
+       notes = excluded.notes, tags = excluded.tags, external_id = excluded.external_id,
        steps = excluded.steps, completed_at = excluded.completed_at,
        updated_at = excluded.updated_at`,
   )
@@ -229,6 +235,7 @@ export async function putWorkout(env: Env, userId: string, input: WorkoutInput, 
       workout.sport,
       workout.sub_sport ?? null,
       workout.notes ?? null,
+      workout.tags && workout.tags.length > 0 ? JSON.stringify(workout.tags) : null,
       workout.external_id ?? null,
       JSON.stringify(workout.steps),
       workout.completed_at ?? null,

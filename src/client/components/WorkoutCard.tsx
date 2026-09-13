@@ -45,6 +45,7 @@ export function WorkoutCard({ workout, onChanged }: { workout: Workout; onChange
       <p className="note">
         {formatSport(workout)}
         {planned && ` · ${planned}`}
+        {workout.tags?.length ? ` · ${workout.tags.join(', ')}` : ''}
       </p>
       {workout.notes && <p className="note">{workout.notes}</p>}
 

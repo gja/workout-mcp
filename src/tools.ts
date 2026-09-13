@@ -12,7 +12,7 @@ import * as recordings from './recordings';
 import { WorkoutError, parseWorkout } from './workout';
 import type { Workout } from './workout';
 import { parseDate, parseTimestamp } from './units';
-import { SPORTS } from './workout';
+import { MAX_TAGS, MAX_TAG_LENGTH, SPORTS } from './workout';
 
 const RANGE_DOC =
   'A range as [floor, ceiling]; either end may be "-" to leave it open, ' +
@@ -117,6 +117,15 @@ const WORKOUT_PROPERTIES = {
     description: 'How the sport is done. The watch picks its activity profile from this, so a treadmill session does not wait for GPS.',
   },
   notes: { type: 'string', description: 'Description of the session. Written into the FIT file, so the watch shows it.' },
+  tags: {
+    type: 'array',
+    items: { type: 'string' },
+    description:
+      'Free-form labels for the session, e.g. ["key"] for a week\'s key session. Carried to a ' +
+      'connected calendar — on intervals.icu they are the event\'s own tags, which it filters on. ' +
+      `At most ${MAX_TAGS}, ${MAX_TAG_LENGTH} characters each. Sending the field replaces the whole ` +
+      'list, and an empty array clears it.',
+  },
   external_id: {
     type: 'string',
     description:

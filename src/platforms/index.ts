@@ -41,6 +41,7 @@ const fingerprint = (workout: Workout): Promise<string> =>
       workout.sport,
       workout.sub_sport ?? null,
       workout.notes ?? null,
+      workout.tags ?? null,
       workout.steps,
     ]),
   );
