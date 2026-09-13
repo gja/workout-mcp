@@ -63,8 +63,8 @@ export function Faq() {
             worth every cent of it.
           </p>
           <p className="note">
-            None of this is required. WorkoutsMCP will hand you a <code>.fit</code> file to sideload onto any watch,
-            and the rest of the stack is swappable — this is just the one I use.
+            Watchletic is Apple Watch only, though. On a Garmin or anything else, use intervals.icu directly — the
+            planned session goes to your watch from there.
           </p>
         </Section>
 
