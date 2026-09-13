@@ -10,7 +10,8 @@ export type LapSpec = {
   speed?: number;
   /** Heart rate at the start and at the end of the lap, walked between the two. */
   hr?: [number, number];
-  power?: number;
+  /** A steady effort, or several values cycled sample by sample to make it a variable one. */
+  power?: number | number[];
   /** Crank or stride rate, as FIT counts it: one leg per cycle. */
   cadence?: number;
   trigger?: string;
@@ -19,6 +20,8 @@ export type LapSpec = {
 
 export type ActivitySpec = {
   sport?: string;
+  /** Written onto the session message, for the file that already says what its power was. */
+  normalizedPower?: number;
   subSport?: string;
   /** Whether records carry a position, which is the whole of what makes a session outdoor. */
   outdoor?: boolean;
@@ -57,6 +60,7 @@ export function encodeActivityFit(spec: ActivitySpec): Uint8Array {
   let elapsed = 0;
   let distance = 0;
   const hrs: number[] = [];
+  const powers: number[] = [];
   const cadences: number[] = [];
   const lapMesgs: Array<Record<string, unknown>> = [];
 
@@ -66,7 +70,10 @@ export function encodeActivityFit(spec: ActivitySpec): Uint8Array {
     const lapDistance = (lap.speed ?? 0) * lap.seconds;
 
     const interval = spec.interval ?? 1;
+    const lapPowers: number[] = [];
     for (let second = 0; second < lap.seconds; second += interval) {
+      const power = Array.isArray(lap.power) ? lap.power[lapPowers.length % lap.power.length] : lap.power;
+      if (power !== undefined) lapPowers.push(power);
       const hr = walk(lap, second);
       if (hr !== undefined) lapHrs.push(hr);
       if (lap.speed !== undefined) distance += lap.speed * interval;
@@ -78,7 +85,7 @@ export function encodeActivityFit(spec: ActivitySpec): Uint8Array {
           timestamp: new Date(start.getTime() + (elapsed + second) * 1000),
           heartRate: hr,
           cadence: lap.cadence,
-          power: lap.power,
+          power,
           enhancedSpeed: lap.speed,
           distance: lap.speed === undefined ? undefined : distance,
           // Semicircles. Any fixed point will do: only its presence is read.
@@ -89,6 +96,7 @@ export function encodeActivityFit(spec: ActivitySpec): Uint8Array {
     }
 
     hrs.push(...lapHrs);
+    powers.push(...lapPowers);
     if (lap.cadence !== undefined) cadences.push(...Array<number>(lapHrs.length || 1).fill(lap.cadence));
     elapsed += lap.seconds;
 
@@ -108,8 +116,9 @@ export function encodeActivityFit(spec: ActivitySpec): Uint8Array {
         maxHeartRate: lapHrs.length === 0 ? undefined : Math.max(...lapHrs),
         minHeartRate: lapHrs.length === 0 ? undefined : Math.min(...lapHrs),
         avgCadence: lap.cadence,
-        avgPower: lap.power,
-        maxPower: lap.power,
+        // The averages only. A file built out of streams carries no more than that,
+        // which is the whole reason the reader computes the rest.
+        avgPower: average(lapPowers),
         lapTrigger: lap.trigger ?? 'manual',
         intensity: lap.intensity ?? 'active',
       }),
@@ -137,6 +146,8 @@ export function encodeActivityFit(spec: ActivitySpec): Uint8Array {
       maxHeartRate: hrs.length === 0 ? undefined : Math.max(...hrs),
       minHeartRate: hrs.length === 0 ? undefined : Math.min(...hrs),
       avgCadence: average(cadences),
+      avgPower: average(powers),
+      normalizedPower: spec.normalizedPower,
       numLaps: lapMesgs.length,
       firstLapIndex: 0,
     }),

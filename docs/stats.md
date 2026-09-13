@@ -119,6 +119,30 @@ needs a field of its own.
   be low in the first quarter of a hard rep because it is still rising. That
   ramp is signal.
 
+## Filled in from the stream
+
+A summary message is meant to carry the session's own extremes and its power
+figures, and a file built out of *streams* rather than written by a head unit
+often does not: intervals.icu's generated FIT comes back with no normalized
+power, no work, no maximum power and no minimum heart rate at all. Those are
+computed here instead, from the records already in hand, and only where the
+file was silent — the device's own figure wins wherever it gave one.
+
+- **`normalized_power_w`**, per session and per lap. Coggan's method: a rolling
+  30-second average, raised to the fourth, averaged, rooted back. Computed per
+  sample rather than per second, because a watch on smart recording has no
+  per-second to compute over, and refused outright for anything shorter than
+  the window itself, where it would be a number nobody could read.
+  `variability_index` follows from it.
+- **`work_kj`**, power over the moving seconds each sample stands for.
+- **`max_power_w`, `max_hr`, `min_hr`**, per session and per lap. `min_hr` on a
+  recovery lap is the whole reason the field exists.
+
+**Elevation is not filled in this way.** Summing the rises in a barometric
+altitude trace without smoothing it first turns sensor noise into hundreds of
+metres of climbing, and picking the smoothing is picking the answer. Where the
+file does not say, `total_ascent_m` and `total_descent_m` stay null.
+
 ## Targets
 
 Where the mapped step carried a target this server can measure, the lap gets

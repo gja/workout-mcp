@@ -308,3 +308,95 @@ describe('deciding whether to read a recording again', () => {
     expect(worthReading(spent, 'i44031892', now + STATS_RETRY_AFTER_MS * 10)).toBe(false);
   });
 });
+
+describe('a ride whose file carries only the averages', () => {
+  /** 8 min warmup, 2 x (10 min tempo + 4 min easy), 4 min cooldown — as intervals.icu builds it. */
+  const TEMPO_RIDE = workout([
+    { name: 'Warmup', goal_s: 480, target_watts: [118, 145] },
+    {
+      repeat: 2,
+      steps: [
+        { name: 'Tempo', goal_s: 600, target_watts: [155, 180] },
+        { name: 'Easy', goal_s: 240, target_watts: [118, 145] },
+      ],
+    },
+    { name: 'Cooldown', goal_s: 240, target_watts: [118, 145] },
+  ]);
+
+  const ridden = (power: LapSpec['power']): ActivitySpec => ({
+    sport: 'cycling',
+    subSport: 'indoorCycling',
+    outdoor: false,
+    laps: [
+      { seconds: 480, power: 130, hr: [95, 140] },
+      ...[0, 1].flatMap((): LapSpec[] => [
+        { seconds: 600, power, hr: [145, 168] },
+        { seconds: 240, power: 130, hr: [168, 140] },
+      ]),
+      { seconds: 240, power: 120, hr: [138, 110] },
+    ],
+  });
+
+  const ride = (spec: ActivitySpec) => statsFrom(encodeActivityFit(spec), TEMPO_RIDE, SOURCE);
+
+  /**
+   * A minute at 115 W then a minute at 215 W: the same 165 average as riding it steadily.
+   * The blocks are longer than the window on purpose — surging by the second is what a
+   * thirty-second rolling average exists to smooth away, and it reads as steady.
+   */
+  const SURGING = [...Array<number>(60).fill(115), ...Array<number>(60).fill(215)];
+
+  it('works out the normalized power the file did not carry', () => {
+    // The same average, ridden steadily and ridden in surges.
+    const steady = ride(ridden(165)).session!;
+    const surging = ride(ridden(SURGING)).session!;
+
+    expect(steady.avg_power_w).toBe(surging.avg_power_w);
+    expect(steady.normalized_power_w).toBeCloseTo(steady.avg_power_w!, -1);
+    // Riding the same average in surges costs more, which is the whole point of the number.
+    expect(surging.normalized_power_w!).toBeGreaterThan(surging.avg_power_w! + 10);
+  });
+
+  it('leaves the file own figure alone where it has one', () => {
+    const stated = ride({ ...ridden(SURGING), normalizedPower: 199 }).session!;
+    expect(stated.normalized_power_w).toBe(199);
+  });
+
+  it('totals the work done, and the variability it was done with', () => {
+    const { session } = ride(ridden(165));
+
+    // Around 165 W for a little under 36 minutes.
+    expect(session!.work_kj).toBeGreaterThan(330);
+    expect(session!.work_kj).toBeLessThan(365);
+    expect(session!.variability_index).toBeCloseTo(1, 1);
+  });
+
+  it('finds the peaks and troughs the summary left out', () => {
+    const { session, laps } = ride(ridden(SURGING));
+
+    expect(session!.max_power_w).toBe(215);
+    expect(session!.min_hr).toBe(95);
+    expect(session!.max_hr).toBe(168);
+
+    // And per lap, which is where a rep is actually read.
+    expect(laps[1].normalized_power_w!).toBeGreaterThan(laps[1].avg_power_w!);
+    expect(laps[1].max_power_w).toBe(215);
+    expect(laps[1].min_hr).toBe(145);
+  });
+
+  // Nothing to roll a thirty-second window over: a number would be made up rather than read.
+  it('refuses a normalized power for a lap shorter than the window', () => {
+    const sprints = workout([{ repeat: 4, steps: [{ name: 'Sprint', goal_s: 20 }] }]);
+    const { laps } = statsFrom(
+      encodeActivityFit({
+        sport: 'cycling',
+        laps: Array.from({ length: 4 }, (): LapSpec => ({ seconds: 20, power: 400 })),
+      }),
+      sprints,
+      SOURCE,
+    );
+
+    expect(laps[0].normalized_power_w).toBeNull();
+    expect(laps[0].max_power_w).toBe(400);
+  });
+});
