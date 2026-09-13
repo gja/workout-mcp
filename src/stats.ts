@@ -117,7 +117,6 @@ export type SessionStats = {
   max_power_w: number | null;
   normalized_power_w: number | null;
   work_kj: number | null;
-  intensity_factor: number | null;
   /** Normalized over average power: how evenly the session was ridden. */
   variability_index: number | null;
   total_ascent_m: number | null;
@@ -256,22 +255,40 @@ const ROLE_BY_INTENSITY: Record<string, Role> = {
   interval: 'work',
 };
 
-/** Close enough to be the step it was meant to be, with room for a late lap press. */
-const matches = (planned: PlannedStep, lap: LapStats): boolean => {
+/**
+ * How far a lap may be off its step's length, asked twice for two different reasons.
+ *
+ * Whether to map at all is decided on the tight bar: a lap press missed halfway through
+ * throws every later lap against the wrong step, and only a strict reading catches that.
+ * Whether a mapping made is a *good* one is reported on the loose one, because `low` is
+ * for genuine ambiguity — a cooldown run 844 m of a planned kilometre is the ordinary
+ * shape of a session ending, and a field that fires on that gets ignored.
+ */
+const TOLERANCE = {
+  mapping: { share_s: 0.25, floor_s: 20, share_m: 0.1, floor_m: 50 },
+  confidence: { share_s: 0.5, floor_s: 20, share_m: 0.5, floor_m: 50 },
+} as const;
+
+type Tolerance = (typeof TOLERANCE)[keyof typeof TOLERANCE];
+
+const within = (planned: PlannedStep, lap: LapStats, tolerance: Tolerance): boolean => {
   switch (planned.duration.type) {
     case 'open':
       return true;
     case 'time': {
       const actual = lap.moving_s ?? lap.duration_s;
-      return actual !== null && Math.abs(actual - planned.duration.seconds) <= Math.max(20, planned.duration.seconds * 0.25);
+      const allowed = Math.max(tolerance.floor_s, planned.duration.seconds * tolerance.share_s);
+      return actual !== null && Math.abs(actual - planned.duration.seconds) <= allowed;
     }
-    case 'distance':
-      return (
-        lap.distance_m !== null &&
-        Math.abs(lap.distance_m - planned.duration.meters) <= Math.max(50, planned.duration.meters * 0.1)
-      );
+    case 'distance': {
+      const allowed = Math.max(tolerance.floor_m, planned.duration.meters * tolerance.share_m);
+      return lap.distance_m !== null && Math.abs(lap.distance_m - planned.duration.meters) <= allowed;
+    }
   }
 };
+
+/** Close enough to be the step it was meant to be, with room for a late lap press. */
+const matches = (planned: PlannedStep, lap: LapStats): boolean => within(planned, lap, TOLERANCE.mapping);
 
 /**
  * Which planned step each lap was, or nothing at all.
@@ -389,6 +406,9 @@ function climbOf(samples: Sample[]): { net: number | null; gain: number | null; 
   }
   return { net: climbed[climbed.length - 1].altitude - climbed[0].altitude, gain, loss };
 }
+
+/** What a metric averaged over what was actually recorded, for a file that gave no average. */
+const meanOf = (samples: Sample[], metric: Metric): number | null => mean(samples.map((sample) => sample[metric]));
 
 /** How steep the ground was, over the distance actually covered on it. */
 function gradeOf(samples: Sample[]): number | null {
@@ -511,7 +531,7 @@ function sessionOf(
   const hr = spanOf(samples, 'hr');
   const power = spanOf(samples, 'power_w');
 
-  const avgPower = positive(session.avgPower);
+  const avgPower = positive(session.avgPower) ?? meanOf(samples, 'power_w');
   const normalized = positive(session.normalizedPower) ?? normalizedPowerOf(samples);
   const work = positive(session.totalWork) ?? workOf(samples);
 
@@ -524,16 +544,16 @@ function sessionOf(
     moving_s: round(number(session.totalMovingTime) ?? number(session.totalTimerTime)),
     timer_s: round(number(session.totalTimerTime)),
     distance_m: round(positive(session.totalDistance), 1),
-    avg_hr: positive(session.avgHeartRate),
+    avg_hr: positive(session.avgHeartRate) ?? meanOf(samples, 'hr'),
     max_hr: positive(session.maxHeartRate) ?? hr.high,
     min_hr: positive(session.minHeartRate) ?? hr.low,
     avg_pace_s_km: paceOf(number(session.enhancedAvgSpeed) ?? number(session.avgSpeed)),
-    avg_cadence: round(cadenceOf(positive(session.avgCadence), sport)),
+    // Already on the athlete's scale in the samples, so it is not converted a second time.
+    avg_cadence: round(cadenceOf(positive(session.avgCadence), sport) ?? meanOf(samples, 'cadence')),
     avg_power_w: round(avgPower),
     max_power_w: round(positive(session.maxPower) ?? power.high),
     normalized_power_w: round(normalized),
     work_kj: round(work === null ? null : work / 1000),
-    intensity_factor: round(number(session.intensityFactor), 3),
     variability_index: round(avgPower !== null && normalized !== null ? normalized / avgPower : null, 3),
     total_ascent_m: round(number(session.totalAscent) ?? climbOf(samples).gain),
     total_descent_m: round(number(session.totalDescent) ?? climbOf(samples).loss),
@@ -639,12 +659,12 @@ export function statsFrom(
       duration_s: round(number(lap.totalElapsedTime)),
       moving_s: round(number(lap.totalMovingTime) ?? number(lap.totalTimerTime)),
       distance_m: round(positive(lap.totalDistance), 1),
-      avg_hr: positive(lap.avgHeartRate),
+      avg_hr: positive(lap.avgHeartRate) ?? meanOf(mine, 'hr'),
       max_hr: positive(lap.maxHeartRate) ?? spanOf(mine, 'hr').high,
       min_hr: positive(lap.minHeartRate) ?? spanOf(mine, 'hr').low,
       avg_pace_s_km: paceOf(number(lap.enhancedAvgSpeed) ?? number(lap.avgSpeed)),
-      avg_cadence: round(cadenceOf(positive(lap.avgCadence), sport)),
-      avg_power_w: round(positive(lap.avgPower)),
+      avg_cadence: round(cadenceOf(positive(lap.avgCadence), sport) ?? meanOf(mine, 'cadence')),
+      avg_power_w: round(positive(lap.avgPower) ?? meanOf(mine, 'power_w')),
       max_power_w: round(positive(lap.maxPower) ?? spanOf(mine, 'power_w').high),
       normalized_power_w: round(positive(lap.normalizedPower) ?? normalizedPowerOf(mine)),
       elev_gain_m: round(number(lap.totalAscent) ?? climbOf(mine).gain),
@@ -669,7 +689,7 @@ export function statsFrom(
       stats.rep_number = step.rep_number;
       stats.planned_step_index = step.index;
       stats.planned_step_name = step.name;
-      stats.match_confidence = matches(step, stats) ? 'high' : 'low';
+      stats.match_confidence = within(step, stats, TOLERANCE.confidence) ? 'high' : 'low';
       stats.role = ROLE_BY_INTENSITY[step.intensity] ?? stats.role;
     }
 

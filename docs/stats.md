@@ -80,8 +80,15 @@ anybody is actually asking about.
 | `match_confidence` | |
 | --- | --- |
 | `high` | The lap ran to roughly the step's duration or distance |
-| `low` | Mapped on order, but the lengths disagree |
+| `low` | Mapped on order, but off its step's length by more than half |
 | `unmatched` | No mapping was made |
+
+**Two bars, not one.** Whether to map at all is decided on a tight reading — a quarter
+of a time step, a tenth of a distance step — because that is the guard against a
+mapping that has drifted, and only a strict reading catches one. How *well* a mapping
+made lines up is reported on a loose one, half the step's own length, because `low` is
+meant for genuine ambiguity: a cooldown run 844 m of a planned kilometre is the
+ordinary shape of a session ending, and a field that fires on that gets ignored.
 
 What *is* withheld is a mapping that has **drifted**. A lap press missed halfway
 through a session puts every lap after it against the wrong step, and that is
@@ -169,6 +176,21 @@ be given; a half-open target is left off for the same reason.
 
 Pace bounds are **seconds per kilometre, so `low` is the faster end**. A
 `4:00-4:15/km` step is `low: 240, high: 255`.
+
+## What is not there at all
+
+`intensity_factor` was specified and is gone. It is normalized power over the
+athlete's threshold, and the threshold is on their platform profile: the file
+carries no `threshold_power` and no user profile, so the field was null on
+every session ever read. A field that can never be filled is worse than an
+absent one — it reads as "not recorded today" rather than "not knowable here".
+`normalized_power_w` is in the payload, and the athlete's FTP is in the zones
+document a consumer reads before it analyses anything.
+
+Everything else that comes back null is *conditionally* null and says something
+by it: `distance_m` and `avg_pace_s_km` on an indoor ride, the elevation fields
+where no altitude was recorded, `normalized_power_w` on a lap shorter than its
+window.
 
 ## Units and nulls
 

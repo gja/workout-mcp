@@ -18,6 +18,8 @@ export type LapSpec = {
   climb?: number | number[];
   /** Metres of sensor noise on the altitude, alternating sample by sample. */
   jitter?: number;
+  /** Leave the lap's own averages off it, as a file does for a lap too short to summarise. */
+  noAverages?: boolean;
   trigger?: string;
   intensity?: string;
 };
@@ -135,13 +137,13 @@ export function encodeActivityFit(spec: ActivitySpec): Uint8Array {
         totalTimerTime: lap.seconds,
         totalDistance: speeds.length === 0 ? undefined : speeds.reduce((sum, each) => sum + each, 0) * interval,
         avgSpeed: speeds.length === 0 ? undefined : speeds.reduce((sum, each) => sum + each, 0) / speeds.length,
-        avgHeartRate: average(lapHrs),
+        avgHeartRate: lap.noAverages ? undefined : average(lapHrs),
         maxHeartRate: lapHrs.length === 0 ? undefined : Math.max(...lapHrs),
         minHeartRate: lapHrs.length === 0 ? undefined : Math.min(...lapHrs),
-        avgCadence: lap.cadence,
+        avgCadence: lap.noAverages ? undefined : lap.cadence,
         // The averages only. A file built out of streams carries no more than that,
         // which is the whole reason the reader computes the rest.
-        avgPower: average(lapPowers),
+        avgPower: lap.noAverages ? undefined : average(lapPowers),
         lapTrigger: lap.trigger ?? 'manual',
         intensity: lap.intensity ?? 'active',
       }),
