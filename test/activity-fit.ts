@@ -6,14 +6,18 @@ import { createEncoder, write } from '../src/fit';
 
 export type LapSpec = {
   seconds: number;
-  /** Metres per second held for the lap, or absent for a lap that records no speed. */
-  speed?: number;
+  /** Metres per second, held for the lap — or several, split evenly across it. */
+  speed?: number | number[];
   /** Heart rate at the start and at the end of the lap, walked between the two. */
   hr?: [number, number];
   /** A steady effort, or several values cycled sample by sample to make it a variable one. */
   power?: number | number[];
   /** Crank or stride rate, as FIT counts it: one leg per cycle. */
   cadence?: number;
+  /** Metres climbed across the lap, walked evenly. Several split the lap between them. */
+  climb?: number | number[];
+  /** Metres of sensor noise on the altitude, alternating sample by sample. */
+  jitter?: number;
   trigger?: string;
   intensity?: string;
 };
@@ -30,6 +34,10 @@ export type ActivitySpec = {
   startTime?: Date;
   laps: LapSpec[];
 };
+
+/** Which of a field's values this sample falls under, for one written as several. */
+const segment = <T>(value: T | T[], index: number, samples: number): T =>
+  Array.isArray(value) ? value[Math.min(value.length - 1, Math.floor((index / samples) * value.length))] : value;
 
 const average = (values: number[]): number | undefined =>
   values.length === 0 ? undefined : Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
@@ -59,6 +67,7 @@ export function encodeActivityFit(spec: ActivitySpec): Uint8Array {
 
   let elapsed = 0;
   let distance = 0;
+  let altitude = 100;
   const hrs: number[] = [];
   const powers: number[] = [];
   const cadences: number[] = [];
@@ -67,16 +76,26 @@ export function encodeActivityFit(spec: ActivitySpec): Uint8Array {
   for (const lap of spec.laps) {
     const lapStart = elapsed;
     const lapHrs: number[] = [];
-    const lapDistance = (lap.speed ?? 0) * lap.seconds;
+
 
     const interval = spec.interval ?? 1;
     const lapPowers: number[] = [];
-    for (let second = 0; second < lap.seconds; second += interval) {
-      const power = Array.isArray(lap.power) ? lap.power[lapPowers.length % lap.power.length] : lap.power;
+    const samples = Math.max(1, Math.ceil(lap.seconds / interval));
+    const parts = Array.isArray(lap.climb) ? lap.climb.length : 1;
+    const speeds: number[] = [];
+    let index = 0;
+    for (let second = 0; second < lap.seconds; second += interval, index += 1) {
+      const power = Array.isArray(lap.power) ? lap.power[index % lap.power.length] : lap.power;
       if (power !== undefined) lapPowers.push(power);
+      altitude += segment(lap.climb ?? 0, index, samples) / (samples / parts);
+
+      const speed = segment(lap.speed, index, samples);
+      if (speed !== undefined) {
+        speeds.push(speed);
+        distance += speed * interval;
+      }
       const hr = walk(lap, second);
       if (hr !== undefined) lapHrs.push(hr);
-      if (lap.speed !== undefined) distance += lap.speed * interval;
 
       write(
         encoder,
@@ -86,11 +105,15 @@ export function encodeActivityFit(spec: ActivitySpec): Uint8Array {
           heartRate: hr,
           cadence: lap.cadence,
           power,
-          enhancedSpeed: lap.speed,
-          distance: lap.speed === undefined ? undefined : distance,
+          enhancedSpeed: speed,
+          distance: speed === undefined ? undefined : distance,
           // Semicircles. Any fixed point will do: only its presence is read.
           positionLat: spec.outdoor === false ? undefined : 152_000_000,
           positionLong: spec.outdoor === false ? undefined : 900_000_000,
+          enhancedAltitude:
+            lap.climb === undefined && lap.jitter === undefined
+              ? undefined
+              : altitude + (lap.jitter === undefined ? 0 : (index % 2 ? lap.jitter : -lap.jitter)),
         }),
       );
     }
@@ -110,8 +133,8 @@ export function encodeActivityFit(spec: ActivitySpec): Uint8Array {
         sport,
         totalElapsedTime: lap.seconds,
         totalTimerTime: lap.seconds,
-        totalDistance: lap.speed === undefined ? undefined : lapDistance,
-        avgSpeed: lap.speed,
+        totalDistance: speeds.length === 0 ? undefined : speeds.reduce((sum, each) => sum + each, 0) * interval,
+        avgSpeed: speeds.length === 0 ? undefined : speeds.reduce((sum, each) => sum + each, 0) / speeds.length,
         avgHeartRate: average(lapHrs),
         maxHeartRate: lapHrs.length === 0 ? undefined : Math.max(...lapHrs),
         minHeartRate: lapHrs.length === 0 ? undefined : Math.min(...lapHrs),

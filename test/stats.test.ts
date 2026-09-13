@@ -400,3 +400,107 @@ describe('a ride whose file carries only the averages', () => {
     expect(laps[0].max_power_w).toBe(400);
   });
 });
+
+describe('the ground a lap was run on', () => {
+  /** One 20-minute steady block: the shape a long run's middle has. */
+  const STEADY = workout([{ name: 'Steady', goal_s: 1200, target_pace_km: ['7:00', '7:30'] }]);
+
+  /**
+   * Run at an honest 7:10 for the first half and 7:50 for the third quarter, up a hill.
+   *
+   * Quarters alone read that as a fade. The point of carrying the terrain is that they
+   * no longer have to be read alone.
+   */
+  const UP_AND_OVER: ActivitySpec = {
+    laps: [
+      { seconds: 300, speed: 1000 / 430, hr: [140, 145], climb: 1 },
+      { seconds: 300, speed: 1000 / 430, hr: [145, 148], climb: 1 },
+      { seconds: 300, speed: 1000 / 470, hr: [148, 158], climb: 32 },
+      { seconds: 300, speed: 1000 / 425, hr: [158, 150], climb: -30 },
+    ],
+  };
+
+  // One lap, four quarters: the same recording read as the single step it was planned as.
+  const asOneLap = (): ActivitySpec => ({
+    laps: [{ seconds: 1200, speed: 1000 / 430, hr: [140, 155], climb: 4 }],
+  });
+
+  it('says what the ground did in each quarter', () => {
+    const { laps } = statsFrom(
+      encodeActivityFit(UP_AND_OVER),
+      workout([{ repeat: 4, steps: [{ name: 'Block', goal_s: 300 }] }]),
+      SOURCE,
+    );
+
+    // The third block is slower, and the climb under it is why.
+    expect(laps[2].avg_pace_s_km!).toBeGreaterThan(laps[1].avg_pace_s_km!);
+    expect(laps[2].elev_net_m!).toBeGreaterThan(30);
+    expect(laps[2].avg_grade_pct!).toBeGreaterThan(4);
+
+    // And the way back down reads as the descent it was.
+    expect(laps[3].elev_net_m!).toBeLessThan(-28);
+    expect(laps[3].avg_grade_pct!).toBeLessThan(0);
+  });
+
+  it('carries the climb into the quarters, beside the pace it explains', () => {
+    const climbing: ActivitySpec = {
+      laps: [{ seconds: 1200, speed: 1000 / 430, hr: [140, 158], climb: 40 }],
+    };
+    const { laps } = statsFrom(encodeActivityFit(climbing), STEADY, SOURCE);
+    const quarters = laps[0].quarters!;
+
+    expect(quarters.elev_net_m).toHaveLength(4);
+    expect(quarters.grade_pct).toHaveLength(4);
+    // Evenly up over the lap, so every quarter climbs its share.
+    expect(quarters.elev_net_m!.every((metres) => metres! > 8)).toBe(true);
+    expect(quarters.grade_pct!.every((grade) => grade! > 0)).toBe(true);
+  });
+
+  // The whole reason the terrain is carried: one lap, four quarters, and a hill in the
+  // third. Read on pace alone this is a session that faded; it is a session that climbed.
+  it('shows the hill under a quarter that a fade would be blamed for', () => {
+    const overTheHill: ActivitySpec = {
+      laps: [
+        {
+          seconds: 1200,
+          speed: [1000 / 428, 1000 / 430, 1000 / 478, 1000 / 424],
+          hr: [140, 152],
+          climb: [1, 1, 34, -33],
+        },
+      ],
+    };
+    const { quarters } = statsFrom(encodeActivityFit(overTheHill), STEADY, SOURCE).laps[0];
+
+    // The third quarter is the slow one, by a lot.
+    expect(quarters!.pace_s_km![2]!).toBeGreaterThan(quarters!.pace_s_km![1]! + 30);
+    // And the fourth is quicker than the first, which a fade would never be.
+    expect(quarters!.pace_s_km![3]!).toBeLessThan(quarters!.pace_s_km![0]!);
+
+    // The ground says why, without anything here having to call it anything.
+    expect(quarters!.elev_net_m![2]!).toBeGreaterThan(30);
+    expect(quarters!.grade_pct![2]!).toBeGreaterThan(4);
+    expect(quarters!.elev_net_m![3]!).toBeLessThan(-30);
+  });
+
+  it('leaves the terrain out where the recording never carried an altitude', () => {
+    const { laps } = statsFrom(encodeActivityFit(asOneLap()), STEADY, SOURCE);
+    expect(laps[0].quarters!.elev_net_m).not.toBeNull();
+
+    const flat = statsFrom(encodeActivityFit({ laps: [{ seconds: 1200, speed: 2.3 }] }), STEADY, SOURCE);
+    expect(flat.laps[0].quarters!.elev_net_m).toBeNull();
+    expect(flat.laps[0].elev_net_m).toBeNull();
+    expect(flat.laps[0].avg_grade_pct).toBeNull();
+  });
+
+  // A barometer wobbling a metre either way is not a staircase.
+  it('does not turn sensor noise into climbing', () => {
+    const noisy: ActivitySpec = { laps: [{ seconds: 1200, speed: 2.3, climb: 0, jitter: 1 }] };
+    const { session, laps } = statsFrom(encodeActivityFit(noisy), STEADY, SOURCE);
+
+    // Twenty minutes of wobble accumulates into nothing, which is the whole point.
+    expect(laps[0].elev_gain_m).toBe(0);
+    expect(session!.total_ascent_m).toBe(0);
+    // Net is one subtraction, so it carries the noise on its own two ends and no more.
+    expect(Math.abs(laps[0].elev_net_m!)).toBeLessThanOrEqual(2);
+  });
+});

@@ -25,7 +25,8 @@ goes deeper than these numbers.
       "planned_step_index": 1, "planned_step_name": "Threshold",
       "match_confidence": "high",
       "duration_s": 300, "avg_hr": 162, "min_hr": 151, "avg_pace_s_km": 245,
-      "quarters": { "split_by": "time", "hr": [151, 160, 166, 169], "pace_s_km": [243, 244, 246, 247], "power_w": null, "cadence": [172, 174, 174, 175] },
+      "elev_net_m": 9, "avg_grade_pct": 0.4,
+      "quarters": { "split_by": "time", "hr": [151, 160, 166, 169], "pace_s_km": [243, 244, 246, 247], "power_w": null, "cadence": [172, 174, 174, 175], "elev_net_m": [1, 2, 9, -3], "grade_pct": [0.2, 0.3, 1.4, -0.5] },
       "target": { "metric": "pace_s_km", "low": 240, "high": 255, "pct_time_in_band": 0.86, "pct_time_above": 0.14, "pct_time_below": 0 },
       "flags": []
     }
@@ -118,6 +119,15 @@ needs a field of its own.
 - **Nothing is smoothed, interpolated or corrected.** Heart rate is expected to
   be low in the first quarter of a hard rep because it is still rising. That
   ramp is signal.
+- **The ground comes with them.** `elev_net_m` is where a quarter finished
+  against where it started, and `grade_pct` is that over the distance covered.
+  A quarter slower than the one before it very often means the hill it was run
+  up, and quarters read without the terrain say *fade* — confidently, and
+  wrongly. `elev_net_m` is one subtraction, so unlike a summed gain it carries
+  the sensor's noise on its two ends and nowhere else.
+
+The lap carries the same pair: `elev_net_m` and `avg_grade_pct`, the file's own
+`avg_grade` where it gave one.
 
 ## Filled in from the stream
 
@@ -138,10 +148,12 @@ file was silent — the device's own figure wins wherever it gave one.
 - **`max_power_w`, `max_hr`, `min_hr`**, per session and per lap. `min_hr` on a
   recovery lap is the whole reason the field exists.
 
-**Elevation is not filled in this way.** Summing the rises in a barometric
-altitude trace without smoothing it first turns sensor noise into hundreds of
-metres of climbing, and picking the smoothing is picking the answer. Where the
-file does not say, `total_ascent_m` and `total_descent_m` stay null.
+- **`elev_gain_m` and `elev_loss_m`**, per session and per lap — but never by
+  summing an unsmoothed trace, which turns barometric drift into hundreds of
+  metres of climbing. A move is counted only once it clears **3 metres** from
+  wherever the last one was counted from, which is where the platforms that do
+  this settle. Twenty minutes of a sensor wobbling a metre either way
+  accumulates into nothing, which is the point.
 
 ## Targets
 
