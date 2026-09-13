@@ -295,6 +295,12 @@ pre.snippet {
   border-radius: 10px;
   padding: 10px 12px;
 }
+/* Prose meant to be copied rather than read as code: wrapping it beats a
+   paragraph that scrolls sideways forever. */
+pre.snippet.prose {
+  white-space: pre-wrap;
+  font: 14px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
 
 .actions { display: flex; gap: 14px; margin-top: 10px; }
 

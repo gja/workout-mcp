@@ -1,4 +1,5 @@
 import { Accordion, Section } from './Accordion';
+import { CopyButton } from './CopyButton';
 
 const REPO_URL = 'https://github.com/gja/workout-mcp';
 
@@ -10,6 +11,10 @@ const GITHUB_MARK =
   '-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56' +
   '.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A7.995' +
   ' 7.995 0 0016 8c0-4.42-3.58-8-8-8z';
+
+const STARTER_PROMPT = `I would like to create a 6 week training plan and to save it in WorkoutsMCP. Create a week by week plan, and list out the goal and the key sessions for each week. Do not assign the sessions to any particular date yet, that will be done later. If you are unclear on my goals, workout zones or instructions for scheduling, please ask me, and then save my instructions. Don't forget to ask more detailed questions if you need to build up a schedule, such as how much time I'll get on weekdays v/s weekends. If it's cycling in scope ask about FTP. If running related ask about easy run pace, recent relevant results. Walk me through the updates you've made, and help me make tweaks if needed. After you have enough clarity and have saved the plan, give me a sample set of workouts across the weeks, so I can provide feedback.
+
+Finally help me schedule a task via Claude for every Sunday at 3pm to analyse my previous week of workouts, print a progress report, and schedule next week's activities in WorkoutsMCP. Give me the prompt and help me find the right screen.`;
 
 function Badge({ href, label, value }: { href: string; label: string; value: string }) {
   return (
@@ -65,6 +70,24 @@ export function Faq() {
           <p className="note">
             Watchletic is Apple Watch only, though. On a Garmin or anything else, use intervals.icu directly — the
             planned session goes to your watch from there.
+          </p>
+        </Section>
+
+        <Section group="faq" title="Can you give me a prompt to get started with Claude?" hint="Copy this one">
+          <p className="note">
+            Once the connector is added, paste this into a fresh Claude conversation. It asks Claude to build a six
+            week block and save it here, and — because it tells Claude to ask rather than guess — most of the work is
+            answering questions about how you train. Change the six weeks, the sport and the goal to whatever you are
+            actually training for.
+          </p>
+          <pre className="snippet prose">{STARTER_PROMPT}</pre>
+          <div className="actions">
+            <CopyButton label="Copy prompt" text={STARTER_PROMPT} />
+          </div>
+          <p className="note">
+            What you get back is a plan with a goal and key sessions per week, nothing on the calendar yet, and
+            whatever you told it about your zones and your week saved as context so the next conversation starts from
+            it. Dates come later, a week at a time.
           </p>
         </Section>
 
