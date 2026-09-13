@@ -504,3 +504,67 @@ describe('the ground a lap was run on', () => {
     expect(Math.abs(laps[0].elev_net_m!)).toBeLessThanOrEqual(2);
   });
 });
+
+describe('what the file left for the reader to work out', () => {
+  /** A steady run with a cooldown, which is where the lengths stop lining up exactly. */
+  const LONG_RUN = workout([
+    { name: 'Warmup', goal_km: 1.5 },
+    { name: 'Long run steady', goal_km: 4.5, target_pace_km: ['7:15', '7:30'] },
+    { name: 'Cooldown', goal_km: 1 },
+  ]);
+
+  /** The cooldown as actually run: `metres` of a planned kilometre. */
+  const asRun = (metres: number): ActivitySpec => ({
+    laps: [
+      { seconds: 683, speed: 1500 / 683, hr: [120, 140] },
+      { seconds: 2004, speed: 4500 / 2004, hr: [143, 150] },
+      { seconds: Math.round(metres / 2.28), speed: 2.28, hr: [150, 135] },
+    ],
+  });
+
+  it('no longer says a session is in question for ending the way sessions end', () => {
+    const { laps, flags } = statsFrom(encodeActivityFit(asRun(844)), LONG_RUN, SOURCE);
+
+    expect(flags).not.toContain('laps_do_not_match_plan');
+    expect(laps[2]).toMatchObject({ planned_step_name: 'Cooldown', match_confidence: 'high' });
+    expect(laps.every((lap) => lap.match_confidence === 'high')).toBe(true);
+  });
+
+  // Still `low` where there is something to actually be unsure about.
+  it('keeps low for a lap that ran a fraction of what it was written as', () => {
+    const { laps } = statsFrom(encodeActivityFit(asRun(120)), LONG_RUN, SOURCE);
+
+    expect(laps[2].planned_step_name).toBe('Cooldown');
+    expect(laps[2].match_confidence).toBe('low');
+  });
+
+  /**
+   * The extremes already fell back to the record stream; the averages did not, so a lap
+   * the file did not summarise came back with a maximum and a minimum but no average.
+   */
+  it('averages what was recorded when the file summarised no part of the lap', () => {
+    const unsummarised: ActivitySpec = {
+      laps: [
+        { seconds: 683, speed: 1500 / 683, hr: [120, 140], cadence: 86, power: 210 },
+        { seconds: 2004, speed: 4500 / 2004, hr: [143, 150], cadence: 87, power: 220 },
+        { seconds: 370, speed: 2.28, hr: [150, 150], cadence: 85, power: 190, noAverages: true },
+      ],
+    };
+    const { laps, session } = statsFrom(encodeActivityFit(unsummarised), LONG_RUN, SOURCE);
+
+    expect(laps[2].avg_hr).toBe(150);
+    expect(laps[2].max_hr).toBe(150);
+    expect(laps[2].min_hr).toBe(150);
+    // The same rule, not three fixes: cadence and power fall back too.
+    expect(laps[2].avg_cadence).toBe(170);
+    expect(laps[2].avg_power_w).toBe(190);
+    // And the session's own averages, for a file that summarises none of it.
+    expect(session!.avg_hr).toBeGreaterThan(0);
+  });
+
+  // FTP lives on the athlete's platform profile, not in the file, so it was never once set.
+  it('does not carry a field nothing could ever fill', () => {
+    const { session } = statsFrom(encodeActivityFit(asRun(844)), LONG_RUN, SOURCE);
+    expect(session).not.toHaveProperty('intensity_factor');
+  });
+});
