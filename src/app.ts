@@ -6,6 +6,7 @@ import { CORS_HEADERS, error, isApiPath, json, routablePath, withUser } from './
 import { Router } from './router';
 import type { Handler } from './router';
 import * as account from './routes/account';
+import * as contexts from './routes/context';
 import * as integrations from './routes/integrations';
 import * as oauth from './routes/oauth';
 import * as recordings from './routes/recordings';
@@ -51,7 +52,8 @@ const routes = new Router<Context>({
   .mount(integrations.routes)
   .mount(webhooks.routes)
   .mount(recordings.routes)
-  .mount(workouts.routes);
+  .mount(workouts.routes)
+  .mount(contexts.routes);
 
 export const app = {
   async fetch(request: Request, env: Env): Promise<Response> {

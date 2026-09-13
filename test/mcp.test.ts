@@ -60,11 +60,15 @@ describe('protocol', () => {
 
     expect(readOnly.sort()).toEqual([
       'export_workout_fit',
+      'get_current_plan',
+      'get_scheduling_instructions',
       'get_workout',
+      'get_workout_library',
+      'get_workout_zones',
       'list_recorded_workouts',
       'list_workouts',
     ]);
-    expect(destructive.sort()).toEqual(['delete_workout', 'update_workout']);
+    expect(destructive.sort()).toEqual(['delete_workout', 'update_context', 'update_workout']);
     // Completing is a write, but it cannot lose the plan it is recorded against.
     expect(tools.find((tool) => tool.name === 'complete_workout')?.annotations).toMatchObject({
       readOnlyHint: false,

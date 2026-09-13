@@ -67,7 +67,8 @@ identically:
 
 `list_workouts`, `get_workout`, `create_workout`, `update_workout`,
 `delete_workout`, `complete_workout`, `export_workout_fit`,
-`list_recorded_workouts`.
+`get_workout_library`, `get_current_plan`, `get_scheduling_instructions`,
+`get_workout_zones`, `update_context`, `list_recorded_workouts`.
 
 Each is also reachable over REST at `POST /api/tools/<name>` with the same
 arguments, so a non-MCP client gets identical behaviour. The schemas live in
@@ -83,6 +84,25 @@ what they actually did, read back off a connected platform — and it is the too
 to reach for when the job is analysing real training rather than writing a
 session. It answers with a link to the files rather than the files, for the
 reason the next section gives. See [recordings.md](recordings.md).
+
+### Four tools to read the context, one to write it
+
+`get_workout_library`, `get_current_plan`, `get_scheduling_instructions` and
+`get_workout_zones` each return one markdown document describing how this
+athlete trains. A tool per document rather than one tool with a `kind`
+argument, because the tool list is what a client reads before it decides to call
+anything: an enum value is only discoverable to something that has already
+decided to look inside. Each says what belongs in its own document, what comes
+back, and how to change it — and nothing about its siblings, which the tool list
+already shows. `create_workout` and `update_workout` are the ones that name all
+four, because that is where reading them actually has to happen.
+
+`update_context` is a single tool going the other way, and deliberately separate
+from the readers: a client can be allowed to read the context freely and still
+ask every time something wants to rewrite it. It covers three of the four
+documents; the workout library is read-only here and is edited on the dashboard,
+because it is the athlete's standing brief and an assistant that could edit it
+would be editing its own. See [context.md](context.md).
 
 ### Only one tool result carries a URL
 
@@ -102,11 +122,12 @@ when the URL works for whoever ends up holding it, and not otherwise.
 
 ### Annotations
 
-`list_workouts`, `get_workout`, `export_workout_fit` and
-`list_recorded_workouts` carry `readOnlyHint`,
+`list_workouts`, `get_workout`, the four context readers, `export_workout_fit`
+and `list_recorded_workouts` carry `readOnlyHint`,
 which is what lets a client group them apart from the writes and allow them
-without asking each time. `update_workout` and `delete_workout` carry
-`destructiveHint`. `complete_workout` is a write but not a destructive one — it
+without asking each time. `update_workout`, `delete_workout` and
+`update_context` carry `destructiveHint` — the last of those because it
+replaces a document the athlete wrote, in full. `complete_workout` is a write but not a destructive one — it
 cannot lose the plan it is recorded against. The hints only shape how a client
 presents a tool; the server checks everything regardless.
 

@@ -1,32 +1,34 @@
 # How it is built
 
 ```
-src/units.ts      parsing primitives: durations, paces, open-ended ranges
-src/workout.ts    the plan: what a caller writes, what gets stored
-src/resolve.ts    plan -> the model FIT needs, and the validator that proves it
-src/fit.ts        FIT encoding, including flattening nested repeats
-src/describe.ts   human-readable rendering, shared by MCP and the dashboard
-src/db.ts         D1 queries, the readable window and the per-athlete cap
-src/plan.ts       every write to the plan, and the platforms it tells
-src/platforms/    training platforms: the interface, the store, intervals.icu
-src/drive/        a scheduled copier, no routes of its own
-src/recordings/   those same sessions as one signed, streaming ZIP download
-src/identity.ts   signing in with Google or Apple
-src/auth.ts       sessions, accounts and API tokens
-src/tools.ts      the tool surface shared by MCP and REST
-src/mcp.ts        JSON-RPC over Streamable HTTP
-src/router.ts     a small path router: `:params`, and 405 apart from 404
-src/http.ts       the context a route is given, and `withUser`
-src/routes/       one module per group of routes, each declaring its own paths
-  signin.ts         /auth/* and /api/auth/logout
-  oauth.ts          /oauth/authorize and /oauth/client: how an MCP client gets in
-  account.ts        /api/me, /api/tokens, /api/connections
-  integrations.ts   /api/config and /api/sync: training platforms
-  recordings.ts     /api/recordings, and the signed ZIP download outside the door
-  workouts.ts       /api/workouts, /api/tools and /export
-src/app.ts        the OAuth provider's defaultHandler: the table the rest mount onto
-src/index.ts      the provider itself, and the protected /mcp handler
-src/client/       the React dashboard
+src/units.ts            parsing primitives: durations, paces, open-ended ranges
+src/workout.ts          the plan: what a caller writes, what gets stored
+src/resolve.ts          plan -> the model FIT needs, and the validator that proves it
+src/fit.ts              FIT encoding, including flattening nested repeats
+src/describe.ts         human-readable rendering, shared by MCP and the dashboard
+src/db.ts               D1 queries, the readable window and the per-athlete cap
+src/plan.ts             every write to the plan, and the platforms it tells
+src/platforms/          training platforms: the interface, the store, intervals.icu
+src/drive/              a scheduled copier, no routes of its own
+src/recordings/         those same sessions as one signed, streaming ZIP download
+src/identity.ts         signing in with Google or Apple
+src/auth.ts             sessions, accounts and API tokens
+src/context.ts          what an assistant reads before planning; the library default is the .md beside it
+src/tools.ts            the tool surface shared by MCP and REST
+src/mcp.ts              JSON-RPC over Streamable HTTP
+src/router.ts           a small path router: `:params`, and 405 apart from 404
+src/http.ts             the context a route is given, and `withUser`
+src/routes/             one module per group of routes, each declaring its own paths
+  signin.ts             /auth/* and /api/auth/logout
+  oauth.ts              /oauth/authorize and /oauth/client: how an MCP client gets in
+  account.ts            /api/me, /api/tokens, /api/connections
+  integrations.ts       /api/config and /api/sync: training platforms
+  context.ts            /api/context: those documents, read, edited and exported
+  recordings.ts         /api/recordings, and the signed ZIP download outside the door
+  workouts.ts           /api/workouts, /api/tools and /export
+src/app.ts              the OAuth provider's defaultHandler: the table the rest mount onto
+src/index.ts            the provider itself, and the protected /mcp handler
+src/client/             the React dashboard
 ```
 
 ## The request path
@@ -107,13 +109,21 @@ every conversion in `src/client/dates.ts` goes through *local* midnight.
 `toISOString` would push the date back a day for anyone west of Greenwich.
 
 One page, in a fixed order: masthead, calendar, a **Setup** accordion, then the
-FAQ. Setup holds the four panels — Integrations, Connect to Claude, API tokens,
-Connected apps — and each is a component that fetches its
-own slice, so opening one does not wait on the others. The accordion is `<details>` elements sharing a
-`name`, which is what makes a browser close the siblings: there is no open-panel
-state in React, and the panels still work with JavaScript half-loaded. The FAQ
+FAQ. Setup holds the five panels — Connect to Claude, Integrations, Context,
+API tokens, Connected apps — and each is a component that fetches its
+own slice, so opening one does not wait on the others. The accordion is
+`<details>` elements sharing a `name`, which is what makes a browser close the
+siblings: there is no open-panel state in React, and the panels still work with
+JavaScript half-loaded. The FAQ
 uses the same pair and renders signed out as well, which is the only part of the
 page a first-time visitor sees. Under it, one link: the privacy policy.
+
+The Context panel is the one with editors in it, and it nests a second accordion
+of its own — one section per document, sharing their own `name` so the four
+close each other without touching the Setup group. Each editor seeds its
+textarea from the server once and never re-seeds it, so a save that answers with
+the stored document cannot overwrite what is being typed. See
+[context.md](context.md).
 
 Two Vite entries, not one: the dashboard and the OAuth consent screen. The
 privacy policy is neither — `public/privacy-policy.html` is a static file with

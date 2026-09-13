@@ -117,6 +117,15 @@ retention window rather than letting a client compute it, why 401 is answered
 before 404 under the API prefixes, and the trade-off in accepting a token as a
 query parameter on FIT downloads.
 
+### [docs/context.md](docs/context.md)
+
+The four markdown documents an assistant reads before it plans: the workout
+library, the current plan, the scheduling instructions and the zones. Explains
+why they are context rather than configuration, why only the library has a
+built-in document and absence is recorded as absence, why reading and writing
+them are two separate MCP tools, and why importing one markdown file takes both
+a Vite plugin and a wrangler rule. Ends with the backup archive.
+
 ### [docs/auth.md](docs/auth.md)
 
 Sign-in end to end. Setting up Google, Apple and intervals.icu, which is not

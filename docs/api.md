@@ -25,6 +25,11 @@ session cookie set at login.
 | `DELETE /api/workouts/:date/:id.json` | Delete one |
 | `POST /api/workouts/:date/:id/complete` | Mark it done; `{completed_at}` optional, defaults to now |
 | `DELETE /api/workouts/:date/:id/complete` | Clear that, leaving the plan alone |
+| `GET /api/context` | Every context document an assistant reads, where each stands, and the tool that reads it |
+| `GET /api/context.zip` | All of them as `backup-context.zip`, plus a manifest |
+| `GET /api/context/:kind` | One of them |
+| `PUT /api/context/:kind` | `{markdown}` — replace it; empty clears it, over 100 KB is refused |
+| `DELETE /api/context/:kind` | Forget what they wrote, going back to the built-in document or to nothing |
 | `GET /api/config` | Every integration and where each one stands |
 | `PUT /api/config/:integration` | Answers 400: a platform is connected by OAuth, not by a body |
 | `DELETE /api/config/:integration` | Disconnect, forgetting what was stored for it |
@@ -61,6 +66,11 @@ dashboard's "Sync now" and "Copy now" buttons, for when waiting for the next
 pass is not what you want.
 
 A date may hold several workouts; each gets its own short id.
+
+`:kind` is one of `workout-library`, `current-plan`, `scheduling-instructions`
+and `workout-zones`. Three of the four are also writable over MCP; the library
+is not, and `/api/context/workout-library` is the only way to change it. See
+[context.md](context.md).
 
 `.json` is a second spelling of any `/api/` path, for a browser or a `curl`
 that wants to name the format. It is stripped before routing, so each route is
