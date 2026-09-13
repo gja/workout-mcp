@@ -13,6 +13,7 @@ import { parseWorkout } from '../workout';
 /** The `:date`/`:id` pair every single-workout route is addressed by. */
 type WorkoutRoute = '/api/workouts/:date(\\d{4}-\\d{2}-\\d{2})/:id([0-9a-z]+)';
 type CompletionRoute = `${WorkoutRoute}/complete`;
+type StatsRoute = `${WorkoutRoute}/stats`;
 
 const WORKOUT: WorkoutRoute = '/api/workouts/:date(\\d{4}-\\d{2}-\\d{2})/:id([0-9a-z]+)';
 
@@ -37,6 +38,22 @@ const getWorkout: AuthedRoute<WorkoutRoute> = async ({ url, env, user, params })
   const date = parseDate(params.date, 'date');
   const workout = await db.getWorkout(env, user.id, date, params.id);
   return workout ? json(present(workout, url.origin)) : error(`no workout ${params.id} on ${date}`, 404);
+};
+
+/** The laps a workout row leaves off, for the reason `get_workout_stats` is its own tool. */
+const getWorkoutStats: AuthedRoute<StatsRoute> = async ({ env, user, params }) => {
+  const date = parseDate(params.date, 'date');
+  const stats = await db.getStats(env, user.id, date, params.id);
+  if (stats) return json(stats);
+
+  // Only now is it worth a second read: which of the two it is changes the answer.
+  const workout = await db.getWorkout(env, user.id, date, params.id);
+  return error(
+    workout
+      ? `nothing has been recorded against ${params.id} on ${date} yet`
+      : `no workout ${params.id} on ${date}`,
+    404,
+  );
 };
 
 const replaceWorkout: AuthedRoute<WorkoutRoute> = async ({ request, url, env, user, params }) => {
@@ -110,6 +127,7 @@ export const routes = (app: Router<Context>): void => {
     .get('/api/workouts', withUser(listWorkouts))
     .post('/api/workouts', withUser(createWorkout))
     .get(WORKOUT, withUser(getWorkout))
+    .get(`${WORKOUT}/stats`, withUser(getWorkoutStats))
     .put(WORKOUT, withUser(replaceWorkout))
     .delete(WORKOUT, withUser(deleteWorkout))
     .post(`${WORKOUT}/complete`, withUser(completeWorkout))

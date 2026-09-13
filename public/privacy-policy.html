@@ -50,7 +50,7 @@
   <body>
     <h1>Privacy policy</h1>
     <p>
-      What WorkoutsMCP stores, who else sees it, and how to get rid of it. Last updated 11 September 2026.
+      What WorkoutsMCP stores, who else sees it, and how to get rid of it. Last updated 13 September 2026.
     </p>
 
     <p>
@@ -72,7 +72,16 @@
       </li>
       <li>
         <strong>Your workouts.</strong> The plan you made — date, name, sport, notes, and the steps — and whether you
-        marked it done. No heart-rate streams, no GPS tracks, no activity history, no files from your watch.
+        marked it done.
+      </li>
+      <li>
+        <strong>Basic stats about the session you recorded against one.</strong> When a connected training platform
+        says you recorded a workout you planned here, its file is read once and a summary is kept: how long, how far,
+        average and maximum heart rate, and a row per lap with its pace, cadence and four equal quarters. No
+        second-by-second data — no heart-rate stream, no GPS track, nothing about where you were — and the file
+        itself is thrown away. Exactly which figures is
+        <a href="https://github.com/gja/workout-mcp/blob/main/src/stats.ts">src/stats.ts</a>. It ages out with the
+        workout it belongs to, and goes when you delete it.
       </li>
       <li>
         <strong>API tokens and connected apps.</strong> Tokens you create are stored as a hash plus the first few
@@ -108,7 +117,7 @@
         are read back hourly.
       </li>
       <li>
-        <strong>Whoever you give a download link to.</strong> When you ask for the sessions you recorded, you get a
+        <strong>Whoever you give a download link to.</strong> When you ask for the recordings themselves, you get a
         link that needs no password, so anyone holding it can fetch those files for the four hours it lasts. The
         files are pulled from your training platform as the link is followed and are not stored here.
       </li>

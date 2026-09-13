@@ -16,6 +16,8 @@ An adapter may offer three more, all optional. `revoke` hands the token back
 when an athlete disconnects. `activities` and `recording` are how the sessions
 an athlete records are handed over whole, as a file; `src/drive/` and
 `src/recordings/` are what ask for those, and only if a platform offers them.
+`recording` is also what the stats are read from when a completion comes back,
+which is why a `Completion` names the activity behind it.
 
 ## Connecting intervals.icu
 
@@ -154,6 +156,20 @@ path — a delivery that never arrives, because they gave up retrying or the
 Worker was mid-deploy, would otherwise be lost for good. It is also the only
 path for an activity that came from Strava: intervals.icu does not send activity
 webhooks for those at all.
+
+### And the recording behind it
+
+Applying a completion is also where the session's stats are read. The activity
+the pairing named is fetched as a FIT file, reduced to totals, laps, quarters
+and targets, and stored against the workout — once, in the same pass, so a
+review later costs nothing and the file is thrown away. What decides it has
+already been done is the stored stats themselves, and a recording that could
+not be read is stored as saying exactly that — retried a few times, then let
+stand, so an unservable file is not fetched again every hour. See
+[stats.md](stats.md).
+
+Never at the cost of the completion, though: a recording we could not read is
+not a session that did not happen, so it is logged and stepped over.
 
 ### Proving a webhook is theirs
 

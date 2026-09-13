@@ -12,7 +12,12 @@ production traffic. That is not incidental: the encoder's buffer problem (see
 plain Node would have missed it.
 
 FIT files are asserted by decoding them again with the SDK's own decoder, so
-the test says what a watch would read rather than what we meant to write.
+the test says what a watch would read rather than what we meant to write. The
+other direction — the sessions an athlete records — goes through the SDK's
+encoder instead: `test/activity-fit.ts` writes an activity file from a list of
+laps, one record a second, so the stats read off it can be asserted against
+numbers the test chose. A test that needs the platform to serve one arranges
+its bytes on the stand-in under the activity's id.
 
 ## Standing in for the outside world
 
@@ -47,7 +52,9 @@ carries data, is tested against a row written in the old shape.
 | `auth.test.ts` | Google and Apple sign-in, state handling, ID-token checks, sessions, API tokens |
 | `oauth.test.ts` | Discovery, registration, consent, the PKCE code exchange, refresh, connected apps |
 | `mcp.test.ts` | The JSON-RPC protocol and every tool |
-| `platforms.test.ts` | Connecting intervals.icu, pushing creates, edits, moves and deletes, surviving an outage, and completions coming back |
+| `platforms.test.ts` | Connecting intervals.icu, pushing creates, edits, moves and deletes, surviving an outage, and completions and their recordings coming back |
+| `stats.test.ts` | Reading a recorded FIT file: session totals, the mapping to planned steps, quarters, time in band, and the flags where something was not recorded |
+| `format.test.ts` | The dashboard's own formatting — paces, target bands, lap lengths — checked under the client's tsconfig, because it reads browser code |
 | `drive.test.ts` | The scheduled copier: the write check, the path a copy lands at, the ledger claim, copying each session once, and the per-run cap |
 | `router.test.ts` | Pattern matching, parameter constraints, 405 apart from 404, HEAD on a GET route |
 

@@ -131,7 +131,7 @@ type StepMesg = Record<string, unknown>;
 /** The SDK types enums as `number`, but the encoder resolves the profile's names too. */
 type FitEncoder = { onMesg(mesgNum: number, mesg: Record<string, unknown>): void };
 
-const write = (encoder: Encoder, mesgNum: number, mesg: Record<string, unknown>): void =>
+export const write = (encoder: Encoder, mesgNum: number, mesg: Record<string, unknown>): void =>
   (encoder as unknown as FitEncoder).onMesg(mesgNum, mesg);
 
 /** A repeat points back at its first child, so children are emitted before it. */
@@ -207,7 +207,8 @@ function serialFor(id: string): number {
 
 // The SDK asks for a 500 MB resizable buffer, which production workerd refuses; see docs/fit.md.
 // The swap is safe: one synchronous constructor call, so no other request can run inside it.
-function createEncoder(): Encoder {
+// Exported with `write` below for `test/activity-fit.ts`, which builds recorded sessions.
+export function createEncoder(): Encoder {
   const NativeArrayBuffer = globalThis.ArrayBuffer;
 
   class ClampedArrayBuffer extends NativeArrayBuffer {

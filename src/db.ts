@@ -1,6 +1,8 @@
 // D1 storage, the retention window and the per-athlete cap. See docs/database.md.
 
 import type { OAuthHelpers } from '@cloudflare/workers-oauth-provider';
+import { sessionOnly } from './stats';
+import type { StatsSummary, WorkoutStats } from './stats';
 import { fail, shiftDate, today } from './units';
 import type { PlanStep, Sport, SubSport, Workout, WorkoutInput } from './workout';
 
@@ -63,12 +65,20 @@ type WorkoutRow = {
   external_id: string | null;
   steps: string;
   completed_at: string | null;
+  /** The recorded session's stats, as `src/stats.ts` wrote them, or null until one comes back. */
+  stats: string | null;
   updated_at: string;
 };
 
-/** The columns every read needs, in one place. */
+/**
+ * The columns every read needs, in one place.
+ *
+ * The laps are dropped in SQL rather than after parsing: they are the bulk of the
+ * stats and nothing that reads a workout wants them. `getStats` is what asks.
+ */
 const WORKOUT_COLUMNS =
-  'id, date, name, sport, sub_sport, notes, tags, external_id, steps, completed_at, updated_at';
+  'id, date, name, sport, sub_sport, notes, tags, external_id, steps, completed_at, ' +
+  "json_remove(stats, '$.laps') AS stats, updated_at";
 
 /** Short, URL-safe, unambiguous — no vowels, so no accidental words. */
 const ID_ALPHABET = '0123456789bcdfghjkmnpqrstvwxyz';
@@ -112,6 +122,7 @@ function parseRow(row: WorkoutRow): Workout {
   }
   if (row.external_id) workout.external_id = row.external_id;
   if (row.completed_at) workout.completed_at = row.completed_at;
+  if (row.stats) workout.stats = JSON.parse(row.stats) as StatsSummary;
   return workout;
 }
 
@@ -177,22 +188,71 @@ async function assertRoomFor(env: Env, userId: string, date: string): Promise<vo
 }
 
 // Not window-narrowed: asked about a row that is about to be written over, not read back.
-async function storedCompletion(env: Env, userId: string, date: string, id: string): Promise<string | null> {
-  const row = await env.DB.prepare('SELECT completed_at FROM workouts WHERE user_id = ? AND date = ? AND id = ?')
+async function storedRecord(
+  env: Env,
+  userId: string,
+  date: string,
+  id: string,
+): Promise<{ completed_at: string | null; stats: string | null; steps: string | null }> {
+  const row = await env.DB.prepare(
+    'SELECT completed_at, stats, steps FROM workouts WHERE user_id = ? AND date = ? AND id = ?',
+  )
     .bind(userId, date, id)
-    .first<{ completed_at: string | null }>();
-  return row?.completed_at ?? null;
+    .first<{ completed_at: string | null; stats: string | null; steps: string | null }>();
+  return row ?? { completed_at: null, stats: null, steps: null };
 }
 
-export async function putWorkout(env: Env, userId: string, input: WorkoutInput, id?: string): Promise<Workout> {
+/** `previous` is where the row being replaced is now, when the caller has already moved it. */
+export async function putWorkout(
+  env: Env,
+  userId: string,
+  input: WorkoutInput,
+  id?: string,
+  previous?: { date: string; id: string },
+): Promise<Workout> {
   let workoutId = id;
 
   assertRetainable(input.date);
 
-  // Rewriting the plan does not un-do the session: the stored completion comes across.
+  /**
+   * Rewriting a workout does not un-do the session: the completion comes across, and so
+   * do the stats read off it.
+   *
+   * What may not come across is a changed *plan* under them. A lap mapped to "Threshold,
+   * rep 2" of a plan that has since been rewritten is a confident answer about a step
+   * that no longer exists, so once a session has been recorded the steps are history and
+   * are refused. Everything else about the workout — its name, its notes, its tags, the
+   * day it sits on — still moves. Un-complete it first to change the plan itself, which
+   * is the honest order: the session was not this workout after all.
+   *
+   * The steps are compared even so, for the workout that was un-completed while its
+   * stats stayed: there the mapping is dropped and the next pass reads the recording
+   * again, against the plan as it now stands.
+   */
   let completedAt = input.completed_at ?? null;
+  let stats: string | null = null;
   const carryFrom = async (date: string, rowId: string) => {
-    if (input.completed_at === undefined) completedAt = await storedCompletion(env, userId, date, rowId);
+    const stored = await storedRecord(env, userId, date, rowId);
+    const samePlan = stored.steps === JSON.stringify(input.steps);
+
+    if (stored.completed_at && !samePlan) {
+      fail(
+        'steps',
+        `this workout was recorded as done on ${stored.completed_at.slice(0, 10)}, so its steps ` +
+          'cannot be rewritten; mark it not done first if the session was not this one',
+      );
+    }
+    if (input.completed_at === undefined) completedAt = stored.completed_at;
+    stats = samePlan ? stored.stats : null;
+  };
+
+  // Where what is being replaced lives now, which is not where it is going on a move.
+  const replacing = previous ?? (workoutId === undefined ? null : { date: input.date, id: workoutId });
+
+  // Read, then cleared, in that order: the delete would take both across with it.
+  const carryAcross = async (from: { date: string; id: string }) => {
+    await carryFrom(from.date, from.id);
+    if (from.date !== input.date) await deleteWorkout(env, userId, from.date, from.id);
   };
 
   // A caller with its own key is re-syncing: land on the row that key already names.
@@ -204,12 +264,10 @@ export async function putWorkout(env: Env, userId: string, input: WorkoutInput, 
       // Caught here, or the unique index breaks and the caller's mistake reads as a 500.
       fail('external_id', `"${input.external_id}" already belongs to workout ${existing.id} on ${existing.date}`);
     }
-    // Read before the delete below, which would take the completion with it.
-    if (existing) await carryFrom(existing.date, existing.id);
-    // The workout moved day; the old row has to go before the new one lands.
-    if (existing && existing.date !== input.date) await deleteWorkout(env, userId, existing.date, existing.id);
-  } else if (workoutId !== undefined) {
-    await carryFrom(input.date, workoutId);
+    if (existing) await carryAcross(existing);
+    else if (replacing) await carryAcross(replacing);
+  } else if (replacing) {
+    await carryAcross(replacing);
   }
 
   // The only write that adds a row: every path reusing an id has checked it exists.
@@ -218,13 +276,15 @@ export async function putWorkout(env: Env, userId: string, input: WorkoutInput, 
   const workout: Workout = { id: workoutId ?? newId(), ...input, updated_at: new Date().toISOString() };
   if (completedAt) workout.completed_at = completedAt;
   else delete workout.completed_at;
+  if (stats) workout.stats = sessionOnly(JSON.parse(stats) as WorkoutStats);
+  else delete workout.stats;
   await env.DB.prepare(
-    `INSERT INTO workouts (user_id, date, id, name, sport, sub_sport, notes, tags, external_id, steps, completed_at, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)
+    `INSERT INTO workouts (user_id, date, id, name, sport, sub_sport, notes, tags, external_id, steps, completed_at, stats, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)
      ON CONFLICT (user_id, date, id) DO UPDATE SET
        name = excluded.name, sport = excluded.sport, sub_sport = excluded.sub_sport,
        notes = excluded.notes, tags = excluded.tags, external_id = excluded.external_id,
-       steps = excluded.steps, completed_at = excluded.completed_at,
+       steps = excluded.steps, completed_at = excluded.completed_at, stats = excluded.stats,
        updated_at = excluded.updated_at`,
   )
     .bind(
@@ -239,6 +299,7 @@ export async function putWorkout(env: Env, userId: string, input: WorkoutInput, 
       workout.external_id ?? null,
       JSON.stringify(workout.steps),
       workout.completed_at ?? null,
+      stats,
       workout.updated_at,
     )
     .run();
@@ -263,6 +324,30 @@ export async function setCompleted(
     .run();
   if ((result.meta.changes ?? 0) === 0) return null;
   return getWorkout(env, userId, date, id);
+}
+
+/** The whole document, laps and all. Read on its own, for the reason `WORKOUT_COLUMNS` gives. */
+export async function getStats(env: Env, userId: string, date: string, id: string): Promise<WorkoutStats | null> {
+  const window = readWindow();
+  if (date < window.from || date > window.to) return null;
+
+  const row = await env.DB.prepare('SELECT stats FROM workouts WHERE user_id = ? AND date = ? AND id = ?')
+    .bind(userId, date, id)
+    .first<{ stats: string | null }>();
+  return row?.stats ? (JSON.parse(row.stats) as WorkoutStats) : null;
+}
+
+/** Written by the platform sync alone, once the recording behind a completion has been read. */
+export async function setStats(
+  env: Env,
+  userId: string,
+  date: string,
+  id: string,
+  stats: WorkoutStats,
+): Promise<void> {
+  await env.DB.prepare('UPDATE workouts SET stats = ? WHERE user_id = ? AND date = ? AND id = ?')
+    .bind(JSON.stringify(stats), userId, date, id)
+    .run();
 }
 
 export async function deleteWorkout(env: Env, userId: string, date: string, id: string): Promise<boolean> {

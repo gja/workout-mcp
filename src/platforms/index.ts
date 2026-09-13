@@ -4,10 +4,12 @@ import { sha256 } from '../auth';
 import * as db from '../db';
 import type { Env, User } from '../db';
 import { intervalsConfigured } from '../identity';
+import { MAX_RECORDING_BYTES, statsFrom, statsUnreadable } from '../stats';
+import type { StatsSummary } from '../stats';
 import type { Workout } from '../workout';
 import { intervals } from './intervals';
 import * as store from './store';
-import type { Account, Completion, Platform, PlatformId, Recorded, RecordedFile } from './types';
+import type { Account, Completion, Platform, PlatformId, Recorded, RecordedFile, Recording } from './types';
 import { PlatformError } from './types';
 
 export { CredentialsUnavailable, credentialsConfigured } from './store';
@@ -256,7 +258,10 @@ export async function syncNow(env: Env, user: User, platformId: PlatformId): Pro
     }
     report.remaining = abandoned.length - report.removed + (stale.length - report.pushed);
 
-    report.completed = await applyCompletions(env, user.id, platformId, token);
+    // No stats budget: a person is waiting on this one — it is the connect redirect and
+    // the dashboard's own button — and a recording is a download and a FIT decode. The
+    // webhook reads them as they arrive, and the hourly pass catches up on the rest.
+    report.completed = await applyCompletions(env, user.id, platformId, token, { left: 0 });
     // The only place a standing error is cleared, and only with nothing left queued.
     await store.recordSyncError(env, user.id, platformId, report.remaining > 0 ? `${report.remaining} left to sync` : null);
   } catch (err) {
@@ -268,32 +273,157 @@ export async function syncNow(env: Env, user: User, platformId: PlatformId): Pro
 
 // --- Completions coming back -----------------------------------------------
 
+/**
+ * Recordings read in one scheduled run or one webhook, across every athlete in it.
+ *
+ * Each is a download and a FIT decode, so this is a bound on both the subrequests and
+ * the CPU one invocation may spend — not a per-athlete allowance, which the hourly
+ * pass would multiply by its batch of forty. A webhook brings one new session; a
+ * backlog is worked off over the passes behind it.
+ */
+export const STATS_LIMIT = 5;
+
+/** Tries at one recording before its failure stands. */
+export const STATS_ATTEMPTS = 3;
+
+/** And how long one is left alone between those tries, so an outage costs one of them. */
+export const STATS_RETRY_AFTER_MS = 30 * 60 * 1000;
+
+/** What is left of `STATS_LIMIT`, shared by every athlete the invocation visits. */
+type Budget = { left: number };
+
+/**
+ * Whether this session's recording is still worth reading.
+ *
+ * One already read is left alone unless the platform now names a *different* activity
+ * for the same session — an upload deleted and done again — which the stored numbers
+ * do not describe. One that could not be read is tried again, but never twice inside
+ * half an hour: three webhook deliveries in a minute would otherwise spend every
+ * attempt on the same outage, and the ceiling is meant to be hours of them.
+ */
+export function worthReading(
+  stats: StatsSummary | undefined,
+  activityId: string,
+  now: number = Date.now(),
+): boolean {
+  if (!stats) return true;
+  if (stats.activity_id !== activityId) return true;
+  if (!stats.flags.includes('source_unreadable')) return false;
+
+  const tried = Date.parse(stats.computed_at);
+  return (
+    (stats.attempts ?? 1) < STATS_ATTEMPTS && !Number.isNaN(tried) && now - tried > STATS_RETRY_AFTER_MS
+  );
+}
+
+/**
+ * The body, capped rather than buffered whole.
+ *
+ * `content_length` is the platform's word and often absent, so the cap is applied to
+ * what actually arrives: a Worker has 128 MB and no second chance at an OOM.
+ */
+async function bytesOf(file: RecordedFile, limit: number): Promise<Uint8Array> {
+  const reader = (file.body as ReadableStream<Uint8Array>).getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > limit) throw new Error(`the recording is over ${limit} bytes, past what is read here`);
+      chunks.push(value);
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+
+  const bytes = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, at);
+    at += chunk.length;
+  }
+  return bytes;
+}
+
+/**
+ * The stats behind a completion, read off the file the platform now holds.
+ *
+ * A recording we could not read is stored as saying so, rather than left absent: the
+ * pass behind this one would otherwise fetch it again every hour for a session that
+ * has no file to fetch — a manual entry, or one from Strava their API will not serve.
+ * It is stored with the attempt it was, so a platform having a bad hour is not the
+ * same as one that will never answer.
+ */
+async function readStats(
+  env: Env,
+  userId: string,
+  platform: Platform,
+  token: string,
+  workout: Workout,
+  activity: Recording,
+): Promise<void> {
+  const source = { platform: platform.id, activity_id: activity.remote_id };
+  const attempt = (workout.stats?.attempts ?? 0) + 1;
+
+  let stats;
+  try {
+    const file = await platform.recording!(token, activity);
+    stats = statsFrom(await bytesOf(file, MAX_RECORDING_BYTES), workout, source);
+  } catch (err) {
+    stats = statsUnreadable(source, message(err), attempt);
+  }
+  await db.setStats(env, userId, workout.date, workout.id, stats);
+}
+
 // Straight to the db, and once each: see "Completion is polled" in docs/integrations.md.
 async function applyCompletions(
   env: Env,
   userId: string,
   platformId: PlatformId,
   token: string,
+  budget: Budget = { left: STATS_LIMIT },
 ): Promise<number> {
   const window = db.readWindow();
-  const completions: Completion[] = await PLATFORMS[platformId].completions(token, window.from, window.to);
+  const platform = PLATFORMS[platformId];
+  const completions: Completion[] = await platform.completions(token, window.from, window.to);
 
   let marked = 0;
   for (const completion of completions) {
     const link = await store.findLinkByRemoteId(env, userId, platformId, completion.remote_id);
-    if (!link || link.applied_completion === completion.completed_at) continue;
-    if (!(await db.getWorkout(env, userId, link.date, link.workout_id))) continue;
+    if (!link) continue;
+    const workout = await db.getWorkout(env, userId, link.date, link.workout_id);
+    if (!workout) continue;
 
-    await db.setCompleted(env, userId, link.date, link.workout_id, completion.completed_at);
-    await store.recordAppliedCompletion(
-      env,
-      userId,
-      platformId,
-      link.date,
-      link.workout_id,
-      completion.completed_at,
-    );
-    marked += 1;
+    if (link.applied_completion !== completion.completed_at) {
+      await db.setCompleted(env, userId, link.date, link.workout_id, completion.completed_at);
+      await store.recordAppliedCompletion(
+        env,
+        userId,
+        platformId,
+        link.date,
+        link.workout_id,
+        completion.completed_at,
+      );
+      marked += 1;
+    }
+
+    // The stored stats are what says this was read already: a session whose plan was
+    // rewritten, or which arrived before this existed, is picked up by the next pass.
+    if (
+      budget.left > 0 &&
+      completion.activity &&
+      platform.recording &&
+      worthReading(workout.stats, completion.activity.remote_id)
+    ) {
+      budget.left -= 1;
+      // Never fails the completion: a recording we could not read is not a session undone.
+      await sideEffect(`reading the stats for ${link.date}/${link.workout_id}`, () =>
+        readStats(env, userId, platform, token, workout, completion.activity!),
+      );
+    }
   }
   return marked;
 }
@@ -312,6 +442,7 @@ export async function onAccountActivity(
   accountId: string,
 ): Promise<{ matched: number; marked: number }> {
   const connections = await store.connectionsForAccount(env, platformId, accountId);
+  const budget: Budget = { left: STATS_LIMIT };
   let marked = 0;
   let failure: unknown;
 
@@ -328,7 +459,7 @@ export async function onAccountActivity(
       continue;
     }
     try {
-      marked += await applyCompletions(env, connection.user_id, platformId, connection.token);
+      marked += await applyCompletions(env, connection.user_id, platformId, connection.token, budget);
     } catch (err) {
       // Recorded per athlete and kept, not thrown: one athlete's revoked token must
       // not cost the others their completions. Re-raised once they have all had a go.
@@ -346,6 +477,7 @@ export const PULL_BATCH = 40;
 
 /** The hourly pass. Errors are per-athlete, and every connection visited is stamped. */
 export async function pullEveryCompletion(env: Env): Promise<number> {
+  const budget: Budget = { left: STATS_LIMIT };
   let marked = 0;
   for (const platformId of Object.keys(PLATFORMS) as PlatformId[]) {
     for (const connection of await store.connectionBatch(env, platformId, PULL_BATCH)) {
@@ -359,7 +491,7 @@ export async function pullEveryCompletion(env: Env): Promise<number> {
         continue;
       }
       try {
-        marked += await applyCompletions(env, connection.user_id, platformId, connection.token);
+        marked += await applyCompletions(env, connection.user_id, platformId, connection.token, budget);
       } catch (err) {
         await store.recordSyncError(env, connection.user_id, platformId, message(err));
       }

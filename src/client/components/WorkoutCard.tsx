@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { completeWorkout, deleteWorkout, downloadFit, uncompleteWorkout, type Workout } from '../api';
 import { fromLocalInput, toLocalInput } from '../dates';
 import { formatCompleted, formatSport, plannedSummary, sportIcon, stepLines } from '../format';
+import { RecordedSession } from './RecordedSession';
 
 /** One workout in full, as shown in the calendar's detail panel. */
 export function WorkoutCard({ workout, onChanged }: { workout: Workout; onChanged: () => void }) {
@@ -52,6 +53,8 @@ export function WorkoutCard({ workout, onChanged }: { workout: Workout; onChange
       {workout.completed_at && <p className="done-note">✓ Done {formatCompleted(workout.completed_at)}</p>}
 
       <pre>{stepLines(workout)}</pre>
+
+      <RecordedSession workout={workout} />
 
       <div className="complete">
         <label htmlFor={`done-at-${workout.id}`} className="note">

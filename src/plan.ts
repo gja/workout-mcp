@@ -26,13 +26,11 @@ export async function replaceWorkout(
   const existing = await db.getWorkout(env, user.id, currentDate, id);
   if (!existing) return null;
 
-  // Read before the delete below, which would take the completion with it.
   if (existing.completed_at) input.completed_at = existing.completed_at;
-  // Also before it, so a refused date does not cost the workout being moved.
-  db.assertRetainable(input.date);
-  if (input.date !== currentDate) await db.deleteWorkout(env, user.id, currentDate, id);
 
-  const workout = await db.putWorkout(env, user.id, input, id);
+  // Where it is now, which on a move is not where it is going: `putWorkout` reads the
+  // completion and the stats off that row, and clears it, in that order.
+  const workout = await db.putWorkout(env, user.id, input, id, { date: currentDate, id });
   await platforms.onWorkoutSaved(env, user, workout, { date: currentDate, id });
   return workout;
 }

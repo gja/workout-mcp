@@ -138,6 +138,7 @@ target, so there is nothing sensible to convert a range into. Use
 | `tags` | Free-form labels — see below |
 | `external_id` | Your own key — see below |
 | `completed_at` | Read-only here; set through the completion routes |
+| `stats` | Read-only: the session recorded against it, totals only. See [stats.md](stats.md) |
 
 `sub_sport` is worth setting: a watch picks its activity profile from it, so a
 treadmill session will not sit waiting for a GPS fix.
@@ -182,7 +183,15 @@ date field on the workout card.
 
 Because it is its own verb, rewriting the plan does not un-do the session:
 `update_workout`, a `PUT`, and a re-sync under the same `external_id` all carry
-the record across, including when the workout moves to another day.
+the record across, including when the workout moves to another day. The stats
+read off the recording come across with it — see [stats.md](stats.md).
+
+**The steps themselves stop being editable once it is done**, and a write that
+changes them is refused. Those stats name the planned step each recorded lap
+was, by position, so rewriting the steps underneath them leaves a confident
+answer about a step that never ran. Everything else still moves: the name, the
+notes, the tags, the day. To change the plan itself, mark the session not done
+first — which is the honest order, because it was not this workout after all.
 
 Every read also carries `planned`, computed from the steps with repeats
 resolved:

@@ -12,5 +12,5 @@
     "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src/client/**/*.ts", "src/client/**/*.tsx", "vite.config.ts"]
+  "include": ["src/client/**/*.ts", "src/client/**/*.tsx", "vite.config.ts", "test/format.test.ts"]
 }

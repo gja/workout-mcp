@@ -15,6 +15,7 @@
     "resolveJsonModule": true
   },
   "include": ["src/**/*.ts", "test/**/*.ts"],
-  // The browser half has its own config: DOM and workers-types disagree.
-  "exclude": ["src/client/**"]
+  // The browser half has its own config: DOM and workers-types disagree. The test
+  // that covers the dashboard's own formatting is checked over there for the same reason.
+  "exclude": ["src/client/**", "test/format.test.ts"]
 }

@@ -18,9 +18,71 @@ export type Workout = {
   /** Server-rendered prose. The first line is a header; the rest are the steps. */
   summary: string;
   planned?: PlannedTotals;
+  /** The session recorded against it, totals only, or absent until one comes back. */
+  stats?: StatsSummary;
   fit_url: string;
   json_url: string;
 };
+
+/** What a metric is measured in. Pace is seconds per kilometre, so lower is faster. */
+export type Metric = 'hr' | 'pace_s_km' | 'power_w' | 'cadence';
+
+/** The planned band a lap was run against, and where the lap actually sat. */
+export type LapTarget = {
+  metric: Metric;
+  low: number;
+  high: number;
+  pct_time_in_band: number;
+  pct_time_above: number;
+  pct_time_below: number;
+};
+
+/** One segment of the recording. Anything the session did not record is null, never 0. */
+export type Lap = {
+  index: number;
+  role: string;
+  rep_number: number | null;
+  planned_step_index: number | null;
+  planned_step_name: string | null;
+  match_confidence: 'high' | 'low' | 'unmatched';
+  duration_s: number | null;
+  moving_s: number | null;
+  distance_m: number | null;
+  avg_hr: number | null;
+  max_hr: number | null;
+  min_hr: number | null;
+  avg_pace_s_km: number | null;
+  avg_cadence: number | null;
+  avg_power_w: number | null;
+  target: LapTarget | null;
+  flags: string[];
+};
+
+export type RecordedSession = {
+  sport: string | null;
+  indoor: boolean;
+  elapsed_s: number | null;
+  moving_s: number | null;
+  distance_m: number | null;
+  avg_hr: number | null;
+  max_hr: number | null;
+  avg_pace_s_km: number | null;
+  avg_power_w: number | null;
+  avg_cadence: number | null;
+};
+
+/** What a workout carries: the totals, and no laps. `getWorkoutStats` has those. */
+export type StatsSummary = {
+  platform: string;
+  activity_id: string;
+  computed_at: string;
+  /** Null when the recording could not be read; `flags` then says `source_unreadable`. */
+  session: RecordedSession | null;
+  flags: string[];
+  error?: string;
+};
+
+export type WorkoutStats = StatsSummary & { laps: Lap[] };
 
 /** The server's own reckoning of it — it is computed in UTC. */
 export type Window = { from: string; to: string };
@@ -55,6 +117,10 @@ export const listProviders = (): Promise<{ providers: string[] }> => request('/a
 
 export const listWorkouts = (): Promise<{ workouts: Workout[] }> => request('/api/workouts.json');
 export const deleteWorkout = (workout: Workout): Promise<unknown> => request(workout.json_url, { method: 'DELETE' });
+
+/** The laps behind `workout.stats`, which are their own read. */
+export const getWorkoutStats = (workout: Workout): Promise<WorkoutStats> =>
+  request(`/api/workouts/${workout.date}/${workout.id}/stats`);
 
 const completionUrl = (workout: Workout): string => `/api/workouts/${workout.date}/${workout.id}/complete`;
 
