@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vitest/config';
 import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
+import { markdown } from './vite-markdown';
 import { generateTestApplePrivateKey } from './test/apple-key.js';
 import { generateTestDrivePrivateKey } from './test/drive-key.js';
 
@@ -8,6 +9,7 @@ import { generateTestDrivePrivateKey } from './test/drive-key.js';
 // exercised on the same runtime that serves production traffic.
 export default defineConfig({
   plugins: [
+    markdown(),
     cloudflareTest(async () => ({
       singleWorker: true,
       wrangler: { configPath: './wrangler.jsonc' },

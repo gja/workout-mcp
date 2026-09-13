@@ -1,34 +1,34 @@
 # How it is built
 
 ```
-src/units.ts      parsing primitives: durations, paces, open-ended ranges
-src/workout.ts    the plan: what a caller writes, what gets stored
-src/resolve.ts    plan -> the model FIT needs, and the validator that proves it
-src/fit.ts        FIT encoding, including flattening nested repeats
-src/describe.ts   human-readable rendering, shared by MCP and the dashboard
-src/db.ts         D1 queries, the readable window and the per-athlete cap
-src/plan.ts       every write to the plan, and the platforms it tells
-src/platforms/    training platforms: the interface, the store, intervals.icu
-src/drive/        a scheduled copier, no routes of its own
-src/recordings/   those same sessions as one signed, streaming ZIP download
-src/identity.ts   signing in with Google or Apple
-src/auth.ts       sessions, accounts and API tokens
-src/library/      the workout library: the built-in default, and an athlete's own
-src/tools.ts      the tool surface shared by MCP and REST
-src/mcp.ts        JSON-RPC over Streamable HTTP
-src/router.ts     a small path router: `:params`, and 405 apart from 404
-src/http.ts       the context a route is given, and `withUser`
-src/routes/       one module per group of routes, each declaring its own paths
-  signin.ts         /auth/* and /api/auth/logout
-  oauth.ts          /oauth/authorize and /oauth/client: how an MCP client gets in
-  account.ts        /api/me, /api/tokens, /api/connections
-  integrations.ts   /api/config and /api/sync: training platforms
-  library.ts        /api/library: the markdown an assistant reads before planning
-  recordings.ts     /api/recordings, and the signed ZIP download outside the door
-  workouts.ts       /api/workouts, /api/tools and /export
-src/app.ts        the OAuth provider's defaultHandler: the table the rest mount onto
-src/index.ts      the provider itself, and the protected /mcp handler
-src/client/       the React dashboard
+src/units.ts            parsing primitives: durations, paces, open-ended ranges
+src/workout.ts          the plan: what a caller writes, what gets stored
+src/resolve.ts          plan -> the model FIT needs, and the validator that proves it
+src/fit.ts              FIT encoding, including flattening nested repeats
+src/describe.ts         human-readable rendering, shared by MCP and the dashboard
+src/db.ts               D1 queries, the readable window and the per-athlete cap
+src/plan.ts             every write to the plan, and the platforms it tells
+src/platforms/          training platforms: the interface, the store, intervals.icu
+src/drive/              a scheduled copier, no routes of its own
+src/recordings/         those same sessions as one signed, streaming ZIP download
+src/identity.ts         signing in with Google or Apple
+src/auth.ts             sessions, accounts and API tokens
+src/workout-library.ts  what an assistant reads before planning; the default is the .md beside it
+src/tools.ts            the tool surface shared by MCP and REST
+src/mcp.ts              JSON-RPC over Streamable HTTP
+src/router.ts           a small path router: `:params`, and 405 apart from 404
+src/http.ts             the context a route is given, and `withUser`
+src/routes/             one module per group of routes, each declaring its own paths
+  signin.ts             /auth/* and /api/auth/logout
+  oauth.ts              /oauth/authorize and /oauth/client: how an MCP client gets in
+  account.ts            /api/me, /api/tokens, /api/connections
+  integrations.ts       /api/config and /api/sync: training platforms
+  workout-library.ts    /api/workout-library: that document, read and edited
+  recordings.ts         /api/recordings, and the signed ZIP download outside the door
+  workouts.ts           /api/workouts, /api/tools and /export
+src/app.ts              the OAuth provider's defaultHandler: the table the rest mount onto
+src/index.ts            the provider itself, and the protected /mcp handler
+src/client/             the React dashboard
 ```
 
 ## The request path

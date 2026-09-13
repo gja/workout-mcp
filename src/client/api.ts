@@ -105,13 +105,14 @@ export const syncPlatform = (id: string): Promise<SyncReport> =>
   request(`/api/sync/${id}`, { method: 'POST' });
 
 /** The reference prose an assistant reads before writing a session. */
-export type Library = { markdown: string; custom: boolean; updated_at: string | null };
+export type WorkoutLibrary = { markdown: string; custom: boolean; updated_at: string | null };
 
-export const getLibrary = (): Promise<Library> => request('/api/library');
-export const saveLibrary = (markdown: string): Promise<Library> =>
-  request('/api/library', { method: 'PUT', body: { markdown } });
+export const getWorkoutLibrary = (): Promise<WorkoutLibrary> => request('/api/workout-library');
+export const saveWorkoutLibrary = (markdown: string): Promise<WorkoutLibrary> =>
+  request('/api/workout-library', { method: 'PUT', body: { markdown } });
 /** Back to the built-in library, forgetting the athlete's own copy. */
-export const resetLibrary = (): Promise<Library> => request('/api/library', { method: 'DELETE' });
+export const resetWorkoutLibrary = (): Promise<WorkoutLibrary> =>
+  request('/api/workout-library', { method: 'DELETE' });
 
 export const listTokens = (): Promise<{ tokens: ApiToken[] }> => request('/api/tokens');
 export const createToken = (name: string): Promise<IssuedToken> => request('/api/tokens', { method: 'POST', body: { name } });

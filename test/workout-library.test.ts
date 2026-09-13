@@ -1,6 +1,6 @@
 import { SELF } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { DEFAULT_LIBRARY, MAX_LIBRARY_CHARS } from '../src/library';
+import { DEFAULT_LIBRARY, MAX_LIBRARY_CHARS } from '../src/workout-library';
 import { resetDatabase, seedUser } from './helpers';
 
 const BASE = 'https://workouts.example';
@@ -18,12 +18,12 @@ const call = (path: string, init: RequestInit = {}) =>
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...init.headers },
   });
 
-type Library = { markdown: string; custom: boolean; updated_at: string | null };
+type WorkoutLibrary = { markdown: string; custom: boolean; updated_at: string | null };
 
-const read = async (): Promise<Library> => (await call('/api/library')).json<Library>();
+const read = async (): Promise<WorkoutLibrary> => (await call('/api/workout-library')).json<WorkoutLibrary>();
 
 const write = (markdown: string) =>
-  call('/api/library', { method: 'PUT', body: JSON.stringify({ markdown }) });
+  call('/api/workout-library', { method: 'PUT', body: JSON.stringify({ markdown }) });
 
 describe('the workout library over REST', () => {
   it('serves the built-in library to an athlete who has never written one', async () => {
@@ -44,7 +44,7 @@ describe('the workout library over REST', () => {
 
   it('goes back to the built-in library on delete', async () => {
     await write('# Mine');
-    const response = await call('/api/library', { method: 'DELETE' });
+    const response = await call('/api/workout-library', { method: 'DELETE' });
     expect(response.status).toBe(200);
     expect(await read()).toMatchObject({ custom: false, markdown: DEFAULT_LIBRARY });
   });
@@ -56,7 +56,7 @@ describe('the workout library over REST', () => {
   });
 
   it('refuses a library that is not a string, naming the field', async () => {
-    const response = await call('/api/library', { method: 'PUT', body: JSON.stringify({ markdown: 42 }) });
+    const response = await call('/api/workout-library', { method: 'PUT', body: JSON.stringify({ markdown: 42 }) });
     expect(response.status).toBe(400);
     expect((await response.json<{ error: string }>()).error).toContain('markdown');
   });
@@ -67,16 +67,16 @@ describe('the workout library over REST', () => {
   });
 
   it('is behind the door', async () => {
-    expect((await SELF.fetch(`${BASE}/api/library`)).status).toBe(401);
+    expect((await SELF.fetch(`${BASE}/api/workout-library`)).status).toBe(401);
   });
 
   it('is one library per athlete', async () => {
     await write('# Mine');
     const other = await seedUser('other@example.com');
-    const response = await SELF.fetch(`${BASE}/api/library`, {
+    const response = await SELF.fetch(`${BASE}/api/workout-library`, {
       headers: { Authorization: `Bearer ${other.token}` },
     });
-    expect(await response.json<Library>()).toMatchObject({ custom: false });
+    expect(await response.json<WorkoutLibrary>()).toMatchObject({ custom: false });
   });
 });
 
@@ -100,7 +100,7 @@ describe('the workout library over MCP', () => {
     const result = await callTool();
     expect(result.markdown).toBe(DEFAULT_LIBRARY);
     expect(result.custom).toBe(false);
-    expect(result.note).toContain('PUT /api/library');
+    expect(result.note).toContain('PUT /api/workout-library');
   });
 
   it('reads the athlete\'s own once they have written one', async () => {

@@ -12,6 +12,18 @@
 		"command": "npm run build"
 	},
 	"compatibility_date": "2025-09-01",
+	// `wrangler deploy` bundles the Worker with esbuild rather than Vite, and
+	// esbuild has no loader for the workout library's markdown without this.
+	// `vite-markdown.ts` is the same thing for the Vite and vitest builds.
+	"rules": [
+		{
+			"type": "Text",
+			"globs": [
+				"**/*.md"
+			],
+			"fallthrough": true
+		}
+	],
 	// The dashboard and the OAuth consent page, built by Vite. Anything not
 	// matched by /mcp, /api, /oauth or /export is served from here.
 	"assets": {

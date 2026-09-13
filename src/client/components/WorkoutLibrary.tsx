@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react';
-import { getLibrary, resetLibrary, saveLibrary, type Library } from '../api';
+import {
+  getWorkoutLibrary,
+  resetWorkoutLibrary,
+  saveWorkoutLibrary,
+  type WorkoutLibrary as Library,
+} from '../api';
 
 /** The athlete edits it here; the assistant only ever reads it back. */
 export function WorkoutLibrary() {
@@ -16,7 +21,7 @@ export function WorkoutLibrary() {
   };
 
   useEffect(() => {
-    getLibrary().then(adopt, (failure: Error) => setError(failure.message));
+    getWorkoutLibrary().then(adopt, (failure: Error) => setError(failure.message));
   }, []);
 
   const run = async (action: () => Promise<Library>) => {
@@ -34,7 +39,7 @@ export function WorkoutLibrary() {
 
   const reset = () => {
     if (!confirm('Replace your library with the built-in one? Your version is not kept.')) return;
-    void run(resetLibrary);
+    void run(resetWorkoutLibrary);
   };
 
   if (!library) return error ? <p className="error">{error}</p> : <p className="note">Loading…</p>;
@@ -50,7 +55,7 @@ export function WorkoutLibrary() {
       </p>
       <p className="note">
         Over MCP it is read-only, through <code>get_workout_library</code>. This panel and{' '}
-        <code>PUT /api/library</code> are the two ways to change it.
+        <code>PUT /api/workout-library</code> are the two ways to change it.
       </p>
 
       <textarea
@@ -64,7 +69,7 @@ export function WorkoutLibrary() {
       />
 
       <div className="actions">
-        <button className="primary" disabled={saving || !dirty} onClick={() => void run(() => saveLibrary(draft))}>
+        <button className="primary" disabled={saving || !dirty} onClick={() => void run(() => saveWorkoutLibrary(draft))}>
           {saving ? 'Saving…' : 'Save library'}
         </button>
         {dirty && (

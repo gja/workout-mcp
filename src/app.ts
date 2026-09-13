@@ -7,11 +7,11 @@ import { Router } from './router';
 import type { Handler } from './router';
 import * as account from './routes/account';
 import * as integrations from './routes/integrations';
-import * as library from './routes/library';
 import * as oauth from './routes/oauth';
 import * as recordings from './routes/recordings';
 import * as signin from './routes/signin';
 import * as webhooks from './routes/webhooks';
+import * as workoutLibrary from './routes/workout-library';
 import * as workouts from './routes/workouts';
 import { isCallerError } from './tools';
 
@@ -50,10 +50,10 @@ const routes = new Router<Context>({
   .mount(oauth.routes)
   .mount(account.routes)
   .mount(integrations.routes)
-  .mount(library.routes)
   .mount(webhooks.routes)
   .mount(recordings.routes)
-  .mount(workouts.routes);
+  .mount(workouts.routes)
+  .mount(workoutLibrary.routes);
 
 export const app = {
   async fetch(request: Request, env: Env): Promise<Response> {

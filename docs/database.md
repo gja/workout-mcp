@@ -79,7 +79,7 @@ are asked about a row that is about to be written over rather than read back:
 library; everyone else is served the built-in document straight out of the
 build. Nothing seeds a copy on sign-up, so improving the default reaches every
 athlete who has not overridden it, and a row is unambiguous evidence that
-somebody chose their text. See [library.md](library.md).
+somebody chose their text. See [workout-library.md](workout-library.md).
 
 ## Ordering rules for writes
 

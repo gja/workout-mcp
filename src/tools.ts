@@ -5,7 +5,7 @@ import { base64Encode, encodeWorkoutFit, fitDownloadName } from './fit';
 import { describeWorkout, plannedTotals } from './describe';
 import * as db from './db';
 import type { Env, User } from './db';
-import * as library from './library';
+import * as workoutLibrary from './workout-library';
 import * as plan from './plan';
 import { PLATFORMS } from './platforms';
 import * as recordings from './recordings';
@@ -236,7 +236,7 @@ export const TOOLS = [
       'the structures to build from, and how their plan is meant to progress. Read this before ' +
       'writing or changing a session, so what you write matches how this athlete trains. ' +
       'Returns markdown, and it is context rather than a schema — nothing in it is a tool argument. ' +
-      'Read-only here: the library is edited on the dashboard, or over the REST API at PUT /api/library.',
+      'Read-only here: the library is edited on the dashboard, or over the REST API at PUT /api/workout-library.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -416,12 +416,12 @@ export async function callTool(
     }
 
     case 'get_workout_library': {
-      const stored = await library.readLibrary(env, user.id);
+      const stored = await workoutLibrary.readLibrary(env, user.id);
       return {
         ...stored,
         note: stored.custom
-          ? 'The athlete\'s own library. Read-only here; they edit it on the dashboard, or over the API at PUT /api/library.'
-          : 'The built-in library: this athlete has not written their own. Read-only here; it is edited on the dashboard, or over the API at PUT /api/library.',
+          ? 'The athlete\'s own library. Read-only here; they edit it on the dashboard, or over the API at PUT /api/workout-library.'
+          : 'The built-in library: this athlete has not written their own. Read-only here; it is edited on the dashboard, or over the API at PUT /api/workout-library.',
       };
     }
 

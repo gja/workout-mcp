@@ -1,16 +1,17 @@
 // The workout library: reference prose an assistant reads before writing a session.
-// Read-only over MCP, editable from the dashboard or the API. See docs/library.md.
+// Read-only over MCP, editable from the dashboard or the API. See docs/workout-library.md.
 
-import type { Env } from '../db';
-import { DEFAULT_LIBRARY } from './default';
-import { fail } from '../units';
+import DEFAULT_MARKDOWN from './workout-library.md';
+import type { Env } from './db';
+import { fail } from './units';
 
-export { DEFAULT_LIBRARY };
+/** What ships in the box, used by every athlete who has not written their own. */
+export const DEFAULT_LIBRARY = DEFAULT_MARKDOWN;
 
 /** Generous for prose, small enough that one read stays one cheap D1 row. */
 export const MAX_LIBRARY_CHARS = 100_000;
 
-export type Library = {
+export type WorkoutLibrary = {
   markdown: string;
   /** False while the athlete is still on the built-in library. */
   custom: boolean;
@@ -18,9 +19,9 @@ export type Library = {
   updated_at: string | null;
 };
 
-const asDefault = (): Library => ({ markdown: DEFAULT_LIBRARY, custom: false, updated_at: null });
+const asDefault = (): WorkoutLibrary => ({ markdown: DEFAULT_LIBRARY, custom: false, updated_at: null });
 
-export async function readLibrary(env: Env, userId: string): Promise<Library> {
+export async function readLibrary(env: Env, userId: string): Promise<WorkoutLibrary> {
   const row = await env.DB.prepare('SELECT markdown, updated_at FROM workout_libraries WHERE user_id = ?')
     .bind(userId)
     .first<{ markdown: string; updated_at: string }>();
@@ -28,7 +29,7 @@ export async function readLibrary(env: Env, userId: string): Promise<Library> {
 }
 
 /** Empty means "back to the default", so it deletes rather than storing nothing. */
-export async function saveLibrary(env: Env, userId: string, markdown: unknown): Promise<Library> {
+export async function saveLibrary(env: Env, userId: string, markdown: unknown): Promise<WorkoutLibrary> {
   if (typeof markdown !== 'string') fail('markdown', 'expected the library as a markdown string');
   if (markdown.length > MAX_LIBRARY_CHARS) {
     fail('markdown', `the library may be at most ${MAX_LIBRARY_CHARS} characters, and that one is ${markdown.length}`);
@@ -49,7 +50,7 @@ export async function saveLibrary(env: Env, userId: string, markdown: unknown): 
 }
 
 /** Forget the athlete's own copy; the built-in library takes over again. */
-export async function resetLibrary(env: Env, userId: string): Promise<Library> {
+export async function resetLibrary(env: Env, userId: string): Promise<WorkoutLibrary> {
   await env.DB.prepare('DELETE FROM workout_libraries WHERE user_id = ?').bind(userId).run();
   return asDefault();
 }

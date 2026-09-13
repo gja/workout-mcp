@@ -88,10 +88,11 @@ reason the next section gives. See [recordings.md](recordings.md).
 
 `get_workout_library` returns the athlete's workout library — reference prose on
 how they train, worth reading before writing them a session — along with a note
-saying that the dashboard and `PUT /api/library` are the two ways to change it.
+saying that the dashboard and `PUT /api/workout-library` are the two ways to
+change it.
 There is deliberately no write tool: it is the athlete's standing instruction to
 an assistant, and an assistant that could edit it would be editing its own
-brief. See [library.md](library.md).
+brief. See [workout-library.md](workout-library.md).
 
 ### Only one tool result carries a URL
 

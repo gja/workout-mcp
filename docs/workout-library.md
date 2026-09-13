@@ -13,9 +13,9 @@ harmless.
 
 ## The default is not a copy
 
-`src/library/default.ts` ships in the build. An athlete who has never edited
-theirs has **no row** in `workout_libraries` — they are served the built-in
-document directly.
+`src/workout-library.md` ships in the build, imported as a string. An athlete
+who has never edited theirs has **no row** in `workout_libraries` — they are
+served the built-in document directly.
 
 That is deliberate. Seeding a copy per athlete on first sign-in would have been
 simpler at read time and wrong everywhere else: the moment the default improves,
@@ -31,25 +31,39 @@ default takes over again — including any improvements made since. Saving an
 empty document means the same thing as resetting, because there is no useful
 reading of "my library is nothing".
 
-### Why it is a `.ts` file and not a `.md` one
+### Importing markdown twice over
 
-It reads as markdown and would be nicer to edit as a markdown file, and it was
-one for about an hour. It cannot be: `wrangler deploy` bundles the Worker with
-**esbuild** and `vite build` bundles it with **rolldown**, and the two have no
-import spelling in common. `./default.md?raw` is what Vite wants and esbuild
-rejects for want of a loader; a bare `./default.md` is what esbuild takes, given
-a `Text` rule in `wrangler.jsonc`, and Vite then tries to parse the markdown as
-JavaScript. Neither tool is wrong, and the Workers build is the one that has to
-work. A module exporting a template literal needs nothing from either.
+The document is prose, so it stays a `.md` file rather than being escaped into
+a template literal — but nothing loads it for free, because the Worker is
+bundled by two different tools:
+
+| Build | Bundler | How the import resolves |
+| --- | --- | --- |
+| `wrangler deploy`, which is what Workers Builds runs | esbuild | the `Text` rule in `wrangler.jsonc` |
+| `vite build`, `vite dev` and the test suite | rolldown | `vite-markdown.ts` |
+
+Both take the same bare `import … from './workout-library.md'`, which is the
+point: the two halves have to agree on the spelling or one of them breaks. They
+nearly did not. `?raw` is Vite's spelling and esbuild rejects it for want of a
+loader — the first version of this feature deployed red for exactly that reason,
+with `vite build` and every test green. A `Text` rule alone is esbuild's
+spelling and rolldown then tries to parse the markdown as JavaScript. One plugin
+plus one rule is what it costs to keep the file a file.
+
+`vite-markdown.ts` is a `transform` hook rather than a `load` one, so it needs
+no filesystem access and stays out of the Node-typed half of the build; it is
+`enforce: 'pre'` because the markdown has to become JavaScript before anything
+downstream tries to parse it as such.
 
 ## Read-only over MCP
 
 `get_workout_library` returns the markdown and a note saying where it can be
-changed: the dashboard, or `PUT /api/library`. There is no write tool, and the
-asymmetry is the point. The library is how the athlete tells an assistant what
-their training looks like; an assistant that could rewrite it would be editing
-its own instructions, and a bad session would quietly become a bad *standing*
-instruction. Edits stay on the surfaces the athlete drives themselves.
+changed: the dashboard, or `PUT /api/workout-library`. There is no write tool,
+and the asymmetry is the point. The library is how the athlete tells an
+assistant what their training looks like; an assistant that could rewrite it
+would be editing its own instructions, and a bad session would quietly become a
+bad *standing* instruction. Edits stay on the surfaces the athlete drives
+themselves.
 
 The tool result carries `custom`, so an assistant can tell "this athlete wrote
 this" from "nobody has set one" and hedge accordingly.

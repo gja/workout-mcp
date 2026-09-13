@@ -25,9 +25,9 @@ session cookie set at login.
 | `DELETE /api/workouts/:date/:id.json` | Delete one |
 | `POST /api/workouts/:date/:id/complete` | Mark it done; `{completed_at}` optional, defaults to now |
 | `DELETE /api/workouts/:date/:id/complete` | Clear that, leaving the plan alone |
-| `GET /api/library` | The workout library an assistant reads, and whether it is the athlete's own |
-| `PUT /api/library` | `{markdown}` — replace it; an empty document means "use the built-in one" |
-| `DELETE /api/library` | Forget the athlete's own, going back to the built-in library |
+| `GET /api/workout-library` | The workout library an assistant reads, and whether it is the athlete's own |
+| `PUT /api/workout-library` | `{markdown}` — replace it; an empty document means "use the built-in one" |
+| `DELETE /api/workout-library` | Forget the athlete's own, going back to the built-in library |
 | `GET /api/config` | Every integration and where each one stands |
 | `PUT /api/config/:integration` | Answers 400: a platform is connected by OAuth, not by a body |
 | `DELETE /api/config/:integration` | Disconnect, forgetting what was stored for it |
@@ -65,8 +65,8 @@ pass is not what you want.
 
 A date may hold several workouts; each gets its own short id.
 
-`/api/library` is the only way to change the library: MCP reads it and cannot
-write it, for the reason [library.md](library.md) gives.
+`/api/workout-library` is the only way to change the library: MCP reads it and
+cannot write it, for the reason [workout-library.md](workout-library.md) gives.
 
 `.json` is a second spelling of any `/api/` path, for a browser or a `curl`
 that wants to name the format. It is stripped before routing, so each route is

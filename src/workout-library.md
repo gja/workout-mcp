@@ -1,8 +1,4 @@
-// The library every athlete starts on, kept as a module rather than a markdown
-// file: `wrangler deploy` bundles the Worker with esbuild and `vite build` with
-// rolldown, and the two disagree on how to import one. See docs/library.md.
-
-export const DEFAULT_LIBRARY = `# Triathlon Workout Library
+# Triathlon Workout Library
 ## Common Swim, Bike, and Run Workout Structures
  
 This document provides a reference library of common workout types and structures for swimming, cycling, and running. Use these as templates and inspiration when creating training sessions.
@@ -235,7 +231,7 @@ Long, steady efforts in Zones 1-2.
 - Main Set: 6 x 3 min at Threshold
   - Recovery: 2 min in the Easy band
 - Cool-down: 8 min in the Easy band
-Take the actual watt ranges from \`workout-zones.md\`.
+Take the actual watt ranges from `workout-zones.md`.
  
 ---
  
@@ -364,7 +360,7 @@ progression rather than one continuous surge.
 - Progression over weeks: lengthen the blocks first, then shift them quicker as
   the threshold band itself moves. Do not jump straight to goal race pace.
 
-Take the actual pace bands from \`workout-zones.md\`, and re-anchor them whenever
+Take the actual pace bands from `workout-zones.md`, and re-anchor them whenever
 the threshold band or the goal race pace changes.
 #### 8. **Strides / Speed**
 Short accelerations for neuromuscular development.
@@ -398,7 +394,7 @@ Combining disciplines back-to-back to practice transitions.
  
 ## WORKOUT INTENSITY ZONES
  
-Zones live in **\`workout-zones.md\`**. That file is the only place watt ranges, pace
+Zones live in **`workout-zones.md`**. That file is the only place watt ranges, pace
 ranges and heart rate ranges are recorded — do not copy them back into this document.
  
 Zone names used throughout this library (Easy, Endurance, Tempo, Threshold, VO2max)
@@ -437,4 +433,4 @@ map one-to-one onto the tables there.
 8. **Specificity matters** - race-specific intensity as event approaches
 ---
  
-This library provides foundational workout structures. Adapt distances, intervals, and intensities based on athlete fitness level, training phase, and race goals.`;
+This library provides foundational workout structures. Adapt distances, intervals, and intensities based on athlete fitness level, training phase, and race goals.
