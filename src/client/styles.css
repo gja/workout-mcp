@@ -323,11 +323,6 @@ code { background: var(--line); padding: 1px 5px; border-radius: 4px; font-size:
 
 .done-note { color: var(--done); font-size: 14px; }
 
-/* Wraps to its own lines on a phone rather than squeezing the date field. */
-.complete { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
-.complete label { font-size: 14px; }
-.complete input { flex: 0 1 auto; min-width: 0; padding: 6px 8px; font-size: 14px; }
-
 /* --- What was actually recorded ----------------------------------------- */
 
 .recorded { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }

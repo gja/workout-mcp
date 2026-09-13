@@ -46,12 +46,3 @@ export function relativeDate(key: string): string {
   if (days === -1) return `${label} · yesterday`;
   return label;
 }
-
-/** Local `YYYY-MM-DDTHH:mm`, the only shape `<input type="datetime-local">` accepts. */
-export function toLocalInput(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${toKey(date)}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-/** What that field gives back, as an instant the API can store. */
-export const fromLocalInput = (value: string): string => new Date(value).toISOString();
