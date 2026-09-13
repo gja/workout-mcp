@@ -206,6 +206,30 @@ describe('over MCP', () => {
     expect(update?.inputSchema.properties.kind.enum).toEqual(WRITABLE_KINDS);
   });
 
+  it('says in the schema what belongs in each kind, not only in a reply', () => {
+    const read = TOOLS.find((tool) => tool.name === 'get_context')!;
+    const update = TOOLS.find((tool) => tool.name === 'update_context')!;
+
+    // A client reads the tool list before it decides to call anything, so the
+    // names alone are not enough: it has to be able to tell the four apart.
+    for (const kind of CONTEXT_KINDS) {
+      expect(read.inputSchema.properties.kind.enum).toContain(kind);
+      expect(read.inputSchema.properties.kind.description).toContain(kind);
+      expect(read.inputSchema.properties.kind.description).toContain(CONTEXTS[kind].purpose);
+      expect(read.description).toContain(kind);
+    }
+
+    for (const kind of WRITABLE_KINDS) {
+      expect(update.inputSchema.properties.kind.enum).toContain(kind);
+      expect(update.inputSchema.properties.kind.description).toContain(CONTEXTS[kind].purpose);
+      expect(update.description).toContain(kind);
+    }
+
+    // And the one it may not write is named as such rather than merely absent.
+    expect(update.inputSchema.properties.kind.enum).not.toContain('workout-library');
+    expect(update.description).toContain('workout library');
+  });
+
   it('tells a planner to read the context first', () => {
     for (const name of ['create_workout', 'update_workout']) {
       expect(TOOLS.find((tool) => tool.name === name)?.description).toContain('get_context');

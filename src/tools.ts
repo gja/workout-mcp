@@ -126,10 +126,23 @@ const WORKOUT_PROPERTIES = {
   steps: STEP_SCHEMA,
 } as const;
 
-/** `"a", "b" and "c"` — the writable kinds named in prose, so the two descriptions cannot drift. */
-const WRITABLE_CONTEXTS = context.WRITABLE_KINDS.map((kind) => `"${kind}"`)
-  .join(', ')
-  .replace(/, ([^,]*)$/, ' and $1');
+/** `"a", "b" and "c"` — kinds named in prose, from one list, so no description can drift from it. */
+const nameKinds = (kinds: readonly context.ContextKind[]): string =>
+  kinds
+    .map((kind) => `"${kind}"`)
+    .join(', ')
+    .replace(/, ([^,]*)$/, ' and $1');
+
+/**
+ * What each kind is for, in the schema rather than only in a reply. A client
+ * reads the tool list before it decides to call anything, and "which document to
+ * replace" is no help to one deciding what belongs in a document it has not read.
+ */
+const describeKinds = (kinds: readonly context.ContextKind[]): string =>
+  kinds.map((kind) => `"${kind}": ${context.CONTEXTS[kind].purpose}`).join(' ');
+
+const ALL_CONTEXTS = nameKinds(context.CONTEXT_KINDS);
+const WRITABLE_CONTEXTS = nameKinds(context.WRITABLE_KINDS);
 
 /** The annotations are advisory — they shape how a client asks, not what the server allows. */
 export const TOOLS = [
@@ -245,9 +258,11 @@ export const TOOLS = [
       'Read this before planning a session or choosing a date for one — it is what makes a ' +
       'workout theirs rather than generic, and the zones every target should be anchored to ' +
       'are in it. Omit "kind" to get all of them in one call, which is the usual way to use ' +
-      'this. Each document comes back with what belongs in it, so an empty one is still worth ' +
-      'reading: it says what to ask the athlete for. This is context rather than schema — ' +
-      'nothing in it is a tool argument. ' +
+      `this. There are ${context.CONTEXT_KINDS.length}: ${ALL_CONTEXTS} — the "kind" property ` +
+      'below says what belongs in each. A document the athlete has not written comes back with ' +
+      'markdown: null, which is worth reading as it stands: it says what to ask them for, and ' +
+      'is not an invitation to assume a default. This is context rather than schema — nothing ' +
+      'in it is a tool argument. ' +
       `${WRITABLE_CONTEXTS} can be replaced with update_context; the workout library is ` +
       'read-only here and is edited on the dashboard, or over the REST API at ' +
       'PUT /api/context/workout-library.',
@@ -257,7 +272,9 @@ export const TOOLS = [
         kind: {
           type: 'string',
           enum: [...context.CONTEXT_KINDS],
-          description: 'One document. Omit this for all of them, which is usually what you want.',
+          description:
+            'One document. Omit this for all of them, which is usually what you want. ' +
+            describeKinds(context.CONTEXT_KINDS),
         },
       },
     },
@@ -286,7 +303,7 @@ export const TOOLS = [
         kind: {
           type: 'string',
           enum: [...context.WRITABLE_KINDS],
-          description: 'Which document to replace.',
+          description: `Which document to replace. ${describeKinds(context.WRITABLE_KINDS)}`,
         },
         markdown: {
           type: 'string',

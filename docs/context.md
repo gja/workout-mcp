@@ -77,6 +77,17 @@ what is there.
 failure this is all meant to prevent is a session written without reading any of
 it.
 
+### The kinds are discoverable before anything is called
+
+A client reads the tool list to decide what to call, so the names alone are not
+enough: `"which document to replace"` is no help to something deciding what
+belongs in a document it has not read. Both schemas therefore carry each kind's
+`purpose` in the `kind` property's description, generated from `CONTEXTS` rather
+than written out again — the enum and the prose come from one list, so neither
+can drift from the other or from the dashboard, which shows the same text. The
+`update_context` schema also names the library it *excludes*, so a client learns
+the library exists and is read-only rather than merely not finding it.
+
 ## 100 KB each, in bytes
 
 Refused on the way in rather than truncated, and measured in UTF-8 bytes rather
