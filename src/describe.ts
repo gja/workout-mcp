@@ -72,7 +72,11 @@ export function describeSteps(steps: ResolvedStep[], indent = ''): string[] {
 
 export function describeWorkout(workout: Workout): string {
   const sport = workout.sub_sport ? `${workout.sport}, ${workout.sub_sport.replace('_', ' ')}` : workout.sport;
-  return [`${workout.date} — ${workout.name} (${sport})`, ...describeSteps(resolveSteps(workout.steps), '  ')].join('\n');
+  const tags = workout.tags?.length ? ` [${workout.tags.join(', ')}]` : '';
+  return [
+    `${workout.date} — ${workout.name} (${sport})${tags}`,
+    ...describeSteps(resolveSteps(workout.steps), '  '),
+  ].join('\n');
 }
 
 /** A floor, not an estimate: `open_steps` counts what runs until a lap press. */

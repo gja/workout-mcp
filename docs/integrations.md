@@ -78,6 +78,15 @@ reason for every workout they write from then on to fail.
   exactly the structure we encode — nested repeats, open-ended steps, every
   target type — with no second serialiser to keep in step with the first. Their
   text format would need one, and its repeats do not nest.
+- **Tags go up beside it, as theirs.** A calendar event on intervals.icu carries
+  its own `tags` array, which their calendar filters on, so a workout's tags are
+  sent as that and need no translation. There is no upstream notion of a *key*
+  session to map onto: their only ranked category is a race — `RACE_A`, `RACE_B`,
+  `RACE_C` — and a hard Thursday is not a race. So the label an athlete chooses
+  is the whole of the meaning, and every workout we push stays a plain `WORKOUT`.
+  The list is sent on every push, empty included: a push is an upsert over the
+  event already there, and a tag taken off here is only taken off there by
+  arriving as its absence.
 - **A push is an upsert, not an append.** Every workout goes up under a sync key
   of ours — its own id, not the date or anything else the athlete can change — in
   the `external_id` intervals.icu matches against the events this app created. So

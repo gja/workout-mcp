@@ -146,6 +146,26 @@ describe('workout CRUD', () => {
     expect(read.planned.seconds).toBe(600 + 8 * 90 + 600);
   });
 
+  it('stores tags and reads them back, summary included', async () => {
+    const created = (await (
+      await call('/api/workouts', { method: 'POST', body: JSON.stringify({ ...INTERVALS, tags: ['key', 'track'] }) })
+    ).json()) as { date: string; id: string };
+
+    const read = (await (await call(`/api/workouts/${created.date}/${created.id}.json`)).json()) as {
+      tags: string[];
+      summary: string;
+    };
+    expect(read.tags).toEqual(['key', 'track']);
+    expect(read.summary.split('\n')[0]).toContain('[key, track]');
+
+    // Rewritten without them, the field goes rather than coming back empty.
+    await call(`/api/workouts/${created.date}/${created.id}.json`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...INTERVALS, tags: [] }),
+    });
+    expect(await (await call(`/api/workouts/${created.date}/${created.id}.json`)).json()).not.toHaveProperty('tags');
+  });
+
   it('reads a workout back by date and id', async () => {
     const { date, id } = await createIntervals();
     const response = await call(`/api/workouts/${date}/${id}.json`);
