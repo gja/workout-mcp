@@ -30,6 +30,44 @@ export function Faq() {
     <section>
       <h2>FAQ</h2>
       <Accordion>
+        <Section group="faq" title="What is your training tech stack?" hint="Four pieces">
+          <p className="note">
+            Four pieces, each doing one job.{' '}
+            <a href="https://claude.ai" target="_blank" rel="noreferrer">
+              Claude
+            </a>{' '}
+            is the coach: it knows what week of the block you are in, what you did yesterday and how it went, and it
+            writes the session.
+          </p>
+          <p className="note">
+            <a href={REPO_URL} target="_blank" rel="noreferrer">
+              WorkoutsMCP
+            </a>{' '}
+            — this — is how Claude writes it down. It turns "four by eight at threshold, three easy between" into a
+            real structured workout, keeps the plan somewhere you can see it, and syncs it out.
+          </p>
+          <p className="note">
+            <a href="https://intervals.icu" target="_blank" rel="noreferrer">
+              intervals.icu
+            </a>{' '}
+            is the calendar and the analysis. Planned sessions land on it, recorded ones come back, and your
+            thresholds live there so a target written as "threshold" means the right number for you today.
+          </p>
+          <p className="note">
+            <a href="https://www.watchletic.com" target="_blank" rel="noreferrer">
+              Watchletic
+            </a>{' '}
+            is what actually runs on the wrist. It pulls the workout off the intervals.icu calendar and plays it
+            through the intervals, so you follow the session instead of remembering it. intervals.icu has its own app
+            that will do this too, and it is free — but Watchletic is about $2, and for the features you get it is
+            worth every cent of it.
+          </p>
+          <p className="note">
+            None of this is required. WorkoutsMCP will hand you a <code>.fit</code> file to sideload onto any watch,
+            and the rest of the stack is swappable — this is just the one I use.
+          </p>
+        </Section>
+
         <Section group="faq" title="What does it cost?" hint="Nothing">
           <p className="note">
             WorkoutsMCP is free, and it is open source under the MIT licence. There is no paid tier, no trial and no
