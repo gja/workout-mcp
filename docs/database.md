@@ -73,6 +73,14 @@ are asked about a row that is about to be written over rather than read back:
 - `storedCompletion`, which reads the completion a row already carries so a
   rewrite can carry it across.
 
+## A row means "I have an opinion"
+
+`workout_libraries` holds a row only for an athlete who has edited their
+library; everyone else is served the built-in document straight out of the
+build. Nothing seeds a copy on sign-up, so improving the default reaches every
+athlete who has not overridden it, and a row is unambiguous evidence that
+somebody chose their text. See [library.md](library.md).
+
 ## Ordering rules for writes
 
 - **Check the date before deleting.** Callers that move a workout delete the
@@ -91,6 +99,7 @@ are asked about a row that is about to be written over rather than read back:
 | --- | --- |
 | `workouts` | The plan, one row per workout |
 | `users` | An account per *(provider, subject)* |
+| `workout_libraries` | An athlete's own workout library, only once they have written one |
 | `sessions` | Session id hashes |
 | `tokens` | API token hashes and their prefixes |
 | `login_states` | In-flight sign-ins, single use, ten minutes |

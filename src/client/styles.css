@@ -331,3 +331,23 @@ code { background: var(--line); padding: 1px 5px; border-radius: 4px; font-size:
   font-size: 13px;
 }
 .colophon a { color: inherit; }
+
+/* --- The workout library ------------------------------------------------ */
+
+/* Monospace and tall: it is markdown being edited, not a field being filled in. */
+textarea.library {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 340px;
+  resize: vertical;
+  margin-top: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  padding: 10px 12px;
+  background: var(--bg);
+  color: var(--ink);
+}

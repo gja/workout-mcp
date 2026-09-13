@@ -7,6 +7,7 @@ import { Router } from './router';
 import type { Handler } from './router';
 import * as account from './routes/account';
 import * as integrations from './routes/integrations';
+import * as library from './routes/library';
 import * as oauth from './routes/oauth';
 import * as recordings from './routes/recordings';
 import * as signin from './routes/signin';
@@ -49,6 +50,7 @@ const routes = new Router<Context>({
   .mount(oauth.routes)
   .mount(account.routes)
   .mount(integrations.routes)
+  .mount(library.routes)
   .mount(webhooks.routes)
   .mount(recordings.routes)
   .mount(workouts.routes);

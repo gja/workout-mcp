@@ -67,7 +67,7 @@ identically:
 
 `list_workouts`, `get_workout`, `create_workout`, `update_workout`,
 `delete_workout`, `complete_workout`, `export_workout_fit`,
-`list_recorded_workouts`.
+`get_workout_library`, `list_recorded_workouts`.
 
 Each is also reachable over REST at `POST /api/tools/<name>` with the same
 arguments, so a non-MCP client gets identical behaviour. The schemas live in
@@ -83,6 +83,15 @@ what they actually did, read back off a connected platform — and it is the too
 to reach for when the job is analysing real training rather than writing a
 session. It answers with a link to the files rather than the files, for the
 reason the next section gives. See [recordings.md](recordings.md).
+
+### The library is read-only here
+
+`get_workout_library` returns the athlete's workout library — reference prose on
+how they train, worth reading before writing them a session — along with a note
+saying that the dashboard and `PUT /api/library` are the two ways to change it.
+There is deliberately no write tool: it is the athlete's standing instruction to
+an assistant, and an assistant that could edit it would be editing its own
+brief. See [library.md](library.md).
 
 ### Only one tool result carries a URL
 
@@ -102,8 +111,8 @@ when the URL works for whoever ends up holding it, and not otherwise.
 
 ### Annotations
 
-`list_workouts`, `get_workout`, `export_workout_fit` and
-`list_recorded_workouts` carry `readOnlyHint`,
+`list_workouts`, `get_workout`, `get_workout_library`, `export_workout_fit`
+and `list_recorded_workouts` carry `readOnlyHint`,
 which is what lets a client group them apart from the writes and allow them
 without asking each time. `update_workout` and `delete_workout` carry
 `destructiveHint`. `complete_workout` is a write but not a destructive one — it

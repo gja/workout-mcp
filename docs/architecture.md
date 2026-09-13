@@ -13,6 +13,7 @@ src/drive/        a scheduled copier, no routes of its own
 src/recordings/   those same sessions as one signed, streaming ZIP download
 src/identity.ts   signing in with Google or Apple
 src/auth.ts       sessions, accounts and API tokens
+src/library.ts    the workout library: the built-in default, and an athlete's own
 src/tools.ts      the tool surface shared by MCP and REST
 src/mcp.ts        JSON-RPC over Streamable HTTP
 src/router.ts     a small path router: `:params`, and 405 apart from 404
@@ -22,6 +23,7 @@ src/routes/       one module per group of routes, each declaring its own paths
   oauth.ts          /oauth/authorize and /oauth/client: how an MCP client gets in
   account.ts        /api/me, /api/tokens, /api/connections
   integrations.ts   /api/config and /api/sync: training platforms
+  library.ts        /api/library: the markdown an assistant reads before planning
   recordings.ts     /api/recordings, and the signed ZIP download outside the door
   workouts.ts       /api/workouts, /api/tools and /export
 src/app.ts        the OAuth provider's defaultHandler: the table the rest mount onto
@@ -107,13 +109,18 @@ every conversion in `src/client/dates.ts` goes through *local* midnight.
 `toISOString` would push the date back a day for anyone west of Greenwich.
 
 One page, in a fixed order: masthead, calendar, a **Setup** accordion, then the
-FAQ. Setup holds the four panels — Integrations, Connect to Claude, API tokens,
-Connected apps — and each is a component that fetches its
-own slice, so opening one does not wait on the others. The accordion is `<details>` elements sharing a
-`name`, which is what makes a browser close the siblings: there is no open-panel
-state in React, and the panels still work with JavaScript half-loaded. The FAQ
+FAQ. Setup holds the five panels — Connect to Claude, Integrations, Workout
+library, API tokens, Connected apps — and each is a component that fetches its
+own slice, so opening one does not wait on the others. The accordion is
+`<details>` elements sharing a `name`, which is what makes a browser close the
+siblings: there is no open-panel state in React, and the panels still work with
+JavaScript half-loaded. The FAQ
 uses the same pair and renders signed out as well, which is the only part of the
 page a first-time visitor sees. Under it, one link: the privacy policy.
+
+The Workout library panel is the one with an editor in it. Its textarea is
+seeded from the server once per load and never re-seeded, so a save that
+answers with the stored document cannot overwrite what is being typed.
 
 Two Vite entries, not one: the dashboard and the OAuth consent screen. The
 privacy policy is neither — `public/privacy-policy.html` is a static file with
