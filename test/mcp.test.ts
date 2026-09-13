@@ -60,8 +60,11 @@ describe('protocol', () => {
 
     expect(readOnly.sort()).toEqual([
       'export_workout_fit',
-      'get_context',
+      'get_current_plan',
+      'get_scheduling_instructions',
       'get_workout',
+      'get_workout_library',
+      'get_workout_zones',
       'list_recorded_workouts',
       'list_workouts',
     ]);

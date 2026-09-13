@@ -141,8 +141,47 @@ const nameKinds = (kinds: readonly context.ContextKind[]): string =>
 const describeKinds = (kinds: readonly context.ContextKind[]): string =>
   kinds.map((kind) => `"${kind}": ${context.CONTEXTS[kind].purpose}`).join(' ');
 
-const ALL_CONTEXTS = nameKinds(context.CONTEXT_KINDS);
 const WRITABLE_CONTEXTS = nameKinds(context.WRITABLE_KINDS);
+
+/** `get_current_plan, get_workout_zones and …` — read tools named in prose, from one list. */
+const nameTools = (kinds: readonly context.ContextKind[]): string =>
+  kinds
+    .map((kind) => context.readToolName(kind))
+    .join(', ')
+    .replace(/, ([^,]*)$/, ' and $1');
+
+/** The other three, to read alongside whichever one a tool is the reader for. */
+const siblingTools = (kind: context.ContextKind): string =>
+  nameTools(context.CONTEXT_KINDS.filter((other) => other !== kind));
+
+/** Every context read tool: named per document, and all the same shape but the prose. */
+const CONTEXT_READ_TOOLS: Record<string, context.ContextKind> = Object.fromEntries(
+  context.CONTEXT_KINDS.map((kind) => [context.readToolName(kind), kind]),
+);
+
+/**
+ * The parts of a read tool that are the same for all four, so the four entries
+ * below are their names and nothing else. Only `name` is written out, because a
+ * spread would stop it being a literal type.
+ */
+const readsContext = (kind: context.ContextKind) => {
+  const { label, purpose, writableOverMcp } = context.CONTEXTS[kind];
+  return {
+    annotations: { title: `Read the athlete's ${label.toLowerCase()}`, readOnlyHint: true, openWorldHint: false },
+    description:
+      `${purpose} Returns markdown, which is context rather than schema — nothing in it is a ` +
+      'tool argument. A document the athlete has not written comes back as markdown: null, and ' +
+      'that is worth reading as it stands: it says what to ask them for, and is not licence to ' +
+      'assume a default. ' +
+      (writableOverMcp
+        ? 'Replace it with update_context, once the athlete has agreed to what would go in it. '
+        : 'Read-only here: it is edited on the dashboard, or over the REST API at ' +
+          `PUT /api/context/${kind}. `) +
+      `Read this alongside ${siblingTools(kind)} before planning a session or choosing a date ` +
+      'for one: together they are what makes a workout this athlete\'s rather than generic.',
+    inputSchema: { type: 'object', properties: {} },
+  };
+};
 
 /** The annotations are advisory — they shape how a client asks, not what the server allows. */
 export const TOOLS = [
@@ -180,8 +219,9 @@ export const TOOLS = [
     description:
       'Create a planned workout on a date and return its id. ' +
       'A date may hold several workouts; each gets its own id. ' +
-      'Call get_context first: it says how this athlete trains, what plan they are on, ' +
-      'which days they train, and the zones a target should be anchored to.',
+      `Read the athlete's context first — ${nameTools(context.CONTEXT_KINDS)} — for how they ` +
+      'train, what plan they are on, which days they train, and the zones a target should be ' +
+      'anchored to.',
     inputSchema: { type: 'object', properties: WORKOUT_PROPERTIES, required: ['date', 'steps'] },
   },
   {
@@ -189,7 +229,7 @@ export const TOOLS = [
     annotations: { title: 'Replace a planned workout', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     description:
       'Replace an existing workout in full. The id is kept; the date may be changed to move the ' +
-      'workout. As with create_workout, get_context says how this athlete trains and when.',
+      `workout. As with create_workout, read ${nameTools(context.CONTEXT_KINDS)} first.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -250,35 +290,10 @@ export const TOOLS = [
       required: ['date', 'id'],
     },
   },
-  {
-    name: 'get_context',
-    annotations: { title: "Read the athlete's context", readOnlyHint: true, openWorldHint: false },
-    description:
-      "Read the athlete's context: the markdown documents describing how they train. " +
-      'Read this before planning a session or choosing a date for one — it is what makes a ' +
-      'workout theirs rather than generic, and the zones every target should be anchored to ' +
-      'are in it. Omit "kind" to get all of them in one call, which is the usual way to use ' +
-      `this. There are ${context.CONTEXT_KINDS.length}: ${ALL_CONTEXTS} — the "kind" property ` +
-      'below says what belongs in each. A document the athlete has not written comes back with ' +
-      'markdown: null, which is worth reading as it stands: it says what to ask them for, and ' +
-      'is not an invitation to assume a default. This is context rather than schema — nothing ' +
-      'in it is a tool argument. ' +
-      `${WRITABLE_CONTEXTS} can be replaced with update_context; the workout library is ` +
-      'read-only here and is edited on the dashboard, or over the REST API at ' +
-      'PUT /api/context/workout-library.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        kind: {
-          type: 'string',
-          enum: [...context.CONTEXT_KINDS],
-          description:
-            'One document. Omit this for all of them, which is usually what you want. ' +
-            describeKinds(context.CONTEXT_KINDS),
-        },
-      },
-    },
-  },
+  { name: 'get_workout_library', ...readsContext('workout-library') },
+  { name: 'get_current_plan', ...readsContext('current-plan') },
+  { name: 'get_scheduling_instructions', ...readsContext('scheduling-instructions') },
+  { name: 'get_workout_zones', ...readsContext('workout-zones') },
   {
     name: 'update_context',
     annotations: {
@@ -291,7 +306,7 @@ export const TOOLS = [
     description:
       'Replace one context document in full. This is the athlete\'s own standing brief to an ' +
       'assistant rather than a workout, so it outlives the conversation it was written in: ' +
-      'read the document first with get_context, show the athlete what you mean to put there, ' +
+      'read the document first with its own tool, show the athlete what you mean to put there, ' +
       'and call this only once they have agreed to it. Send the whole document — there is no ' +
       'partial edit, and what you send replaces what is there. An empty document clears it, and ' +
       `one over ${context.MAX_CONTEXT_BYTES / 1024} KB is refused rather than truncated. ` +
@@ -303,7 +318,9 @@ export const TOOLS = [
         kind: {
           type: 'string',
           enum: [...context.WRITABLE_KINDS],
-          description: `Which document to replace. ${describeKinds(context.WRITABLE_KINDS)}`,
+          description:
+            `Which document to replace, each read by a tool of its own. ` +
+            `${describeKinds(context.WRITABLE_KINDS)}`,
         },
         markdown: {
           type: 'string',
@@ -402,6 +419,10 @@ export async function callTool(
 ): Promise<unknown> {
   const args = asObject(rawArgs);
 
+  // One tool per context document, all answered the same way. See src/context.ts.
+  const contextKind = CONTEXT_READ_TOOLS[name];
+  if (contextKind) return await context.readContext(env, user.id, contextKind);
+
   switch (name) {
     case 'list_workouts': {
       const from = args.from === undefined ? undefined : parseDate(args.from, 'from');
@@ -487,14 +508,6 @@ export async function callTool(
         bytes: bytes.length,
         base64: base64Encode(bytes),
       };
-    }
-
-    case 'get_context': {
-      if (args.kind === undefined || args.kind === null) {
-        return { contexts: await context.readEveryContext(env, user.id) };
-      }
-      if (!context.isContextKind(args.kind)) throw new ToolError(`unknown context "${String(args.kind)}"`);
-      return await context.readContext(env, user.id, args.kind);
     }
 
     case 'update_context': {

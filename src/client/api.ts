@@ -115,6 +115,8 @@ export type ContextDocument = {
   /** True when clearing theirs leaves a document behind rather than nothing. */
   has_built_in: boolean;
   writable_over_mcp: boolean;
+  /** The MCP tool an assistant reads this one with. */
+  read_tool: string;
   updated_at: string | null;
 };
 

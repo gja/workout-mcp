@@ -55,14 +55,22 @@ with `vite build` and every test green. A `Text` rule alone is esbuild's
 spelling and rolldown then tries to parse the markdown as JavaScript. One plugin
 plus one rule is what it costs to keep the file a file.
 
-## Reading and writing, and why they are two tools
+## Four tools to read, one to write
 
-`get_context` reads — one kind, or all four in one call, which is the usual way
-to use it. `update_context` writes, and it is deliberately a **separate tool**
-rather than a mode of the first. An MCP client asks about tools one at a time,
-so an athlete can allow reading their context freely and still be asked every
-time something wants to rewrite it. Folding the write into the read would have
-made "look at my zones" and "replace my zones" the same permission.
+Each document has its own read tool — `get_workout_library`, `get_current_plan`,
+`get_scheduling_instructions`, `get_workout_zones` — rather than one tool taking
+a `kind`. The tool list is what a client reads *before* it decides to call
+anything, and a document reachable only through an argument is one it has to
+already know to look for. Four named tools put "this athlete has zones" in front
+of it without being asked. They are generated from one list (`readToolName` in
+`src/context.ts`), and a test fails if a kind is added without one.
+
+`update_context` writes, is a single tool taking the `kind`, and is deliberately
+**separate** from the readers. An MCP client asks about tools one at a time, so
+an athlete can allow reading their context freely and still be asked every time
+something wants to rewrite it. Folding the write into a reader would have made
+"look at my zones" and "replace my zones" the same permission. One writer rather
+than three keeps that approval a single decision instead of three.
 
 `workout-library` is not writable over MCP at all; `update_context` refuses it
 and says where it is edited. The library is the athlete's standing brief — an
@@ -73,20 +81,20 @@ athlete should be able to write it down. The tool description says to show the
 athlete the document first, and there is no partial edit: what you send replaces
 what is there.
 
-`create_workout` and `update_workout` both point at `get_context`, because the
-failure this is all meant to prevent is a session written without reading any of
-it.
+`create_workout` and `update_workout` name all four readers, because the failure
+this is all meant to prevent is a session written without reading any of them.
 
 ### The kinds are discoverable before anything is called
 
-A client reads the tool list to decide what to call, so the names alone are not
+A client reads the tool list to decide what to call, so a name alone is not
 enough: `"which document to replace"` is no help to something deciding what
-belongs in a document it has not read. Both schemas therefore carry each kind's
-`purpose` in the `kind` property's description, generated from `CONTEXTS` rather
-than written out again — the enum and the prose come from one list, so neither
-can drift from the other or from the dashboard, which shows the same text. The
-`update_context` schema also names the library it *excludes*, so a client learns
-the library exists and is read-only rather than merely not finding it.
+belongs in a document it has not read. Every read tool's description therefore
+opens with that document's `purpose`, and `update_context`'s `kind` property
+carries the purpose of each kind it accepts — all generated from `CONTEXTS`
+rather than written out again, so the enum, the tool prose and the dashboard
+cannot drift apart. `update_context` also names the library it *excludes*, so a
+client learns the library exists and is read-only rather than merely not finding
+it.
 
 ## 100 KB each, in bytes
 

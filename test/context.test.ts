@@ -1,6 +1,6 @@
 import { SELF } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { CONTEXTS, CONTEXT_KINDS, MAX_CONTEXT_BYTES, WRITABLE_KINDS } from '../src/context';
+import { CONTEXTS, CONTEXT_KINDS, MAX_CONTEXT_BYTES, WRITABLE_KINDS, readToolName } from '../src/context';
 import { TOOLS } from '../src/tools';
 import { resetDatabase, seedUser } from './helpers';
 import { readZip } from './zip-reader';
@@ -29,6 +29,7 @@ type Document = {
   custom: boolean;
   has_built_in: boolean;
   writable_over_mcp: boolean;
+  read_tool: string;
   updated_at: string | null;
 };
 
@@ -47,10 +48,14 @@ describe('the four documents', () => {
     ]);
   });
 
-  it('reads them all in one call, each saying what belongs in it', async () => {
+  it('reads them all in one call, each saying what belongs in it and who reads it', async () => {
     const { contexts } = await (await call('/api/context')).json<{ contexts: Document[] }>();
     expect(contexts.map((document) => document.kind)).toEqual(CONTEXT_KINDS);
-    for (const document of contexts) expect(document.purpose.length).toBeGreaterThan(20);
+    for (const document of contexts) {
+      expect(document.purpose.length).toBeGreaterThan(20);
+      // The dashboard names the tool an assistant will call, rather than guessing at it.
+      expect(document.read_tool).toBe(readToolName(document.kind as never));
+    }
   });
 
   it('gives the library a built-in document and the other three nothing', async () => {
@@ -162,19 +167,31 @@ describe('over MCP', () => {
     };
   };
 
-  it('reads every document in one call', async () => {
-    const result = await rpc('get_context', {});
-    const contexts = result.result?.structuredContent?.contexts as Document[];
-    expect(contexts.map((document) => document.kind)).toEqual(CONTEXT_KINDS);
+  it('gives every kind a read tool of its own', () => {
+    const names = TOOLS.map((tool) => tool.name);
+    for (const kind of CONTEXT_KINDS) expect(names).toContain(readToolName(kind));
+    // A document reachable only through an argument is one a client has to know to look for.
+    expect(names).not.toContain('get_context');
   });
 
-  it('reads one by kind', async () => {
-    await write('workout-zones', '# Zones\n\nThreshold 250W.');
-    const result = await rpc('get_context', { kind: 'workout-zones' });
-    expect(result.result?.structuredContent).toMatchObject({ markdown: '# Zones\n\nThreshold 250W.', custom: true });
+  it('reads each document through its own tool', async () => {
+    for (const kind of WRITABLE_KINDS) {
+      await write(kind, `# ${kind}`);
+      const result = await rpc(readToolName(kind), {});
+      expect(result.result?.isError, JSON.stringify(result.result)).toBeFalsy();
+      expect(result.result?.structuredContent).toMatchObject({ kind, markdown: `# ${kind}`, custom: true });
+    }
+
+    const library = await rpc('get_workout_library', {});
+    expect(library.result?.structuredContent).toMatchObject({ markdown: LIBRARY, custom: false });
   });
 
-  it('writes the three that are the athlete\'s to dictate', async () => {
+  it('says a document is unset rather than answering with something', async () => {
+    const result = await rpc('get_workout_zones', {});
+    expect(result.result?.structuredContent).toMatchObject({ markdown: null, custom: false });
+  });
+
+  it('writes the three that are the athlete\'s to dictate, through one tool', async () => {
     for (const kind of WRITABLE_KINDS) {
       const result = await rpc('update_context', { kind, markdown: `# ${kind}` });
       expect(result.result?.isError, JSON.stringify(result.result)).toBeFalsy();
@@ -194,45 +211,46 @@ describe('over MCP', () => {
     expect(result.result?.isError).toBe(true);
   });
 
-  it('offers exactly one read tool and one write tool for context', () => {
-    const names = TOOLS.map((tool) => tool.name);
-    expect(names.filter((name) => name.endsWith('_context'))).toEqual(['get_context', 'update_context']);
+  it('reads through four tools and writes through one', () => {
+    const readerNames = CONTEXT_KINDS.map(readToolName);
+    const readers = TOOLS.filter((tool) => readerNames.includes(tool.name));
+    expect(readers).toHaveLength(CONTEXT_KINDS.length);
+    for (const tool of readers) expect(tool.annotations.readOnlyHint).toBe(true);
 
-    const read = TOOLS.find((tool) => tool.name === 'get_context');
-    const update = TOOLS.find((tool) => tool.name === 'update_context');
-    expect(read?.annotations.readOnlyHint).toBe(true);
-    // Its own tool, so a client asks about writing the athlete's brief separately from reading it.
-    expect(update?.annotations.readOnlyHint).toBe(false);
-    expect(update?.inputSchema.properties.kind.enum).toEqual(WRITABLE_KINDS);
+    // One write tool, so a client asks about rewriting the athlete's brief once and separately.
+    const writers = TOOLS.filter((tool) => !tool.annotations.readOnlyHint && tool.name.endsWith('_context'));
+    expect(writers.map((tool) => tool.name)).toEqual(['update_context']);
+
+    const update = TOOLS.find((tool) => tool.name === 'update_context')!;
+    expect(update.inputSchema.properties.kind.enum).toEqual(WRITABLE_KINDS);
   });
 
-  it('says in the schema what belongs in each kind, not only in a reply', () => {
-    const read = TOOLS.find((tool) => tool.name === 'get_context')!;
-    const update = TOOLS.find((tool) => tool.name === 'update_context')!;
-
-    // A client reads the tool list before it decides to call anything, so the
-    // names alone are not enough: it has to be able to tell the four apart.
+  it('says in each read tool what belongs in that document, and names the others', () => {
     for (const kind of CONTEXT_KINDS) {
-      expect(read.inputSchema.properties.kind.enum).toContain(kind);
-      expect(read.inputSchema.properties.kind.description).toContain(kind);
-      expect(read.inputSchema.properties.kind.description).toContain(CONTEXTS[kind].purpose);
-      expect(read.description).toContain(kind);
+      const tool = TOOLS.find((candidate) => candidate.name === readToolName(kind))!;
+      expect(tool.description).toContain(CONTEXTS[kind].purpose);
+      // Reading one without the rest is how a session ends up planned against half the picture.
+      for (const other of CONTEXT_KINDS) {
+        if (other !== kind) expect(tool.description).toContain(readToolName(other));
+      }
     }
+  });
 
+  it('says in the write schema what belongs in each kind it accepts', () => {
+    const update = TOOLS.find((tool) => tool.name === 'update_context')!;
     for (const kind of WRITABLE_KINDS) {
       expect(update.inputSchema.properties.kind.enum).toContain(kind);
       expect(update.inputSchema.properties.kind.description).toContain(CONTEXTS[kind].purpose);
-      expect(update.description).toContain(kind);
     }
-
-    // And the one it may not write is named as such rather than merely absent.
+    // The one it may not write is named as such rather than merely absent.
     expect(update.inputSchema.properties.kind.enum).not.toContain('workout-library');
     expect(update.description).toContain('workout library');
   });
 
-  it('tells a planner to read the context first', () => {
+  it('tells a planner to read every document first', () => {
     for (const name of ['create_workout', 'update_workout']) {
-      expect(TOOLS.find((tool) => tool.name === name)?.description).toContain('get_context');
+      const description = TOOLS.find((tool) => tool.name === name)!.description;
+      for (const kind of CONTEXT_KINDS) expect(description).toContain(readToolName(kind));
     }
   });
 });

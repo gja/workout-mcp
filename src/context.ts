@@ -60,6 +60,14 @@ export const CONTEXTS: Record<ContextKind, Definition> = {
 
 export const CONTEXT_KINDS = Object.keys(CONTEXTS) as ContextKind[];
 
+/**
+ * The MCP tool that reads each kind. One named tool per document rather than a
+ * `kind` argument, so a client browsing the tool list sees that zones and
+ * scheduling instructions exist at all — an enum value is only discoverable to
+ * something that has already decided to look inside the tool.
+ */
+export const readToolName = (kind: ContextKind): string => `get_${kind.replace(/-/g, '_')}`;
+
 /** The kinds an assistant may write, which is every kind but the library. */
 export const WRITABLE_KINDS = CONTEXT_KINDS.filter((kind) => CONTEXTS[kind].writableOverMcp);
 
@@ -81,6 +89,8 @@ export type ContextDocument = {
   has_built_in: boolean;
   /** True when an assistant may replace it with update_context. */
   writable_over_mcp: boolean;
+  /** The MCP tool that reads this one, so the dashboard names what an assistant will call. */
+  read_tool: string;
   /** When they last saved it, or null while it is the built-in document or unset. */
   updated_at: string | null;
 };
@@ -100,6 +110,7 @@ function present(kind: ContextKind, stored: Stored | null): ContextDocument {
     custom: stored !== null,
     has_built_in: definition.builtIn !== null,
     writable_over_mcp: definition.writableOverMcp,
+    read_tool: readToolName(kind),
     updated_at: stored ? stored.updated_at : null,
   };
 }

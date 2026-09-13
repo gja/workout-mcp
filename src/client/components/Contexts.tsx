@@ -55,12 +55,12 @@ function Editor({
       <p className="note">
         {document.writable_over_mcp ? (
           <>
-            An assistant can read this with <code>get_context</code> and replace it with{' '}
+            An assistant reads this with <code>{document.read_tool}</code> and replaces it with{' '}
             <code>update_context</code> — so it will ask before changing it.
           </>
         ) : (
           <>
-            Read-only over MCP, through <code>get_context</code>. This panel and{' '}
+            Read-only over MCP, through <code>{document.read_tool}</code>. This panel and{' '}
             <code>PUT /api/context/{document.kind}</code> are the two ways to change it.
           </>
         )}
