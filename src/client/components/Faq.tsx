@@ -112,18 +112,37 @@ export function Faq() {
             sold.
           </p>
           <p className="note">
-            What gets stored is the workouts you plan and whether you marked them done — nothing else about the
-            session, and nothing at all about you beyond what signing in and syncing need: your email address, your
-            login session, and any training-platform key you connect, which is encrypted at rest.
+            What gets stored is the workouts you plan, whether you marked them done, and — once your training platform
+            says you recorded the session — some basic stats about how it went. Nothing at all about you beyond what
+            signing in and syncing need: your email address, your login session, and any training-platform key you
+            connect, which is encrypted at rest.
           </p>
           <p className="note">
-            Put plainly: I don't want your data. No heart-rate streams, no GPS tracks, no activity history — there is
-            nothing I would do with any of it, and no plans to start collecting it.
+            Basic means totals and averages: how long, how far, average and maximum heart rate, a row per lap with its
+            pace and cadence, and each lap's four quarters so a fade inside a rep is visible. That is enough to say
+            whether you actually did the session. It is <em>not</em> second-by-second data — no heart-rate stream, no
+            GPS track, nothing about where you were. The file is read once, the numbers are kept and the file is
+            thrown away.
           </p>
           <p className="note">
-            The one thing that passes through is a session you recorded, on its way to you when you ask for it. It is
-            relayed straight from your training platform to your download in a single request and never written down
-            here — not the file, not a note that you asked.
+            Exactly which figures, with nothing left out, is{' '}
+            <a href={`${REPO_URL}/blob/main/src/stats.ts`} target="_blank" rel="noreferrer">
+              src/stats.ts
+            </a>
+            , and the reasoning behind it is in{' '}
+            <a href={`${REPO_URL}/blob/main/docs/stats.md`} target="_blank" rel="noreferrer">
+              docs/stats.md
+            </a>
+            . Read them rather than taking my word for it.
+          </p>
+          <p className="note">
+            Put plainly: I don't want your data. Beyond those numbers there is no activity history and no files from
+            your watch — there is nothing I would do with any of it, and no plans to start collecting it.
+          </p>
+          <p className="note">
+            The recordings themselves only pass through. When you ask for them they are relayed straight from your
+            training platform to your download in a single request, and never written down here — not the file, not a
+            note that you asked.
           </p>
           <p className="note">
             Want it all deleted? Write to <a href="mailto:tejas@gja.in">tejas@gja.in</a> and it goes. The long version,
@@ -133,8 +152,14 @@ export function Faq() {
 
         <Section group="faq" title="How do I analyse my data?" hint="Download what you recorded">
           <p className="note">
-            Ask an assistant for the sessions you recorded over a date range and it hands you a link; follow it and
-            you get a <code>.zip</code> of the FIT files your watch produced, one per session, plus a{' '}
+            For a session you planned here, most of the answer is already waiting: ask your assistant how last week
+            went and it reads the stats stored against each workout — lap by lap, against the targets you planned —
+            without downloading anything. The calendar shows the same thing: open a session you have done and every
+            lap is there beside what it was aimed at.
+          </p>
+          <p className="note">
+            For everything else, ask it for the sessions you recorded over a date range and it hands you a link;
+            follow it and you get a <code>.zip</code> of the FIT files your watch produced, one per session, plus a{' '}
             <code>manifest.json</code> saying what is in it. Up to a fortnight at a time — for longer, ask twice.
           </p>
           <p className="note">

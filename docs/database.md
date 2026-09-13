@@ -35,7 +35,10 @@ SELECT json_array_length(steps) FROM workouts WHERE user_id = ?;
 ```
 
 The tags are the same bargain in miniature: a TEXT column holding a JSON array
-of strings, `CHECK (json_valid(tags))`, and NULL for none.
+of strings, `CHECK (json_valid(tags))`, and NULL for none. So is `stats`, the
+recorded session read off the FIT file the platform holds — one object with a
+list of laps inside it, which is no more a set of columns than the steps are.
+NULL means no session has come back. See [stats.md](stats.md).
 
 Everything else about a workout — date, name, sport, notes — is a real column.
 
@@ -101,7 +104,7 @@ SQL — the set of kinds lives in `src/context.ts`. See [context.md](context.md)
 
 | Table | Holds |
 | --- | --- |
-| `workouts` | The plan, one row per workout |
+| `workouts` | The plan, one row per workout, and the stats of the session recorded against it |
 | `users` | An account per *(provider, subject)* |
 | `contexts` | An athlete's context documents, one row per kind they have written |
 | `sessions` | Session id hashes |

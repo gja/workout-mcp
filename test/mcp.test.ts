@@ -64,6 +64,7 @@ describe('protocol', () => {
       'get_scheduling_instructions',
       'get_workout',
       'get_workout_library',
+      'get_workout_stats',
       'get_workout_zones',
       'list_recorded_workouts',
       'list_workouts',

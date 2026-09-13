@@ -3,8 +3,9 @@
 Plan structured workouts over MCP or a plain REST API, then export them as
 Garmin **FIT** workout files. One Cloudflare Worker, a D1 database, and a
 static dashboard, all on the free tier. Sign in with Google or Apple; connect
-intervals.icu and the plan syncs both ways, with the sessions you record
-downloadable as a zip of FIT files to analyse wherever you like.
+intervals.icu and the plan syncs both ways: the sessions you record come back
+as stats against the workout they were for, and the files themselves are
+downloadable as a zip to analyse wherever you like.
 
 New here? Start with [docs/deployment.md](docs/deployment.md) to get it
 running, then [docs/workouts.md](docs/workouts.md) to write one.
@@ -104,7 +105,7 @@ gets stored versus what is derived at export time.
 Connecting an assistant. Covers the OAuth 2.1 flow a browser-capable client
 does on its own, which endpoints Cloudflare's provider library owns and which
 one is ours, and the static `wk_` token path for clients that only take a
-header. Lists the seven tools and their read-only and destructive annotations,
+header. Lists every tool and its read-only and destructive annotations,
 and explains why no tool result ever carries a URL — an assistant handed a link
 passes the link on instead of calling the tool.
 
@@ -155,6 +156,15 @@ costs to be a four-hour bearer token, and why a fortnight and forty sessions are
 the caps — a Worker's subrequest budget, not storage. Then the streaming ZIP
 itself, stored rather than deflated to spend no CPU, and the manifest it writes
 last.
+
+### [docs/stats.md](docs/stats.md)
+
+What the athlete actually did, read off the recorded FIT file once and stored
+with the workout, so a weekly review needs no second download. Covers the
+payload — session totals, one lap per segment, four quarters each, the target
+band a lap was run against — and the rules that keep it honest: the mapping is
+withheld rather than guessed when laps and plan do not line up, missing data is
+null and never zero, and the record stream itself is deliberately not kept.
 
 ### [docs/database.md](docs/database.md)
 

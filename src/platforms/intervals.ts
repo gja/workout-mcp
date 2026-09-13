@@ -135,13 +135,17 @@ async function readJson<T>(response: Response): Promise<T> {
 }
 
 type Event = { id?: number; push_errors?: unknown[] };
-type Activity = { paired_event_id?: number | null; start_date?: string | null; start_date_local?: string | null };
-
-type RecordedActivity = Activity & {
+type Activity = {
   id?: string | null;
-  name?: string | null;
+  paired_event_id?: number | null;
+  start_date?: string | null;
+  start_date_local?: string | null;
   /** What the athlete uploaded — `fit`, `gpx`, `tcx` — or absent for Strava and manual entries. */
   file_type?: string | null;
+};
+
+type RecordedActivity = Activity & {
+  name?: string | null;
   /** Their activity type, e.g. `Run`, `TrailRun`, `VirtualRide`. */
   type?: string | null;
   distance?: number | null;
@@ -238,8 +242,8 @@ export const intervals: Platform = {
     const query = new URLSearchParams({
       oldest: from,
       newest: to,
-      // Their default is every field of every activity; these four are all pairing needs.
-      fields: 'id,paired_event_id,start_date,start_date_local',
+      // Their default is every field of every activity; these are all pairing and the stats need.
+      fields: 'id,paired_event_id,start_date,start_date_local,file_type',
     });
     const activities = await readJson<Activity[]>(
       await call(token, `/athlete/${ATHLETE}/activities?${query}`),
@@ -250,7 +254,14 @@ export const intervals: Platform = {
     for (const activity of activities) {
       if (!activity?.paired_event_id) continue;
       const completedAt = startedAt(activity);
-      if (completedAt) completions.push({ remote_id: String(activity.paired_event_id), completed_at: completedAt });
+      if (!completedAt) continue;
+      completions.push({
+        remote_id: String(activity.paired_event_id),
+        completed_at: completedAt,
+        activity: activity.id
+          ? { remote_id: String(activity.id), original_type: activity.file_type ?? null }
+          : null,
+      });
     }
     return completions;
   },

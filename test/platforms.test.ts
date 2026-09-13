@@ -2,7 +2,11 @@ import { SELF, createScheduledController, env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Decoder, Stream } from '@garmin/fitsdk';
 import worker from '../src/index';
+import { STATS_ATTEMPTS } from '../src/platforms';
 import { shiftDate, today } from '../src/units';
+import { base64Encode } from '../src/fit';
+import { encodeActivityFit } from './activity-fit';
+import type { LapSpec } from './activity-fit';
 import { connectIntervals, resetDatabase, seedUser } from './helpers';
 
 const BASE = 'https://workouts.example';
@@ -536,5 +540,136 @@ describe('the intervals.icu webhook', () => {
     await control('setup', { failing: { '/activities': 500 } });
 
     expect((await post(analysed())).status).toBe(502);
+  });
+
+  /** `WORKOUT` above, as the athlete ran it: a warmup and eight 400s, nine laps. */
+  const AS_RUN = encodeActivityFit({
+    laps: [
+      { seconds: 600, speed: 2.7, hr: [100, 145] },
+      ...Array.from({ length: 8 }, (): LapSpec => ({ seconds: 98, speed: 400 / 98, hr: [150, 172] })),
+    ],
+  });
+
+  /** Paired, and with a FIT file of its own behind it. */
+  const pairARecording = async (eventId: number, recording = AS_RUN) =>
+    control('setup', {
+      activities: [
+        { id: 'w1', paired_event_id: eventId, start_date_local: `${DAY}T06:30:00`, file_type: 'fit' },
+      ],
+      recordings: { w1: base64Encode(recording) },
+    });
+
+  const recordingCalls = async () =>
+    (await control<{ requests: Array<{ path: string }> }>('state')).requests.filter((request) =>
+      /^\/api\/v1\/activity\//.test(request.path),
+    );
+
+  const statsFor = async (planned: { date: string; id: string }) =>
+    (await call(`/api/workouts/${planned.date}/${planned.id}/stats`)).json() as Promise<{
+      activity_id: string;
+      session: { elapsed_s: number; avg_hr: number | null } | null;
+      laps: Array<{ planned_step_name: string | null; match_confidence: string; quarters: unknown }>;
+      flags: string[];
+      error?: string;
+      attempts?: number;
+    }>;
+
+  it('reads the recording behind the completion, and keeps the stats', async () => {
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    await pairARecording(event.id);
+
+    expect(await (await post(analysed())).json()).toMatchObject({ marked: 1 });
+
+    const stats = await statsFor(planned);
+    expect(stats.activity_id).toBe('w1');
+    expect(stats.session?.elapsed_s).toBe(1384);
+    expect(stats.laps).toHaveLength(9);
+    expect(stats.laps[1]).toMatchObject({ planned_step_name: 'Fast', match_confidence: 'high' });
+    expect(stats.laps[1].quarters).not.toBeNull();
+  });
+
+  // The laps are a page of JSON each, and every read of a workout would carry them.
+  it('leaves the laps off the workout itself', async () => {
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    await pairARecording(event.id);
+    await post(analysed());
+
+    const workout = (await (await call(`/api/workouts/${planned.date}/${planned.id}`)).json()) as {
+      stats: Record<string, unknown>;
+    };
+    expect(workout.stats).toMatchObject({ activity_id: 'w1', flags: [] });
+    expect(workout.stats).not.toHaveProperty('laps');
+  });
+
+  it('reads the file once, however many times the webhook fires', async () => {
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    await pairARecording(event.id);
+
+    await post(analysed());
+    await post(analysed());
+    await worker.scheduled!(createScheduledController({ cron: '20 * * * *' }), env);
+
+    expect(await recordingCalls()).toHaveLength(1);
+    expect((await statsFor(planned)).laps).toHaveLength(9);
+  });
+
+  // A manual entry, or one from Strava their API will not hand over.
+  it('records a recording it could not read as exactly that, and does not thrash at it', async () => {
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    await pairARecording(event.id);
+    await control('setup', { failing: { '/activity/': 422 } });
+
+    expect(await (await post(analysed())).json()).toMatchObject({ marked: 1 });
+
+    const stats = await statsFor(planned);
+    expect(stats.session).toBeNull();
+    expect(stats.flags).toEqual(['source_unreadable']);
+    expect(stats.error).toContain('422');
+    expect(stats.attempts).toBe(1);
+
+    // Three more deliveries in the same minute are the same outage, not three tries at it.
+    for (let again = 0; again < 3; again += 1) await post(analysed());
+    expect(await recordingCalls()).toHaveLength(1);
+    expect((await statsFor(planned)).attempts).toBe(1);
+  });
+
+  it('keeps the stats when the workout is moved to another day', async () => {
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    await pairARecording(event.id);
+    await post(analysed());
+
+    const moved = await call(`/api/workouts/${planned.date}/${planned.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...WORKOUT, date: OTHER_DAY }),
+    });
+    expect(moved.status).toBe(200);
+
+    expect((await statsFor({ date: OTHER_DAY, id: planned.id })).laps).toHaveLength(9);
+    expect((await call(`/api/workouts/${planned.date}/${planned.id}/stats`)).status).toBe(404);
+  });
+
+  it('asks for the FIT they build when the athlete uploaded something else', async () => {
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    // No `file_type`: a Strava import or a GPX, where their own build is the only FIT there is.
+    await control('setup', {
+      activities: [{ id: 'w1', paired_event_id: event.id, start_date_local: `${DAY}T06:30:00` }],
+      recordings: { w1: base64Encode(AS_RUN) },
+    });
+
+    expect(await (await post(analysed())).json()).toMatchObject({ marked: 1 });
+    expect((await recordingCalls())[0].path).toContain('/fit-file');
+    expect((await statsFor(planned)).laps).toHaveLength(9);
   });
 });

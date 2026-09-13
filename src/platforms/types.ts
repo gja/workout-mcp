@@ -11,8 +11,13 @@ export type Account = { id: string; name: string | null };
 /** The sync key is ours and stable, so a push is idempotent even without the `remote_id`. */
 export type Outbound = { workout: Workout; syncKey: string };
 
-/** A session the platform says was actually done, named by our remote id. */
-export type Completion = { remote_id: string; completed_at: string };
+/**
+ * A session the platform says was actually done, named by our remote id.
+ *
+ * `activity` is the recording behind it, where the platform can name one: it is what
+ * `recording` is asked for, so the stats are read without listing the activities again.
+ */
+export type Completion = { remote_id: string; completed_at: string; activity: Recording | null };
 
 /** A session the athlete recorded on the platform, theirs entirely — we never pushed it. */
 export type Recorded = {
@@ -31,6 +36,9 @@ export type Recorded = {
   distance_m: number | null;
   moving_time_s: number | null;
 };
+
+/** Enough of a recorded session to ask the platform for its file. */
+export type Recording = Pick<Recorded, 'remote_id' | 'original_type'>;
 
 /** A recording on its way somewhere else: handed over as a stream, never buffered here. */
 export type RecordedFile = {
@@ -65,7 +73,7 @@ export type Platform = {
   activities?(token: string, from: string, to: string): Promise<Recorded[]>;
 
   /** The FIT recording behind one of those. Required if `activities` is offered. */
-  recording?(token: string, recorded: Recorded): Promise<RecordedFile>;
+  recording?(token: string, recorded: Recording): Promise<RecordedFile>;
 };
 
 /** Theirs, not ours: shown on the dashboard, and never allowed to fail a write. */

@@ -328,6 +328,56 @@ code { background: var(--line); padding: 1px 5px; border-radius: 4px; font-size:
 .complete label { font-size: 14px; }
 .complete input { flex: 0 1 auto; min-width: 0; padding: 6px 8px; font-size: 14px; }
 
+/* --- What was actually recorded ----------------------------------------- */
+
+.recorded { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+.recorded h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.recorded .note { margin: 0 0 6px; }
+
+/* Three narrow columns still outgrow a phone once a step is named, so the table
+   scrolls inside its own box rather than taking the page sideways with it. */
+.laps-scroll { overflow-x: auto; margin-top: 8px; }
+
+table.laps { border-collapse: collapse; width: 100%; font-size: 13px; }
+table.laps th {
+  padding: 0 12px 4px 0;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+table.laps td { padding: 6px 12px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.laps tr:last-child td { border-bottom: none; }
+table.laps td.muted { color: var(--muted); }
+
+/* The work is what the eye is looking for; everything around it is context. */
+table.laps tr.work .lap-step { font-weight: 600; }
+table.laps tr.warmup td, table.laps tr.cooldown td, table.laps tr.recovery td { color: var(--muted); }
+
+.lap-num {
+  display: inline-block;
+  min-width: 1.4em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--muted);
+}
+/* The numbers never wrap — "100% in band" broken over two lines reads as neither.
+   The step name is the column with room, so it is the one that gives. */
+table.laps .lap-target, table.laps .lap-actual, .lap-sub { white-space: nowrap; }
+.lap-sub { display: block; font-size: 12px; color: var(--muted); }
+.lap-sub.in-band { color: var(--done); }
+
 /* The one thing under the FAQ: quiet, and out of the way. */
 .colophon {
   margin-top: 40px;

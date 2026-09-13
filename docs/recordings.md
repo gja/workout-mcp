@@ -14,6 +14,12 @@ The point is an assistant that can look at real training: ask what was recorded
 last week, fetch the archive, read the files. Nothing about any of it is stored
 here — see [Nothing is kept](#nothing-is-kept).
 
+This is the **drill-down**, not the routine path. A session matched to a
+planned workout has already been read once and reduced to numbers, which
+`get_workout_stats` answers with and [stats.md](stats.md) describes; the
+archive is for the questions those cannot answer — a lap that looks wrong, a
+within-rep detail, or a session that was never planned here at all.
+
 ## The listing
 
 ```

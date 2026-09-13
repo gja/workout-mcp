@@ -3,6 +3,8 @@
 
 import { WorkoutError, fail, parseDate, parseInteger } from './units';
 import { DURATION_KEYS, TARGET_KEYS, resolveSteps } from './resolve';
+// Type-only, so the cycle back to here from `src/stats.ts` never exists at runtime.
+import type { StatsSummary } from './stats';
 
 export { WorkoutError };
 
@@ -57,6 +59,14 @@ export type Workout = {
   steps: PlanStep[];
   /** Never read by `parseWorkout`: completing is its own verb, so a rewrite cannot touch it. */
   completed_at?: string;
+  /**
+   * The totals of the recorded session. Written by the platform sync, never by a caller.
+   *
+   * The laps behind them are read on their own, by `db.getStats`: they are a page of JSON
+   * each, and every read of a workout would otherwise be carrying them to answer a
+   * question about the plan.
+   */
+  stats?: StatsSummary;
   updated_at: string;
 };
 

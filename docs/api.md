@@ -21,6 +21,7 @@ session cookie set at login.
 | `GET /api/workouts.json?from=&to=` | List within the retention window; a wider range is narrowed to it |
 | `POST /api/workouts` | Create; returns the id and URLs |
 | `GET /api/workouts/:date/:id.json` | Read one |
+| `GET /api/workouts/:date/:id/stats` | What was actually recorded against it, laps and all; 404 until a session comes back |
 | `PUT /api/workouts/:date/:id.json` | Replace one; change `date` to move it |
 | `DELETE /api/workouts/:date/:id.json` | Delete one |
 | `POST /api/workouts/:date/:id/complete` | Mark it done; `{completed_at}` optional, defaults to now |

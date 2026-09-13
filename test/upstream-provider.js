@@ -227,6 +227,8 @@ const freshState = () => ({
   byExternalId: new Map(),
   /** Recorded activities, as `completions` reads them. */
   activities: [],
+  /** Activity id -> the base64 FIT bytes to serve for it, for tests that read one back. */
+  recordings: {},
   nextId: 7000,
   /** Path fragment -> status, to make one endpoint fail on demand. */
   failing: {},
@@ -306,9 +308,10 @@ function control(request, path) {
     });
   }
   if (path === '/__control/setup') {
-    // `{ activities?, failing?, athlete? }` — whatever a test needs to arrange.
+    // `{ activities?, recordings?, failing?, athlete? }` — whatever a test needs to arrange.
     return request.json().then((body) => {
       if (body.activities) state.activities = body.activities;
+      if (body.recordings) state.recordings = body.recordings;
       if (body.failing) state.failing = body.failing;
       if (body.driveFailing) state.drive.failing = body.driveFailing;
       if (body.athlete) state.athlete = body.athlete;
@@ -366,10 +369,17 @@ async function intervals(request, url) {
   // GET /api/v1/activity/{id}/file, and the FIT intervals.icu builds itself
   const recording = /^\/api\/v1\/activity\/([^/]+)\/(file|fit-file)$/.exec(path);
   if (request.method === 'GET' && recording) {
-    // Stands in for FIT bytes, and names which of the two endpoints answered.
-    const body = `${recording[2]}:${recording[1]}`;
+    // Real bytes where a test arranged them; otherwise a stand-in that names which
+    // of the two endpoints answered, which is all the archive tests read.
+    const arranged = state.recordings[recording[1]];
+    const body = arranged
+      ? Uint8Array.from(atob(arranged), (character) => character.charCodeAt(0))
+      : `${recording[2]}:${recording[1]}`;
     return new Response(body, {
-      headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': String(body.length) },
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': String(body.length),
+      },
     });
   }
 

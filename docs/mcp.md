@@ -67,8 +67,9 @@ identically:
 
 `list_workouts`, `get_workout`, `create_workout`, `update_workout`,
 `delete_workout`, `complete_workout`, `export_workout_fit`,
-`get_workout_library`, `get_current_plan`, `get_scheduling_instructions`,
-`get_workout_zones`, `update_context`, `list_recorded_workouts`.
+`get_workout_stats`, `get_workout_library`, `get_current_plan`,
+`get_scheduling_instructions`, `get_workout_zones`, `update_context`,
+`list_recorded_workouts`.
 
 Each is also reachable over REST at `POST /api/tools/<name>` with the same
 arguments, so a non-MCP client gets identical behaviour. The schemas live in
@@ -79,11 +80,19 @@ prose. For what the fields mean, see [workouts.md](workouts.md).
 ### Planned, and recorded
 
 The first seven tools are the *plan*: what the athlete intends to do, held here
-and pushed to their watch. `list_recorded_workouts` is the other direction —
-what they actually did, read back off a connected platform — and it is the tool
-to reach for when the job is analysing real training rather than writing a
-session. It answers with a link to the files rather than the files, for the
-reason the next section gives. See [recordings.md](recordings.md).
+and pushed to their watch. Two go the other way, and they are the ones to reach
+for when the job is analysing real training rather than writing a session.
+
+`get_workout_stats` is the cheap one, and the place to start: the session the
+athlete recorded against a planned workout, already reduced to totals, laps,
+quarters and how much of each lap sat inside its target — read off the FIT file
+once when the platform said it was ready, and answering planned-versus-actual
+without downloading anything. See [stats.md](stats.md).
+
+`list_recorded_workouts` is the drill-down, and the only way to reach a session
+that was never planned here. It hands over the recordings themselves, as a link
+to the files rather than the files, for the reason the next section gives. See
+[recordings.md](recordings.md).
 
 ### Four tools to read the context, one to write it
 
@@ -122,8 +131,8 @@ when the URL works for whoever ends up holding it, and not otherwise.
 
 ### Annotations
 
-`list_workouts`, `get_workout`, the four context readers, `export_workout_fit`
-and `list_recorded_workouts` carry `readOnlyHint`,
+`list_workouts`, `get_workout`, `get_workout_stats`, the four context readers,
+`export_workout_fit` and `list_recorded_workouts` carry `readOnlyHint`,
 which is what lets a client group them apart from the writes and allow them
 without asking each time. `update_workout`, `delete_workout` and
 `update_context` carry `destructiveHint` — the last of those because it

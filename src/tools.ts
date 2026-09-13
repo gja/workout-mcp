@@ -193,7 +193,9 @@ export const TOOLS = [
     description:
       'List planned workouts within the retention window (7 days back, 14 days ahead). ' +
       'Returns each workout with its date and id; pass those to export_workout_fit for the file. ' +
-      'A wider from/to is narrowed to the window rather than honoured.',
+      'A wider from/to is narrowed to the window rather than honoured. ' +
+      'A workout whose session has been recorded carries `stats` with the totals of what was ' +
+      'actually done; get_workout_stats has the laps behind them.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -205,7 +207,10 @@ export const TOOLS = [
   {
     name: 'get_workout',
     annotations: { title: 'Read a planned workout', readOnlyHint: true, openWorldHint: false },
-    description: 'Fetch one planned workout by date and id. If a date has exactly one workout, the id may be omitted.',
+    description:
+      'Fetch one planned workout by date and id. If a date has exactly one workout, the id may be omitted. ' +
+      'Once the session has been recorded on a connected platform, `stats` carries the totals of ' +
+      'what was actually done; get_workout_stats has the laps behind them.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -289,6 +294,23 @@ export const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: { date: WORKOUT_PROPERTIES.date, id: { type: 'string' } },
+      required: ['date', 'id'],
+    },
+  },
+  {
+    name: 'get_workout_stats',
+    annotations: { title: 'Read what was actually done', readOnlyHint: true, openWorldHint: false },
+    description:
+      'Fetch what the athlete actually did in a workout, read off the session they recorded on a ' +
+      'connected platform. Returns the session totals and one lap per segment of the recording, ' +
+      'each mapped to the planned step it was for, split into four quarters, and — where the step ' +
+      'carried a target — the share of the lap that sat inside the band. Answers planned-versus-' +
+      'actual without downloading anything. Pace is integer seconds per kilometre, and a figure ' +
+      'that was not recorded is null, never 0; read `flags` before trusting a number. ' +
+      'For the record stream itself, list_recorded_workouts hands over the FIT files.',
+    inputSchema: {
+      type: 'object',
+      properties: { date: WORKOUT_PROPERTIES.date, id: { type: 'string', description: 'The workout id.' } },
       required: ['date', 'id'],
     },
   },
@@ -390,7 +412,12 @@ const urls = (workout: Workout, baseUrl: string) => ({
   json_url: `${baseUrl}/api/workouts/${workout.date}/${workout.id}.json`,
 });
 
-/** The stored fields, steps and all, plus the derived summary and totals. */
+/**
+ * The stored fields, steps and all, plus the derived summary and totals.
+ *
+ * A recorded session comes with it as `stats`, but only its totals: the workout row
+ * carries no more than that, and `get_workout_stats` is where the laps live.
+ */
 export function present(workout: Workout, baseUrl?: string) {
   return {
     ...workout,
@@ -400,7 +427,7 @@ export function present(workout: Workout, baseUrl?: string) {
   };
 }
 
-/** What a write returns: which workout it was. Echoing the steps back is noise. */
+/** What a write returns: which workout it was. Echoing the plan back is noise. */
 export function presentBrief(workout: Workout, baseUrl?: string) {
   const { steps: _steps, ...rest } = workout;
   return { ...rest, ...(baseUrl ? urls(workout, baseUrl) : {}) };
@@ -510,6 +537,20 @@ export async function callTool(
         bytes: bytes.length,
         base64: base64Encode(bytes),
       };
+    }
+
+    case 'get_workout_stats': {
+      const date = parseDate(requireString(args, 'date'), 'date');
+      const id = requireString(args, 'id');
+      const stats = await db.getStats(env, user.id, date, id);
+      if (stats) return stats;
+
+      // Only now is it worth a second read: which of the two it is changes the answer.
+      if (!(await db.getWorkout(env, user.id, date, id))) throw new ToolError(`no workout ${id} on ${date}`);
+      throw new ToolError(
+        `nothing has been recorded against ${id} on ${date} yet; stats are read off the session ` +
+          'once the connected platform has matched it to this workout',
+      );
     }
 
     case 'update_context': {

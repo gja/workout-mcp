@@ -354,6 +354,46 @@ describe('completing a workout', () => {
     expect((await read(created)).completed_at).toBe(`${created.date}T00:00:00.000Z`);
   });
 
+  // The plan a session was recorded against is history: the mapping in its stats names
+  // steps by position, and rewriting them under it answers about steps that never ran.
+  it('refuses to rewrite the steps of a workout that was done', async () => {
+    const created = await createIntervals();
+    expect((await complete(created)).status).toBe(200);
+
+    const response = await call(`/api/workouts/${created.date}/${created.id}.json`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...INTERVALS, steps: [{ name: 'Easy', goal_s: 1800 }] }),
+    });
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { error: string }).error).toMatch(/mark it not done first/);
+    expect((await read(created)).steps).toHaveLength(3);
+  });
+
+  it('still lets everything else about a done workout change', async () => {
+    const created = await createIntervals();
+    await complete(created);
+
+    const response = await call(`/api/workouts/${created.date}/${created.id}.json`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...INTERVALS, name: '8x400m (felt awful)', notes: 'legs were gone' }),
+    });
+    expect(response.status).toBe(200);
+    expect((await read(created)).name).toBe('8x400m (felt awful)');
+  });
+
+  it('lets the plan be rewritten once the session is put back to planned', async () => {
+    const created = await createIntervals();
+    await complete(created);
+    expect((await call(`/api/workouts/${created.date}/${created.id}/complete`, { method: 'DELETE' })).status).toBe(200);
+
+    const response = await call(`/api/workouts/${created.date}/${created.id}.json`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...INTERVALS, steps: [{ name: 'Easy', goal_s: 1800 }] }),
+    });
+    expect(response.status).toBe(200);
+    expect((await read(created)).steps).toHaveLength(1);
+  });
+
   it('refuses a timestamp that is not one', async () => {
     const created = await createIntervals();
     const response = await complete(created, { completed_at: 'yesterday afternoon' });
