@@ -208,10 +208,11 @@ comment clears it. Over REST that is `PUT` and `DELETE` on
 `list_workouts` and `get_workout_stats`, so a review has the words beside the
 figures.
 
-**It is synced to the connected training platform**, both ways — on
-intervals.icu it is the recorded activity's description, which is the box the
-athlete types into there. See
-["The comment goes both ways"](integrations.md#the-comment-goes-both-ways).
+**It is pushed to the connected training platform** — on intervals.icu, onto
+the recorded activity's description. Nothing is read back the other way: a
+description upstream can be boilerplate a recording app wrote, and this field
+is defined as the athlete's own words. See
+["The comment goes out, and never comes back"](integrations.md#the-comment-goes-out-and-never-comes-back).
 
 **The steps themselves stop being editable once it is done**, and a write that
 changes them is refused. Those stats name the planned step each recorded lap

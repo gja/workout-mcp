@@ -219,34 +219,42 @@ who un-ticks a session means it, and without that memory the next pass would
 find the platform still reporting the activity and tick it back on, making the
 uncomplete button useless on anything synced.
 
-## The comment goes both ways
+## The comment goes out, and never comes back
 
-A post-workout comment is the one thing here that travels in both directions.
-Everything else is one-way by design — the plan goes out, completions come back
-— but a note on how a session went is the athlete's own writing, and they will
-type it wherever they happen to be. On intervals.icu that is the **recorded
-activity's description**, written with their `PUT /api/v1/activity/{id}`, which
-takes a partial activity so only that one field is ever sent.
-
-One rule, applied each time a completion is read back:
+A post-workout comment written here is pushed to the session upstream. On
+intervals.icu that is the **recorded activity's description**, written with
+their `PUT /api/v1/activity/{id}`, which takes a partial activity so only that
+one field is ever sent.
 
 - **A note written here is written upstream.** It goes up as soon as it is
   written, if the recording has already come back — the stats name the activity,
   and that is the only handle on the session there. Written before the platform
   has paired anything, it waits and rides up with the completion that names the
   activity at last.
-- **A note written upstream fills in where there is none here.** So a comment
-  typed on their site arrives with the next pass and can be read alongside the
-  stats.
 - **They are only compared, never re-sent.** The description comes back on the
   same activity listing the pairing does, so agreement — the steady state — costs
   no extra call at all.
+- **A workout with no comment leaves their description alone.** "The athlete
+  never wrote one here" is not an instruction to erase what is there. Clearing a
+  comment *does* clear it upstream, because that is an instruction, and it
+  travels the moment it is cleared rather than waiting for a pass.
 
-What that does *not* do is merge. A note written in both places is a
-disagreement, and ours is the one the athlete wrote through this app most
-recently, so it wins and is pushed over theirs. Clearing it here clears it
-there, because "nothing said" has to have one spelling or the next pass would
-read the old note back as new.
+### Why nothing is read back
+
+It was, briefly, and it was wrong. A description upstream is not reliably the
+athlete's writing: a recording app puts its own line in it on upload — the one
+that prompted this was `Workout performed with Watchletic.` — and adopting that
+filed boilerplate as what the athlete said about their session, to be handed to
+an assistant as their own words on every review afterwards.
+
+`comment` is defined as the athlete's own words, so it is only ever written by
+the athlete, through `comment_workout` or the REST verb. Nothing produced by a
+machine can reach it. The cost is real and accepted: a note typed on
+intervals.icu itself does not become the workout's comment.
+
+What is still readable is the platform's text *as the platform's*.
+`list_recorded_workouts` carries each session's description, which is where that
+Watchletic line showed up — useful to read, never mistaken for the athlete's.
 
 Their own documentation says a Strava-sourced activity cannot be updated at
 all. That comes back as one of their errors, recorded against the connection

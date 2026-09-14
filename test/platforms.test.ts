@@ -733,19 +733,38 @@ describe('post-workout comments', () => {
     expect(await upstreamNote()).toBe('Legs flat. Cut the last two reps.');
   });
 
-  it('brings back a note the athlete wrote on the platform instead', async () => {
+  /**
+   * The reason nothing is read back: a recording app writes its own line into the
+   * description on upload, and that is not the athlete saying anything.
+   */
+  it('never adopts the description upstream as the athlete’s own note', async () => {
     await connect();
     const planned = await createWorkout();
     const [event] = await calendar();
-    await pair(event.id, 'Felt easy. Could have done two more.');
+    await pair(event.id, 'Workout performed with Watchletic.');
 
     await analysed();
 
-    expect((await read(planned)).comment).toBe('Felt easy. Could have done two more.');
+    expect((await read(planned)).comment).toBeUndefined();
+    // Still readable as the platform's own text, where it is labelled as theirs.
+    expect(await upstreamNote()).toBe('Workout performed with Watchletic.');
   });
 
-  // Theirs fills in where nothing was said here; it never overwrites something that was.
-  it('keeps the note written here over the one written there, and pushes it over', async () => {
+  // Silence here is not an instruction to erase what the athlete has there.
+  it('leaves the description alone when there is no note here', async () => {
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    await pair(event.id, 'Typed on their site');
+
+    await analysed();
+    await analysed();
+
+    expect(await upstreamNote()).toBe('Typed on their site');
+    expect((await read(planned)).comment).toBeUndefined();
+  });
+
+  it('overwrites the description upstream with the note written here', async () => {
     await connect();
     const planned = await createWorkout();
     const [event] = await calendar();
@@ -794,9 +813,10 @@ describe('post-workout comments', () => {
     await connect();
     const planned = await createWorkout();
     const [event] = await calendar();
-    await pair(event.id, 'Already the same');
+    await pair(event.id);
     await analysed();
-    expect((await read(planned)).comment).toBe('Already the same');
+    await comment(planned, { comment: 'Already the same' });
+    expect(await upstreamNote()).toBe('Already the same');
 
     const before = (await control<{ requests: Array<{ method: string }> }>('state')).requests.length;
     await analysed();
@@ -840,8 +860,9 @@ describe('post-workout comments', () => {
     await connect();
     const planned = await createWorkout();
     const [event] = await calendar();
-    await pair(event.id, 'Cut it short, calf tight');
+    await pair(event.id);
     await analysed();
+    await comment(planned, { comment: 'Cut it short, calf tight' });
 
     const stats = (await (
       await call(`/api/workouts/${planned.date}/${planned.id}/stats`)

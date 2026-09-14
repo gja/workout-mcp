@@ -17,8 +17,9 @@ export type Outbound = { workout: Workout; syncKey: string };
  * `activity` is the recording behind it, where the platform can name one: it is what
  * `recording` is asked for, so the stats are read without listing the activities again.
  *
- * `comment` is the athlete's own note on that activity upstream, so a note written
- * there arrives with the completion rather than costing a second call.
+ * `comment` is the activity's description upstream. It is carried only so a note of
+ * ours can be compared against what is already there and skipped when they agree —
+ * never adopted as the athlete's own. See `syncComment`.
  */
 export type Completion = {
   remote_id: string;
@@ -43,7 +44,7 @@ export type Recorded = {
   /** Summary figures, for picking sessions out of a list. Null where the platform is silent. */
   distance_m: number | null;
   moving_time_s: number | null;
-  /** The athlete's own note on the session upstream, or null where they wrote none. */
+  /** The activity's description upstream — the platform's text, which may be theirs or an app's. */
   comment: string | null;
 };
 

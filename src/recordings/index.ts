@@ -354,7 +354,12 @@ export type Session = {
   activity_type: string | null;
   distance_m: number | null;
   moving_time_s: number | null;
-  /** The athlete's own post-workout note on the session, where they left one upstream. */
+  /**
+   * The activity's description upstream — the platform's text, shown as theirs.
+   *
+   * Not the workout's `comment`, and never adopted as one: a recording app writes
+   * its own line here on upload. See `syncComment` in `src/platforms/`.
+   */
   comment: string | null;
   file: string;
 };
