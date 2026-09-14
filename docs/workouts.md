@@ -187,6 +187,32 @@ Because it is its own verb, rewriting the plan does not un-do the session:
 the record across, including when the workout moves to another day. The stats
 read off the recording come across with it — see [stats.md](stats.md).
 
+## Saying how it went
+
+A workout also carries `comment`: the athlete's own note on the session, in
+their words. Not `notes` — those are the plan's own brief and go out to the
+watch *before* the session — and not a summary an assistant wrote for them.
+This is what they say afterwards, and it is what a later review should read
+before it judges the numbers.
+
+```
+comment_workout { "date": "2026-09-12", "id": "a1b2c3d4", "comment": "Legs flat from Sunday. Cut the last two reps." }
+comment_workout { "date": "2026-09-12", "id": "a1b2c3d4", "comment": "" }
+```
+
+Its own verb, for the same reason completing has one: a rewritten plan must not
+be able to touch it, and it carries across an `update_workout`, a `PUT` and a
+re-sync under the same `external_id`, including onto another day. An empty
+comment clears it. Over REST that is `PUT` and `DELETE` on
+`/api/workouts/:date/:id/comment`. It comes back on `get_workout`,
+`list_workouts` and `get_workout_stats`, so a review has the words beside the
+figures.
+
+**It is synced to the connected training platform**, both ways — on
+intervals.icu it is the recorded activity's description, which is the box the
+athlete types into there. See
+["The comment goes both ways"](integrations.md#the-comment-goes-both-ways).
+
 **The steps themselves stop being editable once it is done**, and a write that
 changes them is refused. Those stats name the planned step each recorded lap
 was, by position, so rewriting the steps underneath them leaves a confident

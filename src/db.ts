@@ -65,6 +65,8 @@ type WorkoutRow = {
   external_id: string | null;
   steps: string;
   completed_at: string | null;
+  /** The athlete's note on how it went, or null until they write one. */
+  comment: string | null;
   /** The recorded session's stats, as `src/stats.ts` wrote them, or null until one comes back. */
   stats: string | null;
   updated_at: string;
@@ -77,7 +79,7 @@ type WorkoutRow = {
  * stats and nothing that reads a workout wants them. `getStats` is what asks.
  */
 const WORKOUT_COLUMNS =
-  'id, date, name, sport, sub_sport, notes, tags, external_id, steps, completed_at, ' +
+  'id, date, name, sport, sub_sport, notes, tags, external_id, steps, completed_at, comment, ' +
   "json_remove(stats, '$.laps') AS stats, updated_at";
 
 /** Short, URL-safe, unambiguous — no vowels, so no accidental words. */
@@ -122,6 +124,7 @@ function parseRow(row: WorkoutRow): Workout {
   }
   if (row.external_id) workout.external_id = row.external_id;
   if (row.completed_at) workout.completed_at = row.completed_at;
+  if (row.comment) workout.comment = row.comment;
   if (row.stats) workout.stats = JSON.parse(row.stats) as StatsSummary;
   return workout;
 }
@@ -187,19 +190,27 @@ async function assertRoomFor(env: Env, userId: string, date: string): Promise<vo
   );
 }
 
+/** What a rewrite has to carry across rather than overwrite, plus the plan it is judged against. */
+type StoredRecord = {
+  completed_at: string | null;
+  comment: string | null;
+  stats: string | null;
+  steps: string | null;
+};
+
 // Not window-narrowed: asked about a row that is about to be written over, not read back.
 async function storedRecord(
   env: Env,
   userId: string,
   date: string,
   id: string,
-): Promise<{ completed_at: string | null; stats: string | null; steps: string | null }> {
+): Promise<StoredRecord> {
   const row = await env.DB.prepare(
-    'SELECT completed_at, stats, steps FROM workouts WHERE user_id = ? AND date = ? AND id = ?',
+    'SELECT completed_at, comment, stats, steps FROM workouts WHERE user_id = ? AND date = ? AND id = ?',
   )
     .bind(userId, date, id)
-    .first<{ completed_at: string | null; stats: string | null; steps: string | null }>();
-  return row ?? { completed_at: null, stats: null, steps: null };
+    .first<StoredRecord>();
+  return row ?? { completed_at: null, comment: null, stats: null, steps: null };
 }
 
 /** `previous` is where the row being replaced is now, when the caller has already moved it. */
@@ -230,6 +241,7 @@ export async function putWorkout(
    * again, against the plan as it now stands.
    */
   let completedAt = input.completed_at ?? null;
+  let comment = input.comment ?? null;
   let stats: string | null = null;
   const carryFrom = async (date: string, rowId: string) => {
     const stored = await storedRecord(env, userId, date, rowId);
@@ -243,6 +255,9 @@ export async function putWorkout(
       );
     }
     if (input.completed_at === undefined) completedAt = stored.completed_at;
+    // Carried whatever became of the plan: what the athlete said about the session they
+    // did is theirs, and rewriting the steps under it does not make it untrue.
+    if (input.comment === undefined) comment = stored.comment;
     stats = samePlan ? stored.stats : null;
   };
 
@@ -276,16 +291,18 @@ export async function putWorkout(
   const workout: Workout = { id: workoutId ?? newId(), ...input, updated_at: new Date().toISOString() };
   if (completedAt) workout.completed_at = completedAt;
   else delete workout.completed_at;
+  if (comment) workout.comment = comment;
+  else delete workout.comment;
   if (stats) workout.stats = sessionOnly(JSON.parse(stats) as WorkoutStats);
   else delete workout.stats;
   await env.DB.prepare(
-    `INSERT INTO workouts (user_id, date, id, name, sport, sub_sport, notes, tags, external_id, steps, completed_at, stats, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)
+    `INSERT INTO workouts (user_id, date, id, name, sport, sub_sport, notes, tags, external_id, steps, completed_at, comment, stats, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14)
      ON CONFLICT (user_id, date, id) DO UPDATE SET
        name = excluded.name, sport = excluded.sport, sub_sport = excluded.sub_sport,
        notes = excluded.notes, tags = excluded.tags, external_id = excluded.external_id,
-       steps = excluded.steps, completed_at = excluded.completed_at, stats = excluded.stats,
-       updated_at = excluded.updated_at`,
+       steps = excluded.steps, completed_at = excluded.completed_at, comment = excluded.comment,
+       stats = excluded.stats, updated_at = excluded.updated_at`,
   )
     .bind(
       userId,
@@ -299,6 +316,7 @@ export async function putWorkout(
       workout.external_id ?? null,
       JSON.stringify(workout.steps),
       workout.completed_at ?? null,
+      workout.comment ?? null,
       stats,
       workout.updated_at,
     )
@@ -321,6 +339,32 @@ export async function setCompleted(
     'UPDATE workouts SET completed_at = ?, updated_at = ? WHERE user_id = ? AND date = ? AND id = ?',
   )
     .bind(completedAt, new Date().toISOString(), userId, date, id)
+    .run();
+  if ((result.meta.changes ?? 0) === 0) return null;
+  return getWorkout(env, userId, date, id);
+}
+
+/**
+ * The athlete's note on how the session went. Its own write, like the completion.
+ *
+ * Null clears it. `updated_at` is deliberately left alone: it is what the platform
+ * sync compares a plan against, and a note about a session is not a changed plan —
+ * bumping it would push the unchanged workout back out on the next run.
+ */
+export async function setComment(
+  env: Env,
+  userId: string,
+  date: string,
+  id: string,
+  comment: string | null,
+): Promise<Workout | null> {
+  const window = readWindow();
+  if (date < window.from || date > window.to) return null;
+
+  const result = await env.DB.prepare(
+    'UPDATE workouts SET comment = ? WHERE user_id = ? AND date = ? AND id = ?',
+  )
+    .bind(comment, userId, date, id)
     .run();
   if ((result.meta.changes ?? 0) === 0) return null;
   return getWorkout(env, userId, date, id);

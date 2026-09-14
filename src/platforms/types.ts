@@ -16,8 +16,16 @@ export type Outbound = { workout: Workout; syncKey: string };
  *
  * `activity` is the recording behind it, where the platform can name one: it is what
  * `recording` is asked for, so the stats are read without listing the activities again.
+ *
+ * `comment` is the athlete's own note on that activity upstream, so a note written
+ * there arrives with the completion rather than costing a second call.
  */
-export type Completion = { remote_id: string; completed_at: string; activity: Recording | null };
+export type Completion = {
+  remote_id: string;
+  completed_at: string;
+  activity: Recording | null;
+  comment: string | null;
+};
 
 /** A session the athlete recorded on the platform, theirs entirely — we never pushed it. */
 export type Recorded = {
@@ -35,6 +43,8 @@ export type Recorded = {
   /** Summary figures, for picking sessions out of a list. Null where the platform is silent. */
   distance_m: number | null;
   moving_time_s: number | null;
+  /** The athlete's own note on the session upstream, or null where they wrote none. */
+  comment: string | null;
 };
 
 /** Enough of a recorded session to ask the platform for its file. */
@@ -68,6 +78,14 @@ export type Platform = {
 
   /** Hand the token back, so a disconnect here releases the grant there. */
   revoke?(token: string): Promise<void>;
+
+  /**
+   * Write the athlete's post-workout comment onto the recorded activity upstream.
+   *
+   * Optional: a platform with nowhere to put one simply keeps the note here. Null
+   * clears it, so "nothing said" has one spelling on both sides.
+   */
+  setActivityComment?(token: string, activityId: string, comment: string | null): Promise<void>;
 
   /** Sessions recorded on the platform. Optional: only `src/drive/` asks, and only if offered. */
   activities?(token: string, from: string, to: string): Promise<Recorded[]>;

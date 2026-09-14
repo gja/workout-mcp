@@ -41,6 +41,10 @@ list of laps inside it, which is no more a set of columns than the steps are.
 NULL means no session has come back. See [stats.md](stats.md).
 
 Everything else about a workout — date, name, sport, notes — is a real column.
+So is `comment`, the athlete's own note on how the session went: plain TEXT,
+NULL until they write one, and written by its own verb rather than by the plan,
+so a rewrite of the steps cannot touch it. See
+["Saying how it went"](workouts.md#saying-how-it-went).
 
 ## The retention window
 
@@ -104,7 +108,7 @@ SQL — the set of kinds lives in `src/context.ts`. See [context.md](context.md)
 
 | Table | Holds |
 | --- | --- |
-| `workouts` | The plan, one row per workout, and the stats of the session recorded against it |
+| `workouts` | The plan, one row per workout, plus the stats of the session recorded against it and the athlete's note on it |
 | `users` | An account per *(provider, subject)* |
 | `contexts` | An athlete's context documents, one row per kind they have written |
 | `sessions` | Session id hashes |

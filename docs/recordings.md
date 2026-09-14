@@ -48,6 +48,7 @@ more — and a caller that never had to say what it meant has no way to notice.
       "platform": "intervals", "id": "i44031892", "date": "2026-09-07",
       "name": "Long Run", "sport": "running", "activity_type": "TrailRun",
       "distance_m": 21097, "moving_time_s": 7200,
+      "comment": "Hot. Walked the last climb.",
       "file": "2026-09-07-i44031892-Long-Run.fit"
     }
   ],
@@ -56,6 +57,11 @@ more — and a caller that never had to say what it meant has no way to notice.
   "note": "Follow download_url within 4 hours for a ZIP of 4 FIT file(s)…"
 }
 ```
+
+`comment` is the athlete's own note on the session as it stands upstream — the
+activity's description on intervals.icu — or null where they wrote none. It is
+the same note `comment_workout` writes against a planned workout; see
+["The comment goes both ways"](integrations.md#the-comment-goes-both-ways).
 
 `file` is the name that session has inside the archive, and the same name
 `src/drive/` gives it: one file, two routes out, named once.

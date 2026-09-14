@@ -50,3 +50,20 @@ export const setCompleted = (
   id: string,
   completedAt: string | null,
 ): Promise<Workout | null> => db.setCompleted(env, user.id, date, id, completedAt);
+
+/**
+ * The athlete's note on how the session went — and, unlike a completion, this one
+ * does travel out: it is theirs to write, and the recorded session upstream is where
+ * they will read it back. Null clears it, there as well as here.
+ */
+export async function setComment(
+  env: Env,
+  user: User,
+  date: string,
+  id: string,
+  comment: string | null,
+): Promise<Workout | null> {
+  const workout = await db.setComment(env, user.id, date, id, comment);
+  if (workout) await platforms.onCommentSaved(env, user, workout);
+  return workout;
+}

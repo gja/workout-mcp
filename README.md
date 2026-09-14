@@ -4,8 +4,9 @@ Plan structured workouts over MCP or a plain REST API, then export them as
 Garmin **FIT** workout files. One Cloudflare Worker, a D1 database, and a
 static dashboard, all on the free tier. Sign in with Google or Apple; connect
 intervals.icu and the plan syncs both ways: the sessions you record come back
-as stats against the workout they were for, and the files themselves are
-downloadable as a zip to analyse wherever you like.
+as stats against the workout they were for, your note on how each one went
+travels between the two, and the files themselves are downloadable as a zip to
+analyse wherever you like.
 
 New here? Start with [docs/deployment.md](docs/deployment.md) to get it
 running, then [docs/workouts.md](docs/workouts.md) to write one.
@@ -97,8 +98,8 @@ The plan format, and the reference you will keep open while writing one. Every
 duration and target field, how ranges work and why an open end is written `-`,
 how zone ranges become percentage bands and which zone model they assume, and
 the two-target rule FIT imposes. Also the workout's own fields, `external_id`
-for safe re-syncing, marking a session done as its own verb, and exactly what
-gets stored versus what is derived at export time.
+for safe re-syncing, marking a session done and saying how it went as verbs of
+their own, and exactly what gets stored versus what is derived at export time.
 
 ### [docs/mcp.md](docs/mcp.md)
 

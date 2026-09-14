@@ -673,3 +673,185 @@ describe('the intervals.icu webhook', () => {
     expect((await statsFor(planned)).laps).toHaveLength(9);
   });
 });
+
+describe('post-workout comments', () => {
+  const WEBHOOK = '/webhooks/intervals';
+
+  const analysed = () =>
+    SELF.fetch(`${BASE}${WEBHOOK}`, {
+      method: 'POST',
+      headers: { Authorization: HEADER },
+      body: JSON.stringify({
+        secret: SECRET,
+        events: [{ athlete_id: ATHLETE_ID, type: 'ACTIVITY_ANALYZED' }],
+      }),
+    });
+
+  /** The activity intervals.icu paired with our event, with whatever note is on it there. */
+  const pair = (eventId: number, description?: string) =>
+    control('setup', {
+      activities: [
+        {
+          id: 'w1',
+          paired_event_id: eventId,
+          start_date_local: `${DAY}T06:30:00`,
+          ...(description === undefined ? {} : { description }),
+        },
+      ],
+    });
+
+  /** What the stand-in now holds on the activity: their side of the note. */
+  const upstreamNote = async (): Promise<string | undefined> => {
+    const activities = (await (
+      await env.INTERVALS.fetch('https://intervals.icu/api/v1/athlete/0/activities', {
+        headers: { Authorization: `Bearer ${TOKEN}` },
+      })
+    ).json()) as Array<{ id: string; description?: string }>;
+    return activities.find((activity) => activity.id === 'w1')?.description;
+  };
+
+  const comment = (planned: { date: string; id: string }, body: unknown) =>
+    call(`/api/workouts/${planned.date}/${planned.id}/comment`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+
+  const read = async (planned: { date: string; id: string }) =>
+    (await (await call(`/api/workouts/${planned.date}/${planned.id}`)).json()) as { comment?: string };
+
+  /** A comment written here, once the recording has come back, goes onto the activity. */
+  it('writes a note onto the recorded activity upstream', async () => {
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    await pair(event.id);
+    await analysed();
+
+    expect((await comment(planned, { comment: 'Legs flat. Cut the last two reps.' })).status).toBe(200);
+
+    expect((await read(planned)).comment).toBe('Legs flat. Cut the last two reps.');
+    expect(await upstreamNote()).toBe('Legs flat. Cut the last two reps.');
+  });
+
+  it('brings back a note the athlete wrote on the platform instead', async () => {
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    await pair(event.id, 'Felt easy. Could have done two more.');
+
+    await analysed();
+
+    expect((await read(planned)).comment).toBe('Felt easy. Could have done two more.');
+  });
+
+  // Theirs fills in where nothing was said here; it never overwrites something that was.
+  it('keeps the note written here over the one written there, and pushes it over', async () => {
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    await pair(event.id);
+    await analysed();
+    await comment(planned, { comment: 'Mine' });
+
+    await pair(event.id, 'Theirs');
+    await analysed();
+
+    expect((await read(planned)).comment).toBe('Mine');
+    expect(await upstreamNote()).toBe('Mine');
+  });
+
+  it('clears the note upstream as well as here', async () => {
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    await pair(event.id);
+    await analysed();
+    await comment(planned, { comment: 'Said something' });
+
+    expect(
+      (await call(`/api/workouts/${planned.date}/${planned.id}/comment`, { method: 'DELETE' })).status,
+    ).toBe(200);
+
+    expect((await read(planned)).comment).toBeUndefined();
+    expect(await upstreamNote()).toBe('');
+  });
+
+  /** Nothing upstream names the session until it is paired, so the note waits for one. */
+  it('carries a note written before the session was paired up with the completion', async () => {
+    await connect();
+    const planned = await createWorkout();
+    await comment(planned, { comment: 'Written the moment I stopped' });
+
+    const [event] = await calendar();
+    await pair(event.id);
+    await analysed();
+
+    expect(await upstreamNote()).toBe('Written the moment I stopped');
+  });
+
+  // The comparison is off the listing the pairing was read from, so agreement is free.
+  it('sends nothing once the two agree', async () => {
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    await pair(event.id, 'Already the same');
+    await analysed();
+    expect((await read(planned)).comment).toBe('Already the same');
+
+    const before = (await control<{ requests: Array<{ method: string }> }>('state')).requests.length;
+    await analysed();
+    const after = (await control<{ requests: Array<{ method: string }> }>('state')).requests;
+
+    expect(after.slice(before).filter((request) => request.method === 'PUT')).toEqual([]);
+  });
+
+  it('carries the note across a rewrite of the plan, and onto another day', async () => {
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    await pair(event.id);
+    await analysed();
+    await comment(planned, { comment: 'Survives' });
+
+    const moved = await call(`/api/workouts/${planned.date}/${planned.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...WORKOUT, date: OTHER_DAY }),
+    });
+    expect(moved.status).toBe(200);
+
+    expect((await read({ date: OTHER_DAY, id: planned.id })).comment).toBe('Survives');
+  });
+
+  it('stores the note even when the platform refuses to take it', async () => {
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    await pair(event.id);
+    await analysed();
+    await control('setup', { failing: { '/activity/': 403 } });
+
+    expect((await comment(planned, { comment: 'Stored anyway' })).status).toBe(200);
+    expect((await read(planned)).comment).toBe('Stored anyway');
+    expect((await platformStatus()).intervals.last_error).toContain('403');
+  });
+
+  // A lap outside its band reads differently once the athlete has said why.
+  it('hands the note back beside the stats of what was actually done', async () => {
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    await pair(event.id, 'Cut it short, calf tight');
+    await analysed();
+
+    const stats = (await (
+      await call(`/api/workouts/${planned.date}/${planned.id}/stats`)
+    ).json()) as { activity_id: string; comment: string | null };
+    expect(stats.activity_id).toBe('w1');
+    expect(stats.comment).toBe('Cut it short, calf tight');
+  });
+
+  it('404s a workout that is not there', async () => {
+    await connect();
+    expect((await comment({ date: DAY, id: 'nosuchid' }, { comment: 'hi' })).status).toBe(404);
+  });
+});

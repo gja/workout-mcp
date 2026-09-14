@@ -366,6 +366,17 @@ async function intervals(request, url) {
     return Response.json(state.activities.filter(within));
   }
 
+  // PUT /api/v1/activity/{id} — a partial activity. The post-workout comment is
+  // the `description` field; nothing else about the session is sent or touched.
+  const update = /^\/api\/v1\/activity\/([^/]+)$/.exec(path);
+  if (request.method === 'PUT' && update) {
+    const body = JSON.parse(payload);
+    const activity = state.activities.find((candidate) => String(candidate.id) === update[1]);
+    if (!activity) return new Response('no such activity', { status: 404 });
+    if (body.description !== undefined) activity.description = body.description;
+    return Response.json(activity);
+  }
+
   // GET /api/v1/activity/{id}/file, and the FIT intervals.icu builds itself
   const recording = /^\/api\/v1\/activity\/([^/]+)\/(file|fit-file)$/.exec(path);
   if (request.method === 'GET' && recording) {

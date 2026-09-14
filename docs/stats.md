@@ -289,3 +289,11 @@ carries is the totals and nothing else; `db.getStats` is the one read that
 asks for the whole document, and `get_workout_stats` is the only thing that
 calls it. Listing three weeks of training would otherwise parse a page of laps
 per workout to throw all of them away.
+
+**And the words alongside them.** `get_workout_stats` answers with the
+workout's `comment` beside the figures — the athlete's own note on how the
+session went, synced with the recorded activity on their platform. A lap that
+fell out of its band because they cut the session short reads very differently
+once that is on the page, so the note travels with the numbers rather than
+waiting to be asked for separately. See
+["Saying how it went"](workouts.md#saying-how-it-went).

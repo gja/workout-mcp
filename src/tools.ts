@@ -9,10 +9,10 @@ import * as context from './context';
 import * as plan from './plan';
 import { PLATFORMS } from './platforms';
 import * as recordings from './recordings';
-import { WorkoutError, parseWorkout } from './workout';
+import { WorkoutError, parseComment, parseWorkout } from './workout';
 import type { Workout } from './workout';
 import { parseDate, parseTimestamp } from './units';
-import { MAX_TAGS, MAX_TAG_LENGTH, SPORTS } from './workout';
+import { MAX_COMMENT_LENGTH, MAX_TAGS, MAX_TAG_LENGTH, SPORTS } from './workout';
 
 const RANGE_DOC =
   'A range as [floor, ceiling]; either end may be "-" to leave it open, ' +
@@ -195,7 +195,8 @@ export const TOOLS = [
       'Returns each workout with its date and id; pass those to export_workout_fit for the file. ' +
       'A wider from/to is narrowed to the window rather than honoured. ' +
       'A workout whose session has been recorded carries `stats` with the totals of what was ' +
-      'actually done; get_workout_stats has the laps behind them.',
+      'actually done; get_workout_stats has the laps behind them, and `comment` is the athlete\'s ' +
+      'own post-workout note on it.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -210,7 +211,9 @@ export const TOOLS = [
     description:
       'Fetch one planned workout by date and id. If a date has exactly one workout, the id may be omitted. ' +
       'Once the session has been recorded on a connected platform, `stats` carries the totals of ' +
-      'what was actually done; get_workout_stats has the laps behind them.',
+      'what was actually done; get_workout_stats has the laps behind them. `comment` is the ' +
+      "athlete's own post-workout note on how it went — read it before judging the numbers, and " +
+      'write one with comment_workout.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -264,7 +267,8 @@ export const TOOLS = [
       'Record that a planned workout was actually done, and when. Defaults to now, so ' +
       'completed_at is only needed when logging a session after the fact. ' +
       'Pass completed: false to clear the record and put the workout back to merely planned. ' +
-      'The plan itself is untouched, and rewriting the plan later leaves the record in place.',
+      'The plan itself is untouched, and rewriting the plan later leaves the record in place. ' +
+      'How the session went is its own verb: comment_workout.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -282,6 +286,32 @@ export const TOOLS = [
         },
       },
       required: ['date', 'id'],
+    },
+  },
+  {
+    name: 'comment_workout',
+    annotations: { title: 'Comment on a workout', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    description:
+      "Record the athlete's own note on how a session went — how it felt, what they cut short, " +
+      'anything the numbers do not say. Their words, not a summary of yours: ask them, and store ' +
+      'what they answer. It is synced to the session on a connected platform, so it is the same ' +
+      'note they see there — on intervals.icu, the activity\'s description. It comes back on ' +
+      'get_workout and get_workout_stats, to be read alongside what was actually done. ' +
+      'Sending an empty comment clears it, there as well as here. This is separate from the ' +
+      "workout's `notes`, which are the plan's own brief and go to the watch before the session.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        date: WORKOUT_PROPERTIES.date,
+        id: { type: 'string', description: 'The workout id.' },
+        comment: {
+          type: 'string',
+          description:
+            'How the session went, in the athlete\'s own words. At most ' +
+            `${MAX_COMMENT_LENGTH} characters. Empty clears the note.`,
+        },
+      },
+      required: ['date', 'id', 'comment'],
     },
   },
   {
@@ -307,6 +337,7 @@ export const TOOLS = [
       'carried a target — the share of the lap that sat inside the band. Answers planned-versus-' +
       'actual without downloading anything. Pace is integer seconds per kilometre, and a figure ' +
       'that was not recorded is null, never 0; read `flags` before trusting a number. ' +
+      "`comment` is the athlete's own post-workout note on the session, where they left one. " +
       'For the record stream itself, list_recorded_workouts hands over the FIT files.',
     inputSchema: {
       type: 'object',
@@ -525,6 +556,16 @@ export async function callTool(
       return presentBrief(workout);
     }
 
+    case 'comment_workout': {
+      const date = parseDate(requireString(args, 'date'), 'date');
+      const id = requireString(args, 'id');
+      if (args.comment === undefined) throw new ToolError('comment is required; send an empty one to clear it');
+
+      const workout = await plan.setComment(env, user, date, id, parseComment(args.comment));
+      if (!workout) throw new ToolError(`no workout ${id} on ${date}`);
+      return presentBrief(workout);
+    }
+
     case 'export_workout_fit': {
       const date = parseDate(requireString(args, 'date'), 'date');
       const id = requireString(args, 'id');
@@ -542,11 +583,15 @@ export async function callTool(
     case 'get_workout_stats': {
       const date = parseDate(requireString(args, 'date'), 'date');
       const id = requireString(args, 'id');
-      const stats = await db.getStats(env, user.id, date, id);
-      if (stats) return stats;
+      // Both, always: the note is what says why the numbers look as they do, and an
+      // analysis that reads one without the other is reading half the session.
+      const [stats, workout] = await Promise.all([
+        db.getStats(env, user.id, date, id),
+        db.getWorkout(env, user.id, date, id),
+      ]);
+      if (stats) return { ...stats, comment: workout?.comment ?? null };
 
-      // Only now is it worth a second read: which of the two it is changes the answer.
-      if (!(await db.getWorkout(env, user.id, date, id))) throw new ToolError(`no workout ${id} on ${date}`);
+      if (!workout) throw new ToolError(`no workout ${id} on ${date}`);
       throw new ToolError(
         `nothing has been recorded against ${id} on ${date} yet; stats are read off the session ` +
           'once the connected platform has matched it to this workout',

@@ -119,12 +119,15 @@ async function call(token: string, path: string, init: RequestInit = {}): Promis
   return response;
 }
 
-const postJson = (token: string, path: string, body: unknown): Promise<Response> =>
+const sendJson = (method: string) => (token: string, path: string, body: unknown): Promise<Response> =>
   call(token, path, {
-    method: 'POST',
+    method,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+
+const postJson = sendJson('POST');
+const putJson = sendJson('PUT');
 
 async function readJson<T>(response: Response): Promise<T> {
   try {
@@ -142,6 +145,8 @@ type Activity = {
   start_date_local?: string | null;
   /** What the athlete uploaded — `fit`, `gpx`, `tcx` — or absent for Strava and manual entries. */
   file_type?: string | null;
+  /** The note box under an activity on their site: our post-workout comment. */
+  description?: string | null;
 };
 
 type RecordedActivity = Activity & {
@@ -155,6 +160,9 @@ type RecordedActivity = Activity & {
 /** The athlete's own day, which is the day a session belongs to however far east they flew. */
 const localDay = (activity: RecordedActivity): string =>
   (activity.start_date_local ?? activity.start_date ?? '').slice(0, 10);
+
+/** Their note box, emptied of whitespace: blank and absent both mean nothing was said. */
+const comment = (activity: Activity): string | null => activity.description?.trim() || null;
 
 /** Their numbers come back as numbers, but a null or a string is not worth trusting on. */
 const number = (value: unknown): number | null =>
@@ -238,12 +246,27 @@ export const intervals: Platform = {
     }
   },
 
+  /**
+   * The post-workout comment, written into the activity's own description.
+   *
+   * Their `PUT /activity/{id}` takes a partial activity, so only the one field is
+   * sent and nothing else about the session is touched. An empty note is sent as an
+   * empty string rather than omitted — omitting it would leave the old one standing,
+   * and clearing is exactly what a caller sending nothing meant.
+   *
+   * Their own documentation says a Strava-sourced activity cannot be updated at all;
+   * that comes back as one of their errors and is recorded against the connection.
+   */
+  async setActivityComment(token, activityId, note) {
+    await putJson(token, `/activity/${encodeURIComponent(activityId)}`, { description: note ?? '' });
+  },
+
   async completions(token, from, to) {
     const query = new URLSearchParams({
       oldest: from,
       newest: to,
       // Their default is every field of every activity; these are all pairing and the stats need.
-      fields: 'id,paired_event_id,start_date,start_date_local,file_type',
+      fields: 'id,paired_event_id,start_date,start_date_local,file_type,description',
     });
     const activities = await readJson<Activity[]>(
       await call(token, `/athlete/${ATHLETE}/activities?${query}`),
@@ -261,6 +284,7 @@ export const intervals: Platform = {
         activity: activity.id
           ? { remote_id: String(activity.id), original_type: activity.file_type ?? null }
           : null,
+        comment: comment(activity),
       });
     }
     return completions;
@@ -272,7 +296,7 @@ export const intervals: Platform = {
     const query = new URLSearchParams({
       oldest: from,
       newest: to,
-      fields: 'id,name,start_date,start_date_local,file_type,type,distance,moving_time',
+      fields: 'id,name,start_date,start_date_local,file_type,type,distance,moving_time,description',
     });
     const activities = await readJson<RecordedActivity[]>(
       await call(token, `/athlete/${ATHLETE}/activities?${query}`),
@@ -292,6 +316,7 @@ export const intervals: Platform = {
         sport: sportOf(activity.type),
         distance_m: number(activity.distance),
         moving_time_s: number(activity.moving_time),
+        comment: comment(activity),
       });
     }
     return recorded;

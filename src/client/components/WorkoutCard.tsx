@@ -44,6 +44,9 @@ export function WorkoutCard({ workout, onChanged }: { workout: Workout; onChange
       {workout.notes && <p className="note">{workout.notes}</p>}
 
       {workout.completed_at && <p className="done-note">✓ Done {formatCompleted(workout.completed_at)}</p>}
+      {/* What the athlete said about the session, not what was planned for it — so it sits
+          under the completion rather than up with the plan's own notes. */}
+      {workout.comment && <blockquote className="comment">{workout.comment}</blockquote>}
 
       <pre>{stepLines(workout)}</pre>
 

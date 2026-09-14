@@ -60,6 +60,15 @@ export type Workout = {
   /** Never read by `parseWorkout`: completing is its own verb, so a rewrite cannot touch it. */
   completed_at?: string;
   /**
+   * The athlete's own note on how the session went, written after it was done.
+   *
+   * Not `notes`, which is the plan's own brief and goes out to the watch before the
+   * session. This comes back afterwards, is synced to the recorded activity on a
+   * connected platform, and — like `completed_at` — has its own verb, so rewriting
+   * the plan cannot touch it.
+   */
+  comment?: string;
+  /**
    * The totals of the recorded session. Written by the platform sync, never by a caller.
    *
    * The laps behind them are read on their own, by `db.getStats`: they are a page of JSON
@@ -89,6 +98,9 @@ const WORKOUT_KEYS = new Set(['date', 'name', 'sport', 'sub_sport', 'notes', 'ta
 
 export const MAX_TAGS = 10;
 export const MAX_TAG_LENGTH = 30;
+
+/** Room for how a session felt, not for an essay. Refused rather than truncated. */
+export const MAX_COMMENT_LENGTH = 2000;
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -182,6 +194,17 @@ function parseTags(value: unknown): string[] {
 /** Steps in a repeat count once each — the repeat itself is one more FIT step. */
 export function countSteps(steps: PlanStep[]): number {
   return steps.reduce((n, step) => n + ('repeat' in step ? 1 + countSteps(step.steps) : 1), 0);
+}
+
+/**
+ * A post-workout comment as a caller wrote it, or null for none.
+ *
+ * Blank and absent are one thing: "nothing said". That is what clears a comment
+ * here, and what clears the note upstream, so there is no second spelling for it.
+ */
+export function parseComment(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  return parseText(value, 'comment', MAX_COMMENT_LENGTH) || null;
 }
 
 export function parseWorkout(value: unknown): WorkoutInput {

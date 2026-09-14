@@ -14,6 +14,13 @@ export type Workout = {
   external_id?: string;
   /** An ISO instant, absent while the session is still only planned. */
   completed_at?: string;
+  /**
+   * The athlete's own note on how it went, absent while they have written none.
+   *
+   * Read-only here, as the completion is: it is written by the assistant or on the
+   * connected platform, and this dashboard shows what came back.
+   */
+  comment?: string;
   updated_at: string;
   /** Server-rendered prose. The first line is a header; the rest are the steps. */
   summary: string;

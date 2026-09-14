@@ -66,7 +66,7 @@ identically:
 ## Tools
 
 `list_workouts`, `get_workout`, `create_workout`, `update_workout`,
-`delete_workout`, `complete_workout`, `export_workout_fit`,
+`delete_workout`, `complete_workout`, `comment_workout`, `export_workout_fit`,
 `get_workout_stats`, `get_workout_library`, `get_current_plan`,
 `get_scheduling_instructions`, `get_workout_zones`, `update_context`,
 `list_recorded_workouts`.
@@ -79,8 +79,9 @@ prose. For what the fields mean, see [workouts.md](workouts.md).
 
 ### Planned, and recorded
 
-The first seven tools are the *plan*: what the athlete intends to do, held here
-and pushed to their watch. Two go the other way, and they are the ones to reach
+The first eight tools are the *plan* and what came back from it: what the
+athlete intends to do, held here and pushed to their watch, plus the two verbs
+that record what actually happened. Two more go the other way, and they are the ones to reach
 for when the job is analysing real training rather than writing a session.
 
 `get_workout_stats` is the cheap one, and the place to start: the session the
@@ -137,8 +138,8 @@ which is what lets a client group them apart from the writes and allow them
 without asking each time. `update_workout`, `delete_workout` and
 `update_context` carry `destructiveHint` — the last of those because it
 replaces a document the athlete wrote, in full. `complete_workout` is a write but not a destructive one — it
-cannot lose the plan it is recorded against. The hints only shape how a client
-presents a tool; the server checks everything regardless.
+cannot lose the plan it is recorded against, and nor can `comment_workout`. The
+hints only shape how a client presents a tool; the server checks everything regardless.
 
 ### Errors
 
