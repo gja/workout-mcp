@@ -23,36 +23,32 @@ export const CONTEXTS: Record<ContextKind, Definition> = {
   'workout-library': {
     label: 'Workout library',
     purpose:
-      'The session types this athlete trains with and how each one is built — ladders, ' +
-      'over-unders, threshold blocks, brick sessions. Reference for writing a session that ' +
-      'looks like their training rather than a generic one.',
+      'The session types this athlete trains with and how each one is built. Read it before ' +
+      'writing a session, so it looks like their training rather than a generic one.',
     builtIn: WORKOUT_LIBRARY,
     writableOverMcp: false,
   },
   'current-plan': {
     label: 'Current plan',
     purpose:
-      'The block of training they are in now: the goal race and its date, the phase, the ' +
-      'shape of a normal week, and what this particular week is meant to do. Read it before ' +
-      'planning, so a session lands in the plan rather than beside it.',
+      'The block of training they are in now: goal race, phase, and what this week is meant ' +
+      'to do. Read it before planning, so a session lands in the plan rather than beside it.',
     builtIn: null,
     writableOverMcp: true,
   },
   'scheduling-instructions': {
     label: 'Scheduling instructions',
     purpose:
-      'How they want sessions placed: which days are training days, what has to fall on a ' +
-      'particular one, what must never go back to back, and how much notice they want. ' +
-      'Read it before choosing a date for anything.',
+      'How they want sessions placed: training days, what must never go back to back, how ' +
+      'much notice they want. Read it before choosing a date for anything.',
     builtIn: null,
     writableOverMcp: true,
   },
   'workout-zones': {
     label: 'Workout zones',
     purpose:
-      'The watt, pace and heart-rate bands every target is anchored to, and the thresholds ' +
-      'they are derived from. Without this, a zone name in any other document means nothing ' +
-      'precise — so read it before writing a target.',
+      'The watt, pace and heart-rate bands every target is anchored to. Read it before ' +
+      'writing a target: without it a zone name means nothing precise.',
     builtIn: null,
     writableOverMcp: true,
   },
