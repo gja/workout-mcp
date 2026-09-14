@@ -16,6 +16,12 @@ npm run deploy
 Then configure at least one sign-in provider (see [auth.md](auth.md)) and open
 the dashboard.
 
+**Migrations are applied automatically on deploy**, by the Cloudflare Workers
+Build that runs on a push. `npm run db:remote` above is for standing the
+database up the first time, and for a schema you want in place before the code
+that reads it. A migration merged with the code that needs it does not have to
+be applied by hand, and a new column is not an ordering hazard.
+
 Both ids belong in `wrangler.jsonc` and are committed: they are resource
 identifiers scoped to your account, not secrets, and Cloudflare's build has to
 read them from the repo. A fork will need its own.

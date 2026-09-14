@@ -412,30 +412,33 @@ async function readStats(
 /**
  * The athlete's note on the session, reconciled with the platform's.
  *
- * One rule, in one direction at a time: a note written here is written upstream, and
- * a note written upstream fills in where nothing was written here. So the athlete may
- * type it in either place, the two agree afterwards, and neither side silently
- * overwrites something the athlete said somewhere else.
+ * Outbound only, and deliberately: `comment` is the athlete's own words, and the
+ * description upstream is not reliably theirs. A recording app writes its own line
+ * into it on upload — "Workout performed with <app>" — and adopting that would file
+ * boilerplate as what the athlete said about their session, then hand it to an
+ * assistant as such on every review afterwards. Nothing written here is ever produced
+ * by a machine, so nothing is read back from a field that can be.
  *
- * Costs nothing once they agree, which is the steady state — the comparison is off
+ * A note upstream is still readable, as the platform's own text: `list_recorded_workouts`
+ * carries the description per session, labelled as theirs. It is only never adopted.
+ *
+ * So the only write is ours going up, and only where we have something to say: a
+ * workout with no comment leaves their description alone rather than clearing it,
+ * because "the athlete never wrote one here" is not an instruction to erase theirs.
+ * Clearing travels by its own path — `onCommentSaved`, the moment it is cleared.
+ *
+ * Costs nothing once the two agree, which is the steady state — the comparison is off
  * the completion listing that was fetched anyway, and no call is made unless they differ.
  */
 async function syncComment(
-  env: Env,
-  userId: string,
   platform: Platform,
   token: string,
   workout: Workout,
   completion: Completion,
 ): Promise<void> {
   const here = workout.comment ?? null;
-  if (here === completion.comment) return;
+  if (here === null || here === completion.comment) return;
 
-  // Nothing said here, something said there: theirs is the note, and it comes back.
-  if (here === null) {
-    await db.setComment(env, userId, workout.date, workout.id, completion.comment);
-    return;
-  }
   if (!platform.setActivityComment || !completion.activity) return;
   await platform.setActivityComment(token, completion.activity.remote_id, here);
 }
@@ -490,7 +493,7 @@ async function applyCompletions(
     // Never at the cost of the completion either: a note that would not sync is
     // still a session that happened.
     await sideEffect(`syncing the comment on ${link.date}/${link.workout_id}`, () =>
-      syncComment(env, userId, platform, token, workout, completion),
+      syncComment(platform, token, workout, completion),
     );
   }
   return marked;

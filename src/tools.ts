@@ -294,8 +294,9 @@ export const TOOLS = [
     description:
       "Record the athlete's own note on how a session went — how it felt, what they cut short, " +
       'anything the numbers do not say. Their words, not a summary of yours: ask them, and store ' +
-      'what they answer. It is synced to the session on a connected platform, so it is the same ' +
-      'note they see there — on intervals.icu, the activity\'s description. It comes back on ' +
+      'what they answer. It is pushed to the session on a connected platform, so it is the same ' +
+      'note they see there — on intervals.icu, the activity\'s description. Nothing is read back ' +
+      'the other way, so a note typed on that platform does not appear here. It comes back on ' +
       'get_workout and get_workout_stats, to be read alongside what was actually done. ' +
       'Sending an empty comment clears it, there as well as here. This is separate from the ' +
       "workout's `notes`, which are the plan's own brief and go to the watch before the session.",

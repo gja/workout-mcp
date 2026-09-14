@@ -58,10 +58,11 @@ more — and a caller that never had to say what it meant has no way to notice.
 }
 ```
 
-`comment` is the athlete's own note on the session as it stands upstream — the
-activity's description on intervals.icu — or null where they wrote none. It is
-the same note `comment_workout` writes against a planned workout; see
-["The comment goes both ways"](integrations.md#the-comment-goes-both-ways).
+`comment` is the activity's description as it stands upstream — the
+platform's text, not necessarily the athlete's: a recording app often writes its
+own line there on upload. `comment_workout` pushes a planned workout's comment
+*into* that field, but nothing is ever adopted out of it; see
+["Why nothing is read back"](integrations.md#why-nothing-is-read-back).
 
 `file` is the name that session has inside the archive, and the same name
 `src/drive/` gives it: one file, two routes out, named once.
