@@ -2,7 +2,7 @@ import type { Workout, Window } from '../api';
 import { calendarDays, longDate, shortDate, fromKey, toKey } from '../dates';
 import { plannedSummary, sportIcon } from '../format';
 
-// Whole Sunday-to-Saturday weeks, widened to cover every workout returned: the server's
+// Whole Monday-to-Sunday weeks, widened to cover every workout returned: the server's
 // window is UTC and this calendar is local, so the edges disagree.
 function windowCovering(window: Window, workouts: Workout[]): Window {
   return workouts.reduce(
@@ -14,7 +14,7 @@ function windowCovering(window: Window, workouts: Workout[]): Window {
   );
 }
 
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 type Props = {
   window: Window;
