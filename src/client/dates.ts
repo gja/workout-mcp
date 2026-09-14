@@ -19,15 +19,17 @@ export const toKey = (date: Date): string =>
 
 export const fromKey = (key: string): Date => new Date(`${key}T00:00:00`);
 
-/** `getDay()` is already 0 for Sunday, so the week needs no offset. */
-export const sundayOf = (date: Date): Date => addDays(date, -date.getDay());
-export const saturdayOf = (date: Date): Date => addDays(date, 6 - date.getDay());
+/** A training week runs Monday to Sunday; `getDay()` is 0 for Sunday, so shift it to 6. */
+const weekdayIndex = (date: Date): number => (date.getDay() + 6) % 7;
 
-/** Every day from the Sunday on or before `from` to the Saturday on or after `to`. */
+export const startOfWeek = (date: Date): Date => addDays(date, -weekdayIndex(date));
+export const endOfWeek = (date: Date): Date => addDays(date, 6 - weekdayIndex(date));
+
+/** Every day from the Monday on or before `from` to the Sunday on or after `to`. */
 export function calendarDays(from: string, to: string): Date[] {
   const days: Date[] = [];
-  const end = saturdayOf(fromKey(to));
-  for (let day = sundayOf(fromKey(from)); day <= end; day = addDays(day, 1)) days.push(day);
+  const end = endOfWeek(fromKey(to));
+  for (let day = startOfWeek(fromKey(from)); day <= end; day = addDays(day, 1)) days.push(day);
   return days;
 }
 
