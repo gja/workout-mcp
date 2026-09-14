@@ -1,0 +1,12 @@
+-- The athlete's own note on how the session went, written after it.
+--
+-- Null means nothing has been said, which is what every existing row is. Kept
+-- beside `completed_at` and `stats` rather than in the plan: the plan is what
+-- was asked for and this is what came back, and a rewrite of the steps must not
+-- be able to touch it. Its own verb writes it, for the same reason completing
+-- has one.
+--
+-- It is synced to the connected platform's recorded activity — on intervals.icu
+-- that is the activity's description — so the note an athlete writes in either
+-- place is the note they read in the other. See docs/integrations.md.
+ALTER TABLE workouts ADD COLUMN comment TEXT;

@@ -70,11 +70,13 @@ describe('protocol', () => {
       'list_workouts',
     ]);
     expect(destructive.sort()).toEqual(['delete_workout', 'update_context', 'update_workout']);
-    // Completing is a write, but it cannot lose the plan it is recorded against.
-    expect(tools.find((tool) => tool.name === 'complete_workout')?.annotations).toMatchObject({
-      readOnlyHint: false,
-      destructiveHint: false,
-    });
+    // Completing and commenting are writes, but neither can lose the plan it is recorded against.
+    for (const name of ['complete_workout', 'comment_workout']) {
+      expect(tools.find((tool) => tool.name === name)?.annotations).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: false,
+      });
+    }
     // Every tool says which it is, rather than leaving a client to guess.
     for (const tool of tools) expect(tool.annotations?.readOnlyHint).toBeTypeOf('boolean');
   });
@@ -235,6 +237,60 @@ describe('tools', () => {
 
     const read = (await callTool('get_workout', { date: NEXT_DAY, id: created.id })) as { completed_at: string };
     expect(read.completed_at).toBe(`${DAY}T06:30:00.000Z`);
+  });
+
+  it('records the athlete’s note on how a session went, and hands it back', async () => {
+    const created = (await callTool('create_workout', intervals)) as { id: string };
+
+    const commented = (await callTool('comment_workout', {
+      date: DAY,
+      id: created.id,
+      comment: '  Legs flat from Sunday. Cut the last two reps.  ',
+    })) as { comment: string };
+    expect(commented.comment).toBe('Legs flat from Sunday. Cut the last two reps.');
+
+    const read = (await callTool('get_workout', { date: DAY, id: created.id })) as { comment: string };
+    expect(read.comment).toBe('Legs flat from Sunday. Cut the last two reps.');
+  });
+
+  it('clears the note on an empty comment', async () => {
+    const created = (await callTool('create_workout', intervals)) as { id: string };
+    await callTool('comment_workout', { date: DAY, id: created.id, comment: 'Said something' });
+
+    const cleared = (await callTool('comment_workout', {
+      date: DAY,
+      id: created.id,
+      comment: '',
+    })) as Record<string, unknown>;
+    expect(cleared).not.toHaveProperty('comment');
+  });
+
+  // Its own verb, like completing: the plan is rewritten under it and the note stands.
+  it('keeps the note when the plan is replaced or moved', async () => {
+    const created = (await callTool('create_workout', intervals)) as { id: string };
+    await callTool('comment_workout', { date: DAY, id: created.id, comment: 'Survives' });
+
+    await callTool('update_workout', { id: created.id, current_date: DAY, ...intervals, date: NEXT_DAY });
+
+    const read = (await callTool('get_workout', { date: NEXT_DAY, id: created.id })) as { comment: string };
+    expect(read.comment).toBe('Survives');
+  });
+
+  it('refuses a comment longer than the column is meant to hold', async () => {
+    const created = (await callTool('create_workout', intervals)) as { id: string };
+    const response = await rpc('tools/call', {
+      name: 'comment_workout',
+      arguments: { date: DAY, id: created.id, comment: 'x'.repeat(2001) },
+    });
+    expect(response.result?.isError).toBe(true);
+  });
+
+  it('reports commenting on a workout that is not there', async () => {
+    const response = await rpc('tools/call', {
+      name: 'comment_workout',
+      arguments: { date: DAY, id: 'nosuchid1', comment: 'hello' },
+    });
+    expect(response.result?.isError).toBe(true);
   });
 
   it('reports completing a workout that is not there', async () => {

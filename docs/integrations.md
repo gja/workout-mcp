@@ -219,6 +219,40 @@ who un-ticks a session means it, and without that memory the next pass would
 find the platform still reporting the activity and tick it back on, making the
 uncomplete button useless on anything synced.
 
+## The comment goes both ways
+
+A post-workout comment is the one thing here that travels in both directions.
+Everything else is one-way by design — the plan goes out, completions come back
+— but a note on how a session went is the athlete's own writing, and they will
+type it wherever they happen to be. On intervals.icu that is the **recorded
+activity's description**, written with their `PUT /api/v1/activity/{id}`, which
+takes a partial activity so only that one field is ever sent.
+
+One rule, applied each time a completion is read back:
+
+- **A note written here is written upstream.** It goes up as soon as it is
+  written, if the recording has already come back — the stats name the activity,
+  and that is the only handle on the session there. Written before the platform
+  has paired anything, it waits and rides up with the completion that names the
+  activity at last.
+- **A note written upstream fills in where there is none here.** So a comment
+  typed on their site arrives with the next pass and can be read alongside the
+  stats.
+- **They are only compared, never re-sent.** The description comes back on the
+  same activity listing the pairing does, so agreement — the steady state — costs
+  no extra call at all.
+
+What that does *not* do is merge. A note written in both places is a
+disagreement, and ours is the one the athlete wrote through this app most
+recently, so it wins and is pushed over theirs. Clearing it here clears it
+there, because "nothing said" has to have one spelling or the next pass would
+read the old note back as new.
+
+Their own documentation says a Strava-sourced activity cannot be updated at
+all. That comes back as one of their errors, recorded against the connection
+and shown on the dashboard, and it never fails the write here: the note is
+stored either way.
+
 ## What a sync run does
 
 `syncNow` brings one platform back into step. Out of step is three things: a

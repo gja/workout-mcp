@@ -354,6 +354,8 @@ export type Session = {
   activity_type: string | null;
   distance_m: number | null;
   moving_time_s: number | null;
+  /** The athlete's own post-workout note on the session, where they left one upstream. */
+  comment: string | null;
   file: string;
 };
 
@@ -366,6 +368,7 @@ const session = ({ source, recorded }: Found): Session => ({
   activity_type: recorded.activity_type,
   distance_m: recorded.distance_m,
   moving_time_s: recorded.moving_time_s,
+  comment: recorded.comment,
   file: fileName(recorded),
 });
 

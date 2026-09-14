@@ -183,6 +183,37 @@ export async function onWorkoutSaved(
   });
 }
 
+/**
+ * A post-workout comment was written here, so it should go up onto the session.
+ *
+ * Only where the recording has already come back: the stats name the activity, and
+ * that is the only handle on the session upstream. A note written before the platform
+ * has paired anything simply waits — `applyCompletions` carries it up with the
+ * completion that names the activity at last.
+ */
+export async function onCommentSaved(env: Env, user: User, workout: Workout): Promise<void> {
+  await sideEffect(`commenting on ${workout.date}/${workout.id}`, async () => {
+    for (const { platform: platformId, token } of await store.usableConnections(env, user.id)) {
+      const platform = PLATFORMS[platformId] as Platform | undefined;
+      if (!platform?.setActivityComment) continue;
+
+      const activityId = workout.stats?.platform === platformId ? workout.stats.activity_id : null;
+      if (!activityId) continue;
+
+      try {
+        await platform.setActivityComment(token, activityId, workout.comment ?? null);
+      } catch (err) {
+        await store.recordSyncError(
+          env,
+          user.id,
+          platformId,
+          `commenting on ${workout.date}/${workout.id}: ${message(err)}`,
+        );
+      }
+    }
+  });
+}
+
 /** A workout was deleted here, so it should go from the platforms too. */
 export async function onWorkoutDeleted(env: Env, user: User, date: string, id: string): Promise<void> {
   await sideEffect(`deleting ${date}/${id}`, async () => {
@@ -378,6 +409,37 @@ async function readStats(
   await db.setStats(env, userId, workout.date, workout.id, stats);
 }
 
+/**
+ * The athlete's note on the session, reconciled with the platform's.
+ *
+ * One rule, in one direction at a time: a note written here is written upstream, and
+ * a note written upstream fills in where nothing was written here. So the athlete may
+ * type it in either place, the two agree afterwards, and neither side silently
+ * overwrites something the athlete said somewhere else.
+ *
+ * Costs nothing once they agree, which is the steady state — the comparison is off
+ * the completion listing that was fetched anyway, and no call is made unless they differ.
+ */
+async function syncComment(
+  env: Env,
+  userId: string,
+  platform: Platform,
+  token: string,
+  workout: Workout,
+  completion: Completion,
+): Promise<void> {
+  const here = workout.comment ?? null;
+  if (here === completion.comment) return;
+
+  // Nothing said here, something said there: theirs is the note, and it comes back.
+  if (here === null) {
+    await db.setComment(env, userId, workout.date, workout.id, completion.comment);
+    return;
+  }
+  if (!platform.setActivityComment || !completion.activity) return;
+  await platform.setActivityComment(token, completion.activity.remote_id, here);
+}
+
 // Straight to the db, and once each: see "Completion is polled" in docs/integrations.md.
 async function applyCompletions(
   env: Env,
@@ -424,6 +486,12 @@ async function applyCompletions(
         readStats(env, userId, platform, token, workout, completion.activity!),
       );
     }
+
+    // Never at the cost of the completion either: a note that would not sync is
+    // still a session that happened.
+    await sideEffect(`syncing the comment on ${link.date}/${link.workout_id}`, () =>
+      syncComment(env, userId, platform, token, workout, completion),
+    );
   }
   return marked;
 }

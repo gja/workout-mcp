@@ -8,11 +8,12 @@ import * as plan from '../plan';
 import type { Router } from '../router';
 import { callTool, present, presentBrief } from '../tools';
 import { parseDate, parseTimestamp } from '../units';
-import { parseWorkout } from '../workout';
+import { parseComment, parseWorkout } from '../workout';
 
 /** The `:date`/`:id` pair every single-workout route is addressed by. */
 type WorkoutRoute = '/api/workouts/:date(\\d{4}-\\d{2}-\\d{2})/:id([0-9a-z]+)';
 type CompletionRoute = `${WorkoutRoute}/complete`;
+type CommentRoute = `${WorkoutRoute}/comment`;
 type StatsRoute = `${WorkoutRoute}/stats`;
 
 const WORKOUT: WorkoutRoute = '/api/workouts/:date(\\d{4}-\\d{2}-\\d{2})/:id([0-9a-z]+)';
@@ -43,11 +44,13 @@ const getWorkout: AuthedRoute<WorkoutRoute> = async ({ url, env, user, params })
 /** The laps a workout row leaves off, for the reason `get_workout_stats` is its own tool. */
 const getWorkoutStats: AuthedRoute<StatsRoute> = async ({ env, user, params }) => {
   const date = parseDate(params.date, 'date');
-  const stats = await db.getStats(env, user.id, date, params.id);
-  if (stats) return json(stats);
+  // Both: the note is what says why the numbers look as they do. See the tool.
+  const [stats, workout] = await Promise.all([
+    db.getStats(env, user.id, date, params.id),
+    db.getWorkout(env, user.id, date, params.id),
+  ]);
+  if (stats) return json({ ...stats, comment: workout?.comment ?? null });
 
-  // Only now is it worth a second read: which of the two it is changes the answer.
-  const workout = await db.getWorkout(env, user.id, date, params.id);
   return error(
     workout
       ? `nothing has been recorded against ${params.id} on ${date} yet`
@@ -92,6 +95,24 @@ const completeWorkout: AuthedRoute<CompletionRoute> = async (context) => {
 
 const uncompleteWorkout: AuthedRoute<CompletionRoute> = (context) => setCompletion(context, null);
 
+/** Its own verb too, and the one write here that travels out to the platform. */
+const setComment = async (
+  context: Parameters<AuthedRoute<CommentRoute>>[0],
+  comment: string | null,
+): Promise<Response> => {
+  const { url, env, user, params } = context;
+  const date = parseDate(params.date, 'date');
+  const workout = await plan.setComment(env, user, date, params.id, comment);
+  return workout ? json(presentBrief(workout, url.origin)) : error(`no workout ${params.id} on ${date}`, 404);
+};
+
+const commentWorkout: AuthedRoute<CommentRoute> = async (context) => {
+  const body = (await context.request.json().catch(() => ({}))) as { comment?: unknown };
+  return await setComment(context, parseComment(body?.comment));
+};
+
+const uncommentWorkout: AuthedRoute<CommentRoute> = (context) => setComment(context, null);
+
 /** The MCP tools, reachable over plain REST. */
 const runTool: AuthedRoute<'/api/tools/:name([a-z_]+)'> = async ({ request, url, env, user, params }) =>
   json(await callTool(params.name, await request.json(), env, user, url.origin));
@@ -132,6 +153,8 @@ export const routes = (app: Router<Context>): void => {
     .delete(WORKOUT, withUser(deleteWorkout))
     .post(`${WORKOUT}/complete`, withUser(completeWorkout))
     .delete(`${WORKOUT}/complete`, withUser(uncompleteWorkout))
+    .put(`${WORKOUT}/comment`, withUser(commentWorkout))
+    .delete(`${WORKOUT}/comment`, withUser(uncommentWorkout))
 
     .post('/api/tools/:name([a-z_]+)', withUser(runTool))
 

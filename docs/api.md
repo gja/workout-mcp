@@ -26,6 +26,8 @@ session cookie set at login.
 | `DELETE /api/workouts/:date/:id.json` | Delete one |
 | `POST /api/workouts/:date/:id/complete` | Mark it done; `{completed_at}` optional, defaults to now |
 | `DELETE /api/workouts/:date/:id/complete` | Clear that, leaving the plan alone |
+| `PUT /api/workouts/:date/:id/comment` | The athlete's note on how it went; `{comment}`, synced to the platform |
+| `DELETE /api/workouts/:date/:id/comment` | Clear the note, there as well as here |
 | `GET /api/context` | Every context document an assistant reads, where each stands, and the tool that reads it |
 | `GET /api/context.zip` | All of them as `backup-context.zip`, plus a manifest |
 | `GET /api/context/:kind` | One of them |
