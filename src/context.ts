@@ -32,7 +32,7 @@ export const CONTEXTS: Record<ContextKind, Definition> = {
     label: 'Current plan',
     purpose:
       'The block of training they are in now: goal race, phase, and what this week is meant ' +
-      'to do. Read it before planning, so a session lands in the plan rather than beside it.',
+      'to do. Read it before planning.',
     builtIn: null,
     writableOverMcp: true,
   },

@@ -77,6 +77,15 @@ arguments, so a non-MCP client gets identical behaviour. The schemas live in
 workout, which is why they carry worked examples rather than leaving them to
 prose. For what the fields mean, see [workouts.md](workouts.md).
 
+**The descriptions are kept to about 50 words each**, because this list is sent
+in full on every `tools/list` — context paid for before anything is called. What
+earns a sentence is what a caller cannot get from the name and the schema: an
+order of calls that is not obvious (read the context documents before writing a
+session), a unit or sentinel that would be misread (pace is seconds per
+kilometre; a missing figure is null, never 0), a limit that will be hit, and a
+constraint that protects the athlete. The worked examples stay, in the step
+schema, where they are the thing being explained.
+
 ### Planned, and recorded
 
 The first eight tools are the *plan* and what came back from it: what the
