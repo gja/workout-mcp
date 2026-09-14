@@ -174,29 +174,43 @@ const readsContext = (kind: context.ContextKind) => {
   return {
     annotations: { title: `Read the athlete's ${label.toLowerCase()}`, readOnlyHint: true, openWorldHint: false },
     description:
-      `${purpose} Returns markdown — context to read, not a schema: nothing in it is a tool ` +
-      'argument. A document the athlete has not written comes back as markdown: null, which ' +
-      'says what to ask them for rather than licensing a default. ' +
+      `${purpose} Markdown to read, not tool arguments; \`markdown: null\` means unwritten — ask, ` +
+      'do not assume a default. ' +
       (writableOverMcp
-        ? 'Replace it with update_context, once the athlete has agreed to what would go in it.'
-        : 'Read-only here: it is edited on the dashboard, or over the REST API at ' +
-          `PUT /api/context/${kind}.`),
+        ? 'Write it with update_context once they agree.'
+        : `Read-only here; edited on the dashboard or at PUT /api/context/${kind}.`),
     inputSchema: { type: 'object', properties: {} },
   };
 };
 
-/** The annotations are advisory — they shape how a client asks, not what the server allows. */
+/**
+ * **Keep every `description` to about 50 words, and one line where it fits.**
+ *
+ * This array is serialised in full on every `tools/list`, so it is context an
+ * assistant pays for before it has decided to call anything. Prose that only
+ * restates the tool's name, or explains what the result obviously is, is paid for
+ * every session and read by nobody.
+ *
+ * So say the one thing a caller cannot work out from the name and the schema, and
+ * stop. Worth the words: an order of calls that is not obvious (read the context
+ * documents before writing a session), a unit or a sentinel that would be
+ * misread (pace is seconds per km; a missing figure is null, never 0), a limit
+ * that will be hit (the retention window, the range cap), and a constraint that
+ * protects the athlete (their comment is their words, not a summary of yours).
+ * Not worth them: which other tool to call next, what a field plainly named
+ * `date` holds, or a second telling of what the annotations already say.
+ *
+ * The annotations are advisory — they shape how a client asks, not what the server
+ * allows.
+ */
 export const TOOLS = [
   {
     name: 'list_workouts',
     annotations: { title: 'List planned workouts', readOnlyHint: true, openWorldHint: false },
     description:
-      'List planned workouts within the retention window (7 days back, 14 days ahead). ' +
-      'Returns each workout with its date and id; pass those to export_workout_fit for the file. ' +
-      'A wider from/to is narrowed to the window rather than honoured. ' +
-      'A workout whose session has been recorded carries `stats` with the totals of what was ' +
-      'actually done; get_workout_stats has the laps behind them, and `comment` is the athlete\'s ' +
-      'own post-workout note on it.',
+      'List planned workouts in the retention window: 7 days back, 14 ahead. A wider from/to is ' +
+      'narrowed to it rather than refused. A recorded session carries `stats`, and `comment` is ' +
+      "the athlete's own note on it.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -209,11 +223,9 @@ export const TOOLS = [
     name: 'get_workout',
     annotations: { title: 'Read a planned workout', readOnlyHint: true, openWorldHint: false },
     description:
-      'Fetch one planned workout by date and id. If a date has exactly one workout, the id may be omitted. ' +
-      'Once the session has been recorded on a connected platform, `stats` carries the totals of ' +
-      'what was actually done; get_workout_stats has the laps behind them. `comment` is the ' +
-      "athlete's own post-workout note on how it went — read it before judging the numbers, and " +
-      'write one with comment_workout.',
+      'Fetch one planned workout. The id may be omitted when the date holds exactly one. Once the ' +
+      'session has been recorded, `stats` carries the totals and `comment` the athlete\'s own note ' +
+      'on how it went — read that before judging the numbers.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -227,19 +239,17 @@ export const TOOLS = [
     name: 'create_workout',
     annotations: { title: 'Create a planned workout', readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     description:
-      'Create a planned workout on a date and return its id. ' +
-      'A date may hold several workouts; each gets its own id. ' +
-      `Read the athlete's context first — ${nameTools(context.CONTEXT_KINDS)} — for how they ` +
-      'train, what plan they are on, which days they train, and the zones a target should be ' +
-      'anchored to.',
+      'Create a planned workout and return its id; a date may hold several. Read the athlete\'s ' +
+      `context first — ${nameTools(context.CONTEXT_KINDS)} — for how they train, which days they ` +
+      'train, and the zones a target is anchored to.',
     inputSchema: { type: 'object', properties: WORKOUT_PROPERTIES, required: ['date', 'steps'] },
   },
   {
     name: 'update_workout',
     annotations: { title: 'Replace a planned workout', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     description:
-      'Replace an existing workout in full. The id is kept; the date may be changed to move the ' +
-      `workout. As with create_workout, read ${nameTools(context.CONTEXT_KINDS)} first.`,
+      'Replace a workout in full, keeping its id; a changed date moves it. As with create_workout, ' +
+      `read ${nameTools(context.CONTEXT_KINDS)} first.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -264,11 +274,9 @@ export const TOOLS = [
     name: 'complete_workout',
     annotations: { title: 'Mark a workout done', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     description:
-      'Record that a planned workout was actually done, and when. Defaults to now, so ' +
-      'completed_at is only needed when logging a session after the fact. ' +
-      'Pass completed: false to clear the record and put the workout back to merely planned. ' +
-      'The plan itself is untouched, and rewriting the plan later leaves the record in place. ' +
-      'How the session went is its own verb: comment_workout.',
+      'Record that a workout was done, and when. Defaults to now; pass completed_at only to log ' +
+      'one after the fact, or completed: false to clear the record. The plan itself is untouched, ' +
+      'and rewriting it later leaves the record standing.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -292,14 +300,10 @@ export const TOOLS = [
     name: 'comment_workout',
     annotations: { title: 'Comment on a workout', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     description:
-      "Record the athlete's own note on how a session went — how it felt, what they cut short, " +
-      'anything the numbers do not say. Their words, not a summary of yours: ask them, and store ' +
-      'what they answer. It is pushed to the session on a connected platform, so it is the same ' +
-      'note they see there — on intervals.icu, the activity\'s description. Nothing is read back ' +
-      'the other way, so a note typed on that platform does not appear here. It comes back on ' +
-      'get_workout and get_workout_stats, to be read alongside what was actually done. ' +
-      'Sending an empty comment clears it, there as well as here. This is separate from the ' +
-      "workout's `notes`, which are the plan's own brief and go to the watch before the session.",
+      "Store the athlete's own note on how a session went. Their words, so ask them rather than " +
+      'summarising: this is never written for them. Pushed to the session on a connected platform, ' +
+      'and never read back from one. Empty clears it. Not the plan\'s `notes`, which go to the ' +
+      'watch beforehand.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -319,9 +323,9 @@ export const TOOLS = [
     name: 'export_workout_fit',
     annotations: { title: 'Export a workout as FIT', readOnlyHint: true, openWorldHint: false },
     description:
-      'Encode a planned workout as a Garmin FIT workout file. Returns the whole file base64-encoded ' +
-      'in the response, along with the name to save it under: decode those bytes to produce the ' +
-      '.fit file. There is no URL to link to.',
+      'Encode a planned workout as a Garmin FIT file. The whole file comes back base64 in the ' +
+      'response, with the name to save it under — decode those bytes to produce it. There is no ' +
+      'URL to link to.',
     inputSchema: {
       type: 'object',
       properties: { date: WORKOUT_PROPERTIES.date, id: { type: 'string' } },
@@ -332,14 +336,9 @@ export const TOOLS = [
     name: 'get_workout_stats',
     annotations: { title: 'Read what was actually done', readOnlyHint: true, openWorldHint: false },
     description:
-      'Fetch what the athlete actually did in a workout, read off the session they recorded on a ' +
-      'connected platform. Returns the session totals and one lap per segment of the recording, ' +
-      'each mapped to the planned step it was for, split into four quarters, and — where the step ' +
-      'carried a target — the share of the lap that sat inside the band. Answers planned-versus-' +
-      'actual without downloading anything. Pace is integer seconds per kilometre, and a figure ' +
-      'that was not recorded is null, never 0; read `flags` before trusting a number. ' +
-      "`comment` is the athlete's own post-workout note on the session, where they left one. " +
-      'For the record stream itself, list_recorded_workouts hands over the FIT files.',
+      'What the athlete actually did: session totals, one lap per segment of the recording mapped ' +
+      'to the planned step it was for, and time-in-band where a step had a target. Pace is integer ' +
+      'seconds per kilometre, and an unrecorded figure is null, never 0 — read `flags` first.',
     inputSchema: {
       type: 'object',
       properties: { date: WORKOUT_PROPERTIES.date, id: { type: 'string', description: 'The workout id.' } },
@@ -360,14 +359,10 @@ export const TOOLS = [
       openWorldHint: false,
     },
     description:
-      'Replace one context document in full. This is the athlete\'s own standing brief to an ' +
-      'assistant rather than a workout, so it outlives the conversation it was written in: ' +
-      'read the document first with its own tool, show the athlete what you mean to put there, ' +
-      'and call this only once they have agreed to it. Send the whole document — there is no ' +
-      'partial edit, and what you send replaces what is there. An empty document clears it, and ' +
-      `one over ${context.MAX_CONTEXT_BYTES / 1024} KB is refused rather than truncated. ` +
-      `Only ${WRITABLE_CONTEXTS} can be written here. The workout library cannot: it is edited ` +
-      'on the dashboard, or over the REST API at PUT /api/context/workout-library.',
+      "Replace one context document in full — the athlete's standing brief, which outlives this " +
+      'conversation. Read it first, show them what you mean to put there, and call this only once ' +
+      `they have agreed. There is no partial edit; empty clears it, over ${context.MAX_CONTEXT_BYTES / 1024} KB is refused. ` +
+      `Only ${WRITABLE_CONTEXTS} — the workout library is written on the dashboard instead.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -390,15 +385,10 @@ export const TOOLS = [
     name: 'list_recorded_workouts',
     annotations: { title: 'List sessions actually recorded', readOnlyHint: true, openWorldHint: true },
     description:
-      'List the sessions the athlete actually recorded on a connected training platform — what ' +
-      'they did, not what was planned — and get a link to download those sessions as a ZIP of ' +
-      'FIT files. Use this to analyse real training: call it for the range of interest, then ' +
-      'fetch download_url and read the FIT files out of the archive. The link carries no ' +
-      `credential, so it can be handed on, and it expires after ${recordings.LINK_TTL_SECONDS / 3600} hours. ` +
-      `The range may cover at most ${recordings.MAX_RANGE_DAYS} days — for a longer period, call ` +
-      'this once per fortnight of it and fetch each archive — and one archive holds at most ' +
-      `${recordings.MAX_RECORDINGS} sessions; the reply says how many matched but were left out. ` +
-      'The archive also holds a manifest.json naming every file in it.',
+      'Sessions the athlete actually recorded on a platform — what they did, not what was planned ' +
+      `— plus a download_url for them as one ZIP of FIT files. At most ${recordings.MAX_RANGE_DAYS} days per call and ` +
+      `${recordings.MAX_RECORDINGS} sessions per archive. The link needs no credential and expires after ` +
+      `${recordings.LINK_TTL_SECONDS / 3600} hours.`,
     inputSchema: {
       type: 'object',
       properties: {

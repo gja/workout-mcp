@@ -21,6 +21,15 @@ node scripts/check-readme.mjs
 `npm test` builds first on purpose: the tests run the real Worker, with
 `test/upstream-provider.js` standing in for every outbound host.
 
+## Tool descriptions are charged for every session
+
+`TOOLS` in `src/tools.ts` is serialised in full on every `tools/list`, before an
+assistant has decided to call anything. Keep each `description` to about 50
+words, and say only what a caller cannot get from the name and the schema — a
+non-obvious order of calls, a unit or sentinel that would be misread, a limit
+that will be hit, a constraint that protects the athlete. The comment above
+`TOOLS` has the rule and the reasoning.
+
 ## Where the prose lives
 
 `docs/` is the reference and is kept current with the code — a change to

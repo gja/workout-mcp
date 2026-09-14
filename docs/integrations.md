@@ -137,13 +137,23 @@ sit a beat off what you planned. The file is right; the round trip is lossy.
 
 intervals.icu delivers webhooks to OAuth applications it has approved, which is
 now what this is. Registered on their app page against
-`https://workouts-mcp.com/webhooks/intervals`, with one event ticked:
+`https://workouts-mcp.com/webhooks/intervals`, with two events ticked:
 
-**`ACTIVITY_ANALYZED`.** Not `ACTIVITY_UPLOADED` — that fires on arrival,
-*before* they have paired the activity with the event we pushed, and the
-pairing is the only thing that says which workout was completed. The analysed
-event also comes debounced by about a minute, so one upload is one delivery
-rather than a burst.
+**`ACTIVITY_ANALYZED`** is the one to rely on. It fires after they have had the
+chance to pair the activity with the event we pushed, and the pairing is the
+only thing that says which workout was completed. It also comes debounced by
+about a minute, so one upload is one delivery rather than a burst.
+
+**`ACTIVITY_UPLOADED`** is taken as well, though it fires on arrival and usually
+*before* that pairing exists — so on its own it often marks nothing. It is worth
+having anyway, because neither event is evidence: both are nudges, and the
+pairing is read back over the API either way, so an extra one costs a read and
+risks nothing. It catches an upload that arrives already paired, and it is a
+second chance when a delivery of the analysed event never comes — they gave up
+retrying, or we were mid-deploy — that is not an hour away.
+
+A session both events fire for is marked once: the completion is remembered on
+the link, and the recording behind it is not re-read once its stats are stored.
 
 The webhook is a **nudge, not evidence**. The only thing the body is believed
 for is which athlete it concerns; what actually marks the workout done is the

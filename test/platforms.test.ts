@@ -514,14 +514,50 @@ describe('the intervals.icu webhook', () => {
     expect((await post(analysed(), { Authorization: 'Bearer wrong' })).status).toBe(401);
   });
 
-  it('ignores an event type that does not mean a session was completed', async () => {
+  it('ignores an event type that is not one of the two nudges', async () => {
     await connect();
+    const response = await post({
+      secret: SECRET,
+      events: [{ athlete_id: ATHLETE_ID, type: 'ATHLETE_UPDATED' }],
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ athletes: 0, marked: 0 });
+  });
+
+  // Their earlier event, which usually beats the pairing but sometimes does not.
+  it('acts on an upload event too, not only the analysed one', async () => {
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    await pairAnActivity(event.id);
+
     const response = await post({
       secret: SECRET,
       events: [{ athlete_id: ATHLETE_ID, type: 'ACTIVITY_UPLOADED' }],
     });
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ athletes: 0, marked: 0 });
+    expect(await response.json()).toMatchObject({ matched: 1, marked: 1 });
+
+    const workout = (await (await call(`/api/workouts/${planned.date}/${planned.id}`)).json()) as {
+      completed_at?: string;
+    };
+    expect(workout.completed_at).toBeTruthy();
+  });
+
+  // Both fire for one session; the link remembers the completion, so it lands once.
+  it('marks a session once when both events arrive for it', async () => {
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    await pairAnActivity(event.id);
+
+    const upload = { secret: SECRET, events: [{ athlete_id: ATHLETE_ID, type: 'ACTIVITY_UPLOADED' }] };
+    expect(await (await post(upload)).json()).toMatchObject({ marked: 1 });
+    expect(await (await post(analysed())).json()).toMatchObject({ marked: 0 });
+
+    const workout = (await (await call(`/api/workouts/${planned.date}/${planned.id}`)).json()) as {
+      completed_at?: string;
+    };
+    expect(workout.completed_at).toBeTruthy();
   });
 
   // A permanent condition — no retry would ever do better — so it is not an error.

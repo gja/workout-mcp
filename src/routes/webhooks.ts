@@ -9,14 +9,23 @@ import * as platforms from '../platforms';
 import type { Router } from '../router';
 
 /**
- * The event that means a session is done *and* matched to a plan.
+ * The events worth reading an athlete's completions back for.
  *
- * Not `ACTIVITY_UPLOADED`: that fires on arrival, before intervals.icu has paired
- * the activity with the calendar event we pushed, and the pairing is the only thing
- * that says which workout was completed. `ACTIVITY_ANALYZED` also comes debounced,
- * so one upload is one event rather than a burst.
+ * Neither is evidence on its own — both are nudges, and what actually marks a
+ * workout done is the pairing, read over the API. So taking more of them costs a
+ * read and risks nothing.
+ *
+ * `ACTIVITY_ANALYZED` is the one to rely on: it comes after intervals.icu has had
+ * the chance to pair the activity with the event we pushed, and it is debounced, so
+ * one upload is one delivery rather than a burst.
+ *
+ * `ACTIVITY_UPLOADED` fires on arrival, usually *before* that pairing exists, so on
+ * its own it often marks nothing. It is taken anyway for the cases where it does:
+ * an upload that arrives already paired is done sooner, and a delivery of the other
+ * that never arrives — they gave up retrying, or we were mid-deploy — has a second
+ * chance that is not an hour away.
  */
-const COMPLETED = 'ACTIVITY_ANALYZED';
+const NUDGES = new Set(['ACTIVITY_ANALYZED', 'ACTIVITY_UPLOADED']);
 
 type Event = { athlete_id?: unknown; type?: unknown };
 
@@ -41,7 +50,7 @@ const intervalsWebhook: Route = async ({ request, env }) => {
   // They batch, and a repeated athlete in one body is still one pass over their activities.
   const athletes = new Set<string>();
   for (const event of Array.isArray(body.events) ? (body.events as Event[]) : []) {
-    if (event?.type !== COMPLETED) continue;
+    if (typeof event?.type !== 'string' || !NUDGES.has(event.type)) continue;
     const athlete = event.athlete_id;
     if (typeof athlete === 'string' || typeof athlete === 'number') athletes.add(String(athlete));
   }
