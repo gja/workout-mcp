@@ -29,6 +29,10 @@ assistant is *told* they have said nothing, rather than handed a plausible
 default it would then plan against. A guessed threshold is worse than a missing
 one.
 
+An empty document says what to do about itself: `next_step` is null once
+something is written, and otherwise names both ways to fill it. The absence is
+the signal, so it carries the remedy rather than leaving it to be inferred.
+
 The three with no default are what the `getting-started` prompt exists to fill:
 absence is the right answer for one missing document and a poor start for an
 account where every one of them is missing at once. See [prompts.md](prompts.md).

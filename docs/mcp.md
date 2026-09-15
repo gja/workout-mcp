@@ -163,5 +163,11 @@ tools. There is one — `getting-started`, the interview that fills an athlete's
 context documents from their answers — and a client offers it as something the
 athlete picks rather than something the model calls. Only the name, title and
 description go out in the list; the body is sent once it is asked for, which is
-why it can be long where a tool description cannot. See
-[prompts.md](prompts.md).
+why it can be long where a tool description cannot.
+
+The model never sees a prompt, so `initialize` carries the same interview in its
+`instructions` field while — and only while — the athlete has written nothing,
+and every empty context read carries a `next_step` saying what to do about it.
+Note that `initialize` is the *legacy* home for `instructions`: revision
+`2026-07-28` replaced the handshake with per-request metadata and
+`server/discover`, which carries the same field. See [prompts.md](prompts.md).

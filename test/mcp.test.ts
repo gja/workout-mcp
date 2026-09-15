@@ -121,6 +121,42 @@ describe('protocol', () => {
     expect((await rpc('prompts/get', { name: 'nope' })).error).toMatchObject({ code: -32602 });
   });
 
+  it('sends the whole interview as instructions while the athlete has written nothing', async () => {
+    const { instructions } = (await rpc('initialize', {})).result as { instructions: string };
+    // The model cannot invoke a prompt, so an athlete with nothing written is reached
+    // through initialize or not at all.
+    expect(instructions).toContain('Offer the interview below once');
+    expect(instructions).toContain('Round 1 — sport and goal');
+    expect(instructions).toContain('Never invent a number');
+  });
+
+  it('drops to a line once some of it is written, and to nothing once all of it is', async () => {
+    await callTool('update_context', { kind: 'workout-zones', markdown: '# Zones\nFTP 200W.' });
+
+    const partial = (await rpc('initialize', {})).result as { instructions: string };
+    expect(partial.instructions).toContain('workout zones');
+    expect(partial.instructions).toContain('current plan');
+    // The body is what costs, so a half-set-up athlete is not sent it again.
+    expect(partial.instructions).not.toContain('Round 1 — sport and goal');
+
+    for (const kind of ['scheduling-instructions', 'current-plan']) {
+      await callTool('update_context', { kind, markdown: `# ${kind}\nSomething.` });
+    }
+    // Absent rather than empty: the cost ends when the documents are written.
+    expect((await rpc('initialize', {})).result).not.toHaveProperty('instructions');
+  });
+
+  it('says what to do about an empty document in the read itself', async () => {
+    const empty = await callTool('get_current_plan', {});
+    expect(empty.markdown).toBeNull();
+    expect(empty.next_step).toContain('getting-started');
+
+    await callTool('update_context', { kind: 'current-plan', markdown: '# Plan\nSub-60 10K.' });
+    expect((await callTool('get_current_plan', {})).next_step).toBeNull();
+    // The library always has its built-in document, so it never asks for one.
+    expect((await callTool('get_workout_library', {})).next_step).toBeNull();
+  });
+
   it('answers a ping and rejects an unknown method', async () => {
     expect((await rpc('ping')).result).toEqual({});
     expect((await rpc('what/ever')).error).toMatchObject({ code: -32601 });

@@ -87,6 +87,8 @@ export type ContextDocument = {
   writable_over_mcp: boolean;
   /** The MCP tool that reads this one, so the dashboard names what an assistant will call. */
   read_tool: string;
+  /** What to do about an empty document, said in the result rather than left to be inferred. */
+  next_step: string | null;
   /** When they last saved it, or null while it is the built-in document or unset. */
   updated_at: string | null;
 };
@@ -96,17 +98,24 @@ export const isContextKind = (value: unknown): value is ContextKind =>
 
 type Stored = { markdown: string; updated_at: string };
 
+/** Said on every empty read, so a client with no prompt support still learns the interview exists. */
+const NEXT_STEP =
+  'Nothing is written here. Ask the athlete and write it with update_context, or run the ' +
+  '"getting-started" prompt, which is the whole interview. Do not plan against a guess.';
+
 function present(kind: ContextKind, stored: Stored | null): ContextDocument {
   const definition = CONTEXTS[kind];
+  const markdown = stored ? stored.markdown : definition.builtIn;
   return {
     kind,
     label: definition.label,
     purpose: definition.purpose,
-    markdown: stored ? stored.markdown : definition.builtIn,
+    markdown,
     custom: stored !== null,
     has_built_in: definition.builtIn !== null,
     writable_over_mcp: definition.writableOverMcp,
     read_tool: readToolName(kind),
+    next_step: markdown === null ? NEXT_STEP : null,
     updated_at: stored ? stored.updated_at : null,
   };
 }

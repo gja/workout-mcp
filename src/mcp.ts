@@ -1,6 +1,7 @@
 // MCP over Streamable HTTP, stateless: one JSON-RPC request per POST. See docs/mcp.md.
 
-import { findPrompt, listPrompts, promptMessages } from './prompts';
+import { readEveryContext } from './context';
+import { findPrompt, instructionsFor, listPrompts, promptMessages } from './prompts';
 import { TOOLS, ToolError, callTool, isCallerError } from './tools';
 import type { Env, User } from './db';
 
@@ -28,11 +29,14 @@ async function handleRequest(
   origin: string,
 ): Promise<unknown> {
   switch (request.method) {
+    // One D1 read per connection, not per request, and what it buys is an athlete
+    // with nothing written being interviewed rather than planned at.
     case 'initialize':
       return {
         protocolVersion: PROTOCOL_VERSION,
         capabilities: { tools: { listChanged: false }, prompts: { listChanged: false } },
         serverInfo: SERVER_INFO,
+        instructions: instructionsFor(await readEveryContext(env, user.id)),
       };
 
     case 'ping':
