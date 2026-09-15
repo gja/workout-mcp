@@ -62,6 +62,7 @@ describe('protocol', () => {
     expect(readOnly.sort()).toEqual([
       'export_workout_fit',
       'get_current_plan',
+      'get_onboarding_instructions',
       'get_scheduling_instructions',
       'get_workout',
       'get_workout_library',
@@ -121,35 +122,26 @@ describe('protocol', () => {
     expect((await rpc('prompts/get', { name: 'nope' })).error).toMatchObject({ code: -32602 });
   });
 
-  it('sends the whole interview as instructions while the athlete has written nothing', async () => {
-    const { instructions } = (await rpc('initialize', {})).result as { instructions: string };
-    // The model cannot invoke a prompt, so an athlete with nothing written is reached
-    // through initialize or not at all.
-    expect(instructions).toContain('Offer the interview below once');
-    expect(instructions).toContain('Round 1 — sport and goal');
-    expect(instructions).toContain('Never invent a number');
-  });
-
-  it('drops to a line once some of it is written, and to nothing once all of it is', async () => {
-    await callTool('update_context', { kind: 'workout-zones', markdown: '# Zones\nFTP 200W.' });
-
-    const partial = (await rpc('initialize', {})).result as { instructions: string };
-    expect(partial.instructions).toContain('workout zones');
-    expect(partial.instructions).toContain('current plan');
-    // The body is what costs, so a half-set-up athlete is not sent it again.
-    expect(partial.instructions).not.toContain('Round 1 — sport and goal');
-
-    for (const kind of ['scheduling-instructions', 'current-plan']) {
-      await callTool('update_context', { kind, markdown: `# ${kind}\nSomething.` });
-    }
-    // Absent rather than empty: the cost ends when the documents are written.
+  it('hands over the interview only when something asks for it', async () => {
+    // Not in initialize: a client pays for the tool list, not for a setup that
+    // happened months ago.
     expect((await rpc('initialize', {})).result).not.toHaveProperty('instructions');
+
+    const { markdown } = (await callTool('get_onboarding_instructions', {})) as { markdown: string };
+    expect(markdown).toContain('Round 1 — sport and goal');
+    expect(markdown).toContain('Never invent a number');
+    // The prompt and the tool are the same body, reached two ways.
+    const prompt = (await rpc('prompts/get', { name: 'getting-started' })).result as {
+      messages: { content: { text: string } }[];
+    };
+    expect(prompt.messages[0].content.text).toBe(markdown);
   });
 
   it('says what to do about an empty document in the read itself', async () => {
     const empty = await callTool('get_current_plan', {});
     expect(empty.markdown).toBeNull();
-    expect(empty.next_step).toContain('getting-started');
+    // Nothing else tells a caller the interview exists, so this names the tool.
+    expect(empty.next_step).toContain('get_onboarding_instructions');
 
     await callTool('update_context', { kind: 'current-plan', markdown: '# Plan\nSub-60 10K.' });
     expect((await callTool('get_current_plan', {})).next_step).toBeNull();

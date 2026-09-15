@@ -7,6 +7,7 @@ import * as db from './db';
 import type { Env, User } from './db';
 import * as context from './context';
 import * as plan from './plan';
+import { ONBOARDING_INSTRUCTIONS } from './prompts';
 import { PLATFORMS } from './platforms';
 import * as recordings from './recordings';
 import { WorkoutError, parseComment, parseWorkout } from './workout';
@@ -359,6 +360,16 @@ export const TOOLS = [
   { name: 'get_scheduling_instructions', ...readsContext('scheduling-instructions') },
   { name: 'get_workout_zones', ...readsContext('workout-zones') },
   {
+    name: 'get_onboarding_instructions',
+    annotations: { title: 'Read the setup interview', readOnlyHint: true, openWorldHint: false },
+    description:
+      'The interview that fills an empty context: what to ask the athlete about their sports, ' +
+      'goals, week and zones, and how to write the three documents from the answers. Long, and ' +
+      'only worth fetching when setting up or revising context — call it when asked to, or when ' +
+      'a context read comes back empty.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
     name: 'update_context',
     annotations: {
       title: "Replace one of the athlete's context documents",
@@ -609,6 +620,9 @@ export async function callTool(
       if (typeof args.markdown !== 'string') throw new ToolError('markdown is required');
       return await context.saveContext(env, user.id, args.kind, args.markdown);
     }
+
+    case 'get_onboarding_instructions':
+      return { markdown: ONBOARDING_INSTRUCTIONS };
 
     case 'list_recorded_workouts':
       return await recordings.list(env, user, recordings.parseQuery(args), origin);

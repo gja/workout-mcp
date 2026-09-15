@@ -80,72 +80,59 @@ they are about how wide a target may be rather than what a target is:
   stays the single source of truth; a band written into a workout is a
   *tolerance*, allowed to be wider than the zone it came from.
 
-## Reaching the model, not only the picker
+## Three doors to the same interview
 
-A prompt is offered to the *athlete* — a slash command in Claude Code, a menu
-item in Desktop. The model never sees it: it receives `tools/list` and nothing
-else, and there is no way for it to call `prompts/get` on its own. That is the
-right shape for "I want to redo my setup", and useless for the case this is
-actually for, because a brand-new athlete does not browse a prompt picker.
+The body in `src/getting-started.md` is reached three ways, because the one that
+is right for a person is no use to a model and vice versa:
 
-So `initialize` carries the same body. Its `instructions` field is
-natural-language guidance for the model, which clients prepend to the system
-prompt, and it is built per athlete from what they have written:
-
-| Written | `instructions` | Cost |
+| Door | Who opens it | When |
 | --- | --- | --- |
-| none of the three | the whole interview, under a covering note | ~2k tokens |
-| some of them | one line naming what is missing | negligible |
-| all three | the field is absent | none |
+| the `getting-started` prompt | the athlete, from the picker | "set up my training context" |
+| `get_onboarding_instructions` | the model | asked to, or a context read came back empty |
+| `next_step` on an empty read | nobody — it is just there | every read of a document with nothing in it |
 
-The expensive case is the one that pays for itself, and it is **self-limiting**:
-the condition that triggers it is destroyed by the interview succeeding. That is
-why there is no `start_setup` tool. A tool would be model-invocable in every
-client, but it would spend ~50 words of `tools/list` on every session forever,
-including the overwhelming majority where the athlete was set up months ago.
+A prompt is offered to the athlete alone: the model receives `tools/list` and
+nothing else, and cannot call `prompts/get` on its own. That is the right shape
+for "I want to redo my setup" and no use for the case the interview is actually
+for, because a brand-new athlete does not browse a prompt picker. So the same
+body sits behind a tool, which works in every client whether or not it
+implements prompts, and can be reached mid-conversation rather than only at the
+moment a client connects.
 
-It costs one D1 read per *connection* — `initialize` is not per request — so the
-instructions describe the athlete as they were when the client connected. Stale
-in the harmless direction: an assistant told there is nothing written goes and
-reads, and the read is current.
+The tool's description says when *not* to call it. It returns some fifteen
+hundred words, which is worth it exactly once and wasteful on every session
+after, so it is fetched when asked for or when a read has just come back empty —
+never speculatively, and never as a way of finding out whether the athlete is
+set up, which the context readers answer for nothing.
 
-### Nothing is stored to say "we asked"
+### Why not `initialize`
 
-There is no `offered_at` column, deliberately. A flag would record that the
-server sent something, which is not the same as the athlete having seen it or
-turned it down — a client that connects and is closed again would burn the only
-offer and leave that athlete permanently un-onboarded, which is the exact
-failure this feature exists to prevent.
+`initialize` has an `instructions` field, and an earlier draft built it per
+athlete: the whole interview while the documents were empty, nothing once they
+were filled. It reads well and it was dropped.
 
-"Once" is therefore scoped to the conversation and carried by the wording of the
-covering note, which the model can honour because its own history tells it
-whether it has already asked. The durable stop condition is the thing actually
-worth tracking, and it is already stored: **the documents being written**. An
-athlete who would rather type them on the dashboard stops being offered the
-interview by typing them, which is what they wanted to do anyway.
+It is pushy in a way a tool is not — every session with an empty context opens
+with the model already holding an interview it will try to start. It fires once
+per *connection*, so it cannot answer "help me set up" said in the middle of a
+conversation. `instructions` is optional and clients vary in whether they pass
+it on. And it is the legacy door: see [mcp.md](mcp.md).
 
-### And a line in the read itself
+The tool costs what `initialize` did not — some fifty words of `tools/list` on
+every session forever — and that is the price of the other three properties.
 
-`instructions` is optional in the spec and not every client passes it on, so a
-document with nothing in it also says so where it cannot be missed: every
-context read carries `next_step`, which is null once something is written and
-otherwise names both ways to fix it. No client feature required, no cost in the
-tool list, and it arrives at the moment the emptiness is about to matter.
+### Nothing is stored about who has been asked
 
-### `initialize` is the legacy home for this
+There is no `offered_at` column, and with nothing being pushed there is nothing
+to remember. `next_step` is inert: it states a fact about a document that is
+empty, and stops appearing when the document is not, so the stop condition is
+the thing actually worth tracking and it is already stored. An athlete who would
+rather type their zones on the dashboard silences it by typing them.
 
-Revision `2026-07-28` removed the handshake: version, identity and capabilities
-became per-request `_meta`, and the spec now calls an `initialize` server
-**legacy** (`2025-11-25` and earlier). This server pins `2025-06-18` and is
-legacy by that definition, as is every client it currently talks to.
-
-The field itself survives. A modern server **MUST** implement `server/discover`,
-whose `DiscoverResult` carries the same optional `instructions`, so going
-dual-era moves `instructionsFor` to a second call site rather than rewriting it.
-One thing to get right when that happens: `server/discover` is cacheable, and
-this `instructions` is per athlete and changes the moment they finish the
-interview — so it must go out as `cacheScope: "private"` with a short `ttlMs`,
-never `public`.
+A flag would have been worse than useless. It would record that the *server*
+sent something, which is not the same as the athlete having seen it or turned it
+down — a client that connects once and is closed would burn the only offer and
+leave that athlete permanently un-onboarded, which is the failure this exists to
+prevent.
 
 ## Adding another
 

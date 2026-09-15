@@ -122,11 +122,12 @@ query parameter on FIT downloads.
 ### [docs/prompts.md](docs/prompts.md)
 
 The MCP prompt surface, which is one template: the getting-started interview
-that fills an athlete's context. Explains why onboarding is a prompt rather
-than a tool — a tool has to be chosen by the model, a prompt is started by the
-person — why its body can run to fifteen hundred words where a tool description
-gets fifty, and what the interview asks. Ends with the target-band rules it
-writes that no schema can express.
+that fills an athlete's context. Explains what the interview asks, and why the
+same body is reached three ways — a prompt the athlete picks, a tool the model
+calls, and a line on every empty context read — since a model never sees a
+prompt and a new athlete never browses for one. Says why `initialize`
+instructions were tried and dropped, and why nothing records who has been
+asked.
 
 ### [docs/context.md](docs/context.md)
 
