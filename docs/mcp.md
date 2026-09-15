@@ -155,3 +155,13 @@ hints only shape how a client presents a tool; the server checks everything rega
 A tool that fails because of bad input reports it as a *successful* call with
 `isError`, so the model sees the message and can retry. Only protocol-level
 problems become JSON-RPC errors.
+
+## Prompts
+
+`prompts/list` and `prompts/get`, advertised in `initialize` alongside the
+tools. There is one — `getting-started`, the interview that fills an athlete's
+context documents from their answers — and a client offers it as something the
+athlete picks rather than something the model calls. Only the name, title and
+description go out in the list; the body is sent once it is asked for, which is
+why it can be long where a tool description cannot. See
+[prompts.md](prompts.md).

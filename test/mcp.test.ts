@@ -1,5 +1,6 @@
 import { SELF } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { listPrompts } from '../src/prompts';
 import { TOOLS } from '../src/tools';
 import { shiftDate, today } from '../src/units';
 import { resetDatabase, seedUser } from './helpers';
@@ -79,6 +80,45 @@ describe('protocol', () => {
     }
     // Every tool says which it is, rather than leaving a client to guess.
     for (const tool of tools) expect(tool.annotations?.readOnlyHint).toBeTypeOf('boolean');
+  });
+
+  it('offers its prompts, with the bodies left behind prompts/get', async () => {
+    expect((await rpc('initialize', {})).result).toMatchObject({
+      capabilities: { prompts: { listChanged: false } },
+    });
+
+    const { prompts } = (await rpc('prompts/list')).result as {
+      prompts: { name: string; title: string; description: string }[];
+    };
+    expect(prompts).toEqual(listPrompts());
+    expect(prompts.map((prompt) => prompt.name)).toContain('getting-started');
+    for (const prompt of prompts) {
+      expect(prompt.title).toBeTruthy();
+      expect(prompt.description).toBeTruthy();
+      expect(prompt).not.toHaveProperty('markdown');
+    }
+  });
+
+  it('hands back the getting-started interview as one message from the athlete', async () => {
+    const result = (await rpc('prompts/get', { name: 'getting-started' })).result as {
+      messages: { role: string; content: { type: string; text: string } }[];
+    };
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0].role).toBe('user');
+
+    const text = result.messages[0].content.text;
+    // It has to end with all three documents written, and it can only do that by
+    // reading them first and calling the one tool that writes them.
+    for (const kind of ['workout-zones', 'scheduling-instructions', 'current-plan']) {
+      expect(text).toContain(kind);
+    }
+    for (const tool of ['get_workout_zones', 'get_scheduling_instructions', 'get_current_plan', 'update_context']) {
+      expect(text).toContain(tool);
+    }
+  });
+
+  it('rejects a prompt it does not have', async () => {
+    expect((await rpc('prompts/get', { name: 'nope' })).error).toMatchObject({ code: -32602 });
   });
 
   it('answers a ping and rejects an unknown method', async () => {
