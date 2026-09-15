@@ -30,12 +30,17 @@ Nothing is verified against intervals.icu first. Their token endpoint answers
 with the athlete the grant belongs to, so a call asking who it is would only
 repeat what we were already told.
 
-Three scopes are asked for: `CALENDAR:WRITE` pushes the workouts, `ACTIVITY:READ`
-reads the completions and the recorded files, and `ACTIVITY:WRITE` writes the
-post-workout comment onto the session. A grant carries the scopes it was taken
-with for its whole life, so an athlete who connected before this app asked for
-the third has their notes refused — a 403 recorded against the connection and
-shown in the **Integrations** panel — until they connect again.
+Two scopes are asked for: `CALENDAR:WRITE` pushes the workouts, and
+`ACTIVITY:WRITE` covers both reading the completions and the recorded files and
+writing the post-workout comment onto the session. One entry per resource, and
+write covers read — naming `ACTIVITY:READ` beside it is refused at their
+authorize page with *"Duplicate scope ACTIVITY"*, so the write permission has to
+stand for both rather than the two being listed.
+
+A grant carries the scopes it was taken with for its whole life, so an athlete
+who connected while this app asked only to read activities has their notes
+refused — a 403 recorded against the connection and shown in the **Integrations**
+panel — until they press **Reconnect**.
 
 Signing in *with* intervals.icu leaves you connected without a second round —
 see [auth.md](auth.md), which also covers the two redirect URIs and why an

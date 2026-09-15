@@ -217,7 +217,7 @@ const REVOKED_TOKEN = 'revoked-token';
 
 /** The access token the stand-in's OAuth round issues, and the athlete it belongs to. */
 const INTERVALS_TOKEN = 'intervals-access-token';
-const INTERVALS_SCOPE = 'CALENDAR:WRITE,ACTIVITY:READ,ACTIVITY:WRITE';
+const INTERVALS_SCOPE = 'CALENDAR:WRITE,ACTIVITY:WRITE';
 
 const freshState = () => ({
   athlete: { id: 'i99999', name: 'Test Athlete' },
@@ -254,6 +254,17 @@ const freshState = () => ({
 let state = freshState();
 
 const asEvent = ([id, event]) => ({ id: Number(id), ...event });
+
+/**
+ * Whether the grant behind the bearer covers a permission on a resource.
+ *
+ * One entry per resource, and write covers read — which is why a scope naming
+ * `ACTIVITY` twice is refused at their authorize page rather than granted twice.
+ */
+function granted(resource, permission) {
+  const entry = state.scope.split(',').find((scope) => scope.startsWith(`${resource}:`));
+  return entry === `${resource}:WRITE` || entry === `${resource}:${permission}`;
+}
 
 /** The bearer token off the header, or null when there is not one. */
 function credential(request) {
@@ -358,6 +369,11 @@ async function intervals(request, url) {
     return Response.json({ disconnected: true });
   }
 
+  // Reading an activity is covered by the write permission, so the app asks for one scope.
+  if (/^\/api\/v1\/(athlete\/[^/]+\/activities|activity\/)/.test(path) && !granted('ACTIVITY', 'READ')) {
+    return new Response('Insufficient scope: ACTIVITY', { status: 403 });
+  }
+
   // GET /api/v1/athlete/0/activities
   if (request.method === 'GET' && path.endsWith('/activities')) {
     const oldest = url.searchParams.get('oldest');
@@ -373,9 +389,9 @@ async function intervals(request, url) {
   // the `description` field; nothing else about the session is sent or touched.
   const update = /^\/api\/v1\/activity\/([^/]+)$/.exec(path);
   if (request.method === 'PUT' && update) {
-    // Writing an activity is its own scope upstream, and reading one does not carry it:
-    // a grant taken before this app asked for it is refused here for the life of the token.
-    if (!state.scope.split(',').includes('ACTIVITY:WRITE')) {
+    // Writing is the permission a read-only grant does not carry: one taken before this
+    // app asked for it is refused here for the life of the token.
+    if (!granted('ACTIVITY', 'WRITE')) {
       return new Response('Insufficient scope: ACTIVITY:WRITE', { status: 403 });
     }
     const body = JSON.parse(payload);

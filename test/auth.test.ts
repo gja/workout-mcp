@@ -219,13 +219,20 @@ describe('signing in with intervals.icu', () => {
     };
   };
 
-  // `ACTIVITY:WRITE` among them: the post-workout comment is a write onto the activity,
-  // and a grant without it is refused for as long as it lives. See docs/integrations.md.
+  /**
+   * `ACTIVITY:WRITE`, not a read beside it: the post-workout comment is a write onto
+   * the activity, and their authorize page takes one permission per resource — a second
+   * `ACTIVITY:` is refused with "Duplicate scope ACTIVITY". See docs/integrations.md.
+   */
   it('sends the athlete to intervals.icu with the scopes the integration needs', async () => {
     const { authorize } = await signInWithIntervals();
     expect(authorize.origin).toBe('https://intervals.icu');
     expect(authorize.pathname).toBe('/oauth/authorize');
-    expect(authorize.searchParams.get('scope')).toBe('CALENDAR:WRITE,ACTIVITY:READ,ACTIVITY:WRITE');
+    const scope = authorize.searchParams.get('scope')!;
+    expect(scope).toBe('CALENDAR:WRITE,ACTIVITY:WRITE');
+    // The rule that shape exists for: one entry per resource, whatever the permissions.
+    const resources = scope.split(',').map((entry) => entry.split(':')[0]);
+    expect(new Set(resources).size).toBe(resources.length);
     expect(authorize.searchParams.get('redirect_uri')).toBe(`${BASE}/auth/intervals/callback`);
   });
 
