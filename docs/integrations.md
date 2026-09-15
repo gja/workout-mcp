@@ -41,6 +41,14 @@ Signing in *with* intervals.icu leaves you connected without a second round —
 see [auth.md](auth.md), which also covers the two redirect URIs and why an
 intervals.icu sign-in never joins an existing account.
 
+**Reconnect** runs the same round again on a connection that already exists. It
+is the button for a grant that has gone stale rather than wrong: a token revoked
+on their site, or one taken before this app asked for a scope it now needs, since
+a grant keeps the scopes it was issued with for its whole life. The new token
+replaces the old on the same row, clearing the standing error, and the links and
+the events already pushed stand — which is why it is not disconnect-then-connect,
+which hands the access back and takes the calendar's bookkeeping with it.
+
 **Disconnecting hands the grant back**, calling their
 `DELETE /api/v1/disconnect-app`, so the app also disappears from the athlete's
 own intervals.icu settings rather than lingering there unused. A revocation we

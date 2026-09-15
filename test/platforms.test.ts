@@ -148,6 +148,32 @@ describe('connecting a platform', () => {
     expect(status.intervals.last_error).toContain('401');
   });
 
+  /**
+   * The Reconnect button is this round run again on a connection that already exists.
+   * It has to land on the same connection: a grant whose scopes have since widened, or
+   * a token revoked upstream, is fixed by taking another — not by disconnecting, which
+   * hands the access back and drops what we know about the calendar.
+   */
+  it('renews a connection in place, keeping the links and clearing the error', async () => {
+    const planned = await createWorkout();
+    await connect('revoked');
+    expect((await platformStatus()).intervals.last_error).toContain('401');
+
+    expect((await connect()).status).toBe(302);
+
+    const status = await platformStatus();
+    expect(status.intervals).toMatchObject({ connected: true, account: 'Test Athlete', last_error: null });
+    // One connection, and one event: the second round replaced the token rather than
+    // adding a row, and the workout already pushed was not pushed again beside itself.
+    const rows = await env.DB.prepare('SELECT COUNT(*) AS n FROM platform_connections WHERE user_id = ?')
+      .bind(userId)
+      .first<{ n: number }>();
+    expect(rows?.n).toBe(1);
+    const events = await calendar();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ external_id: planned.id });
+  });
+
   it('refuses to start the round for a caller with no session', async () => {
     const response = await SELF.fetch(`${BASE}/auth/intervals/connect`, { redirect: 'manual' });
     expect(response.status).toBe(401);

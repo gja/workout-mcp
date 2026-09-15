@@ -74,11 +74,31 @@ function PlatformCard({
             Sessions you record on {platform.label} come back here as done, usually within about 15 minutes.
           </p>
           {platform.connected_note && <p className="note">{platform.connected_note}</p>}
-          {platform.last_error && <p className="error">Last sync failed — {platform.last_error}</p>}
+          {platform.last_error && (
+            <>
+              <p className="error">Last sync failed — {platform.last_error}</p>
+              {/* A grant is fixed by taking another, and a refusal about permission or a
+                  token is the grant rather than the plan. Said only beside a failure:
+                  there is nothing to reconnect about when the syncing is working. */}
+              <p className="note">
+                If that reads as a permission or a token being refused, it is the access you granted rather
+                than anything here — <strong>Reconnect</strong> renews it.
+              </p>
+            </>
+          )}
           <div className="actions">
             <button className="link" disabled={busy} onClick={sync}>
               Sync now
             </button>
+            {/* Not disconnect-then-connect: that hands the grant back, drops what we know
+                about the calendar, and asks the athlete to find the button twice. The
+                round lands on the same connection, so the links and the pushed events
+                stand. A full-page navigation, like Connect, because it ends at a callback. */}
+            {platform.oauth && (
+              <a className="link" href={`/auth/${platform.id}/connect`}>
+                Reconnect
+              </a>
+            )}
             <button className="link danger" disabled={busy} onClick={disconnect}>
               Disconnect
             </button>
