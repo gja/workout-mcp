@@ -29,6 +29,10 @@ assistant is *told* they have said nothing, rather than handed a plausible
 default it would then plan against. A guessed threshold is worse than a missing
 one.
 
+The three with no default are what the `getting-started` prompt exists to fill:
+absence is the right answer for one missing document and a poor start for an
+account where every one of them is missing at once. See [prompts.md](prompts.md).
+
 An athlete has **no row** in `contexts` for a kind they have not written. For
 the library that means a change to the default reaches everybody who has not
 overridden it, instead of freezing each athlete on whatever it said the day they

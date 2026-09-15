@@ -1,5 +1,6 @@
 // MCP over Streamable HTTP, stateless: one JSON-RPC request per POST. See docs/mcp.md.
 
+import { findPrompt, listPrompts, promptMessages } from './prompts';
 import { TOOLS, ToolError, callTool, isCallerError } from './tools';
 import type { Env, User } from './db';
 
@@ -30,7 +31,7 @@ async function handleRequest(
     case 'initialize':
       return {
         protocolVersion: PROTOCOL_VERSION,
-        capabilities: { tools: { listChanged: false } },
+        capabilities: { tools: { listChanged: false }, prompts: { listChanged: false } },
         serverInfo: SERVER_INFO,
       };
 
@@ -39,6 +40,16 @@ async function handleRequest(
 
     case 'tools/list':
       return { tools: TOOLS };
+
+    case 'prompts/list':
+      return { prompts: listPrompts() };
+
+    case 'prompts/get': {
+      const params = (request.params ?? {}) as { name?: string };
+      const prompt = findPrompt(params.name);
+      if (!prompt) throw new ToolError(`unknown prompt "${String(params.name ?? '')}"`);
+      return promptMessages(prompt);
+    }
 
     case 'tools/call': {
       const params = (request.params ?? {}) as { name?: string; arguments?: unknown };

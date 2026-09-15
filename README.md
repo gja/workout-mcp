@@ -119,6 +119,15 @@ retention window rather than letting a client compute it, why 401 is answered
 before 404 under the API prefixes, and the trade-off in accepting a token as a
 query parameter on FIT downloads.
 
+### [docs/prompts.md](docs/prompts.md)
+
+The MCP prompt surface, which is one template: the getting-started interview
+that fills an athlete's context. Explains why onboarding is a prompt rather
+than a tool — a tool has to be chosen by the model, a prompt is started by the
+person — why its body can run to fifteen hundred words where a tool description
+gets fifty, and what the interview asks. Ends with the target-band rules it
+writes that no schema can express.
+
 ### [docs/context.md](docs/context.md)
 
 The four markdown documents an assistant reads before it plans: the workout
