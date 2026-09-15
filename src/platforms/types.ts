@@ -100,6 +100,12 @@ export class PlatformError extends Error {
   constructor(
     readonly platform: PlatformId,
     message: string,
+    /**
+     * What they answered with, or null where they never answered at all — a name
+     * that would not resolve, a connection that dropped, a body that was not JSON.
+     * Read by callers deciding whether asking again could go any differently.
+     */
+    readonly status: number | null = null,
   ) {
     super(message);
   }

@@ -96,8 +96,8 @@ export function activityType(workout: Pick<Workout, 'sport' | 'sub_sport'>): str
 const isIndoor = (workout: Pick<Workout, 'sub_sport'>): boolean =>
   workout.sub_sport !== undefined && INDOOR_SUB_SPORTS.has(workout.sub_sport);
 
-const fail = (message: string): never => {
-  throw new PlatformError('intervals', message);
+const fail = (message: string, status: number | null = null): never => {
+  throw new PlatformError('intervals', message, status);
 };
 
 /** Their own complaint is read off the body — "401" alone does not say "grant revoked". */
@@ -114,7 +114,7 @@ async function call(token: string, path: string, init: RequestInit = {}): Promis
   if (!response.ok) {
     const body = await response.text().catch(() => '');
     const detail = body.trim().replace(/\s+/g, ' ').slice(0, 200);
-    return fail(`intervals.icu answered ${response.status}${detail ? `: ${detail}` : ''}`);
+    return fail(`intervals.icu answered ${response.status}${detail ? `: ${detail}` : ''}`, response.status);
   }
   return response;
 }

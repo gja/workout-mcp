@@ -217,10 +217,12 @@ const REVOKED_TOKEN = 'revoked-token';
 
 /** The access token the stand-in's OAuth round issues, and the athlete it belongs to. */
 const INTERVALS_TOKEN = 'intervals-access-token';
-const INTERVALS_SCOPE = 'CALENDAR:WRITE,ACTIVITY:READ';
+const INTERVALS_SCOPE = 'CALENDAR:WRITE,ACTIVITY:READ,ACTIVITY:WRITE';
 
 const freshState = () => ({
   athlete: { id: 'i99999', name: 'Test Athlete' },
+  /** What the grant behind the bearer covers. A test narrows it to stand for an older one. */
+  scope: INTERVALS_SCOPE,
   /** Calendar events by their numeric id. */
   events: new Map(),
   /** The caller's `external_id` -> the event id it landed on, as their upsert matches. */
@@ -280,7 +282,7 @@ async function intervalsToken(request) {
   return Response.json({
     token_type: 'Bearer',
     access_token: code.includes('revoked') ? REVOKED_TOKEN : INTERVALS_TOKEN,
-    scope: INTERVALS_SCOPE,
+    scope: state.scope,
     athlete: state.athlete,
   });
 }
@@ -315,6 +317,7 @@ function control(request, path) {
       if (body.failing) state.failing = body.failing;
       if (body.driveFailing) state.drive.failing = body.driveFailing;
       if (body.athlete) state.athlete = body.athlete;
+      if (body.scope !== undefined) state.scope = body.scope;
       return Response.json({ ok: true });
     });
   }
@@ -370,6 +373,11 @@ async function intervals(request, url) {
   // the `description` field; nothing else about the session is sent or touched.
   const update = /^\/api\/v1\/activity\/([^/]+)$/.exec(path);
   if (request.method === 'PUT' && update) {
+    // Writing an activity is its own scope upstream, and reading one does not carry it:
+    // a grant taken before this app asked for it is refused here for the life of the token.
+    if (!state.scope.split(',').includes('ACTIVITY:WRITE')) {
+      return new Response('Insufficient scope: ACTIVITY:WRITE', { status: 403 });
+    }
     const body = JSON.parse(payload);
     const activity = state.activities.find((candidate) => String(candidate.id) === update[1]);
     if (!activity) return new Response('no such activity', { status: 404 });

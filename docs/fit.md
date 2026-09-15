@@ -1,7 +1,7 @@
 # FIT encoding
 
 `src/fit.ts` writes Garmin FIT workout files with the
-[FIT JavaScript SDK](https://github.com/garmin/fit-javascript-sdk). Four things
+[FIT JavaScript SDK](https://github.com/garmin/fit-javascript-sdk). Five things
 about the format and the SDK drive most of that file.
 
 ## 1. The SDK writes parent fields only
@@ -70,6 +70,22 @@ with no constructor option, so `createEncoder` swaps in a subclass that clamps
 `maxByteLength` to 1 MB for the duration of the constructor call. That call is
 synchronous with no `await` in it, so no other request can run while the global
 is replaced.
+
+## 5. A string field holds 255 bytes
+
+Terminator included, so 254 of text — and the SDK does not truncate the field,
+it throws, and the message it throws on is the whole message. A workout whose
+notes ran long was therefore not a workout with a shortened description: it was
+a 500 on `/export/...fit` and a push to intervals.icu that never landed.
+
+The limits this app validates against are in characters and deliberately more
+generous — 1000 for a workout's notes, 200 for a step's — because they belong to
+the plan, not to the file. A character is also up to four bytes, so a note well
+inside 200 characters is well outside 255 bytes in a script that does not fit in
+one. `fitString` cuts every string field to 254 bytes on a whole character (the
+string is walked by code point, so a surrogate pair is never halved) and ends
+what it cut with an ellipsis. The plan keeps its full text; the file carries what
+FIT can hold.
 
 ## Filenames
 

@@ -218,12 +218,15 @@ export type Link = {
   fingerprint: string;
   /** The completion already read back off the platform and applied. */
   applied_completion: string | null;
+  /** The post-workout note already handed to the platform. See the migration. */
+  applied_comment: string | null;
   synced_at: string;
 };
 
-const LINK_COLUMNS = 'date, workout_id, remote_id, fingerprint, applied_completion, synced_at';
+const LINK_COLUMNS =
+  'date, workout_id, remote_id, fingerprint, applied_completion, applied_comment, synced_at';
 
-/** Leaves `applied_completion` alone: re-pushing the plan neither changes nor un-does it. */
+/** Leaves the applied columns alone: re-pushing the plan neither changes nor un-does them. */
 export async function saveLink(
   env: Env,
   userId: string,
@@ -335,6 +338,23 @@ export async function recordAppliedCompletion(
      WHERE user_id = ? AND platform = ? AND date = ? AND workout_id = ?`,
   )
     .bind(completedAt, userId, platform, date, workoutId)
+    .run();
+}
+
+/** Remember the note just handed over, so one note costs one attempt. See the migration. */
+export async function recordAppliedComment(
+  env: Env,
+  userId: string,
+  platform: PlatformId,
+  date: string,
+  workoutId: string,
+  comment: string,
+): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE platform_links SET applied_comment = ?
+     WHERE user_id = ? AND platform = ? AND date = ? AND workout_id = ?`,
+  )
+    .bind(comment, userId, platform, date, workoutId)
     .run();
 }
 

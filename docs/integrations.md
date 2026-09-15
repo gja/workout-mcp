@@ -30,6 +30,13 @@ Nothing is verified against intervals.icu first. Their token endpoint answers
 with the athlete the grant belongs to, so a call asking who it is would only
 repeat what we were already told.
 
+Three scopes are asked for: `CALENDAR:WRITE` pushes the workouts, `ACTIVITY:READ`
+reads the completions and the recorded files, and `ACTIVITY:WRITE` writes the
+post-workout comment onto the session. A grant carries the scopes it was taken
+with for its whole life, so an athlete who connected before this app asked for
+the third has their notes refused — a 403 recorded against the connection and
+shown in the **Integrations** panel — until they connect again.
+
 Signing in *with* intervals.icu leaves you connected without a second round —
 see [auth.md](auth.md), which also covers the two redirect URIs and why an
 intervals.icu sign-in never joins an existing account.
@@ -244,6 +251,13 @@ one field is ever sent.
 - **They are only compared, never re-sent.** The description comes back on the
   same activity listing the pairing does, so agreement — the steady state — costs
   no extra call at all.
+- **A note is offered once, not once an hour.** A platform that refuses one keeps
+  a description that does not match it, so the difference that asked for the call
+  is still there on the next pass, and every pass after. `applied_comment` on the
+  link ends that the way `applied_completion` ends the other: the note last handed
+  over is remembered, and an athlete editing theirs makes it a new note that goes
+  up. Only an answer settles it — a platform we never reached, or one whose own
+  end faltered, gets another pass.
 - **A workout with no comment leaves their description alone.** "The athlete
   never wrote one here" is not an instruction to erase what is there. Clearing a
   comment *does* clear it upstream, because that is an instruction, and it
@@ -269,7 +283,9 @@ Watchletic line showed up — useful to read, never mistaken for the athlete's.
 Their own documentation says a Strava-sourced activity cannot be updated at
 all. That comes back as one of their errors, recorded against the connection
 and shown on the dashboard, and it never fails the write here: the note is
-stored either way.
+stored either way. The same is true of a note refused on the hourly pass rather
+than as it was written: the athlete is told on the dashboard, rather than the
+refusal going to a log nobody reads.
 
 ## What a sync run does
 

@@ -891,6 +891,59 @@ describe('post-workout comments', () => {
     expect((await platformStatus()).intervals.last_error).toContain('403');
   });
 
+  /**
+   * The grant is the thing that has to change, so the athlete is the one told. Writing
+   * the description needs `ACTIVITY:WRITE`, and a token taken before this app asked for
+   * it never gets one — reconnecting is the only fix, and a note re-sent hourly until
+   * then is an error an hour and no progress.
+   */
+  it('asks once, and says so, when the grant will not take the note', async () => {
+    await control('setup', { scope: 'CALENDAR:WRITE,ACTIVITY:READ' });
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    await pair(event.id);
+    await analysed();
+    await comment(planned, { comment: 'Refused upstream' });
+
+    // The write path had its go; the pass that follows has the other.
+    const before = (await control<{ requests: Array<{ method: string }> }>('state')).requests.length;
+    await analysed();
+    const attempted = (await control<{ requests: Array<{ method: string; path: string }> }>('state')).requests
+      .slice(before)
+      .filter((request) => request.method === 'PUT');
+    expect(attempted).toHaveLength(1);
+
+    expect((await platformStatus()).intervals.last_error).toContain('403');
+
+    // And no further passes spend a call on a note that platform has already turned down.
+    const spent = (await control<{ requests: Array<{ method: string }> }>('state')).requests.length;
+    await analysed();
+    await analysed();
+    const after = (await control<{ requests: Array<{ method: string }> }>('state')).requests;
+    expect(after.slice(spent).filter((request) => request.method === 'PUT')).toEqual([]);
+
+    // The note is still the athlete's, and still here.
+    expect((await read(planned)).comment).toBe('Refused upstream');
+  });
+
+  // Written off a refusal, not off a call that never arrived: their end faltering is
+  // the one failure where asking again next hour is the whole of the fix.
+  it('tries again after a failure the platform never answered', async () => {
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    await pair(event.id);
+    await analysed();
+    await control('setup', { failing: { '/activity/': 503 } });
+    await comment(planned, { comment: 'Their end fell over' });
+
+    await control('setup', { failing: {} });
+    await analysed();
+
+    expect(await upstreamNote()).toBe('Their end fell over');
+  });
+
   // A lap outside its band reads differently once the athlete has said why.
   it('hands the note back beside the stats of what was actually done', async () => {
     await connect();
