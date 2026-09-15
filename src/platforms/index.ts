@@ -51,6 +51,17 @@ const fingerprint = (workout: Workout): Promise<string> =>
 const message = (err: unknown): string =>
   err instanceof PlatformError || err instanceof Error ? err.message : String(err);
 
+/**
+ * Whether the platform turned this down itself, rather than never having heard it.
+ *
+ * A refusal they gave will be given again — the same grant, the same activity, the
+ * same answer — so a caller that would otherwise ask once an hour forever can stop
+ * asking. Their 5xx and their 429 are theirs but not settled, and a call that never
+ * reached them carries no status at all: both are worth another pass.
+ */
+const answered = (err: unknown): boolean =>
+  err instanceof PlatformError && err.status !== null && err.status < 500 && err.status !== 429;
+
 // --- Connecting ------------------------------------------------------------
 
 /**
@@ -155,7 +166,10 @@ async function sideEffect(what: string, work: () => Promise<void>): Promise<void
   try {
     await work();
   } catch (err) {
-    console.error(`platform sync failed while ${what}`, err);
+    // The platform's own complaint goes in the line itself: a stack alone says where
+    // we gave up and not one word about what they actually said, which is the whole
+    // of what a log of this is read for.
+    console.error(`platform sync failed while ${what}: ${message(err)}`, err);
   }
 }
 
@@ -429,10 +443,21 @@ async function readStats(
  *
  * Costs nothing once the two agree, which is the steady state — the comparison is off
  * the completion listing that was fetched anyway, and no call is made unless they differ.
+ *
+ * And costs one attempt where they never will. A platform that refuses the note keeps
+ * a description that does not match it, so the difference that asked for the call is
+ * still there on the next pass, and the one after: `applied_comment` is what ends that,
+ * the same way `applied_completion` ends the other. The refusal is recorded against the
+ * connection rather than left to a log, because the fix is the athlete's — on
+ * intervals.icu a grant older than the activity-write scope is refused until they
+ * connect it again.
  */
 async function syncComment(
+  env: Env,
+  userId: string,
   platform: Platform,
   token: string,
+  link: store.Link,
   workout: Workout,
   completion: Completion,
 ): Promise<void> {
@@ -440,7 +465,26 @@ async function syncComment(
   if (here === null || here === completion.comment) return;
 
   if (!platform.setActivityComment || !completion.activity) return;
-  await platform.setActivityComment(token, completion.activity.remote_id, here);
+  // Already handed over and still not showing upstream: they will not take this one.
+  if (link.applied_comment === here) return;
+
+  const remember = (): Promise<void> =>
+    store.recordAppliedComment(env, userId, platform.id, link.date, link.workout_id, here);
+
+  try {
+    await platform.setActivityComment(token, completion.activity.remote_id, here);
+  } catch (err) {
+    await store.recordSyncError(
+      env,
+      userId,
+      platform.id,
+      `commenting on ${link.date}/${link.workout_id}: ${message(err)}`,
+    );
+    // Only what they answered is settled. A platform we never reached gets another pass.
+    if (answered(err)) await remember();
+    throw err;
+  }
+  await remember();
 }
 
 // Straight to the db, and once each: see "Completion is polled" in docs/integrations.md.
@@ -493,7 +537,7 @@ async function applyCompletions(
     // Never at the cost of the completion either: a note that would not sync is
     // still a session that happened.
     await sideEffect(`syncing the comment on ${link.date}/${link.workout_id}`, () =>
-      syncComment(platform, token, workout, completion),
+      syncComment(env, userId, platform, token, link, workout, completion),
     );
   }
   return marked;

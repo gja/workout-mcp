@@ -1,0 +1,17 @@
+-- The post-workout note last handed to the platform for this link.
+--
+-- Held for the same reason `applied_completion` is: so a thing is done once
+-- rather than once an hour. `syncComment` compares the note here against the
+-- activity's description upstream, and a platform that will not take the note
+-- — an OAuth grant predating the activity-write scope, or an activity their own
+-- API says cannot be updated at all — never makes the two agree, so without
+-- this the hourly pass asks again, and is refused again, for as long as the
+-- workout is inside the retention window.
+--
+-- Written whenever the platform gave an answer, refusal included; left alone
+-- when we never reached them, which is the one failure worth repeating. An
+-- athlete who edits their note makes it a new note, and it goes up.
+--
+-- Null on every existing row, so the first pass after this lands still carries
+-- whatever is outstanding.
+ALTER TABLE platform_links ADD COLUMN applied_comment TEXT;

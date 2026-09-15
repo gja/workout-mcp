@@ -148,6 +148,32 @@ describe('connecting a platform', () => {
     expect(status.intervals.last_error).toContain('401');
   });
 
+  /**
+   * The Reconnect button is this round run again on a connection that already exists.
+   * It has to land on the same connection: a grant whose scopes have since widened, or
+   * a token revoked upstream, is fixed by taking another — not by disconnecting, which
+   * hands the access back and drops what we know about the calendar.
+   */
+  it('renews a connection in place, keeping the links and clearing the error', async () => {
+    const planned = await createWorkout();
+    await connect('revoked');
+    expect((await platformStatus()).intervals.last_error).toContain('401');
+
+    expect((await connect()).status).toBe(302);
+
+    const status = await platformStatus();
+    expect(status.intervals).toMatchObject({ connected: true, account: 'Test Athlete', last_error: null });
+    // One connection, and one event: the second round replaced the token rather than
+    // adding a row, and the workout already pushed was not pushed again beside itself.
+    const rows = await env.DB.prepare('SELECT COUNT(*) AS n FROM platform_connections WHERE user_id = ?')
+      .bind(userId)
+      .first<{ n: number }>();
+    expect(rows?.n).toBe(1);
+    const events = await calendar();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ external_id: planned.id });
+  });
+
   it('refuses to start the round for a caller with no session', async () => {
     const response = await SELF.fetch(`${BASE}/auth/intervals/connect`, { redirect: 'manual' });
     expect(response.status).toBe(401);
@@ -889,6 +915,59 @@ describe('post-workout comments', () => {
     expect((await comment(planned, { comment: 'Stored anyway' })).status).toBe(200);
     expect((await read(planned)).comment).toBe('Stored anyway');
     expect((await platformStatus()).intervals.last_error).toContain('403');
+  });
+
+  /**
+   * The grant is the thing that has to change, so the athlete is the one told. Writing
+   * the description needs `ACTIVITY:WRITE`, and a token taken before this app asked for
+   * it never gets one — reconnecting is the only fix, and a note re-sent hourly until
+   * then is an error an hour and no progress.
+   */
+  it('asks once, and says so, when the grant will not take the note', async () => {
+    await control('setup', { scope: 'CALENDAR:WRITE,ACTIVITY:READ' });
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    await pair(event.id);
+    await analysed();
+    await comment(planned, { comment: 'Refused upstream' });
+
+    // The write path had its go; the pass that follows has the other.
+    const before = (await control<{ requests: Array<{ method: string }> }>('state')).requests.length;
+    await analysed();
+    const attempted = (await control<{ requests: Array<{ method: string; path: string }> }>('state')).requests
+      .slice(before)
+      .filter((request) => request.method === 'PUT');
+    expect(attempted).toHaveLength(1);
+
+    expect((await platformStatus()).intervals.last_error).toContain('403');
+
+    // And no further passes spend a call on a note that platform has already turned down.
+    const spent = (await control<{ requests: Array<{ method: string }> }>('state')).requests.length;
+    await analysed();
+    await analysed();
+    const after = (await control<{ requests: Array<{ method: string }> }>('state')).requests;
+    expect(after.slice(spent).filter((request) => request.method === 'PUT')).toEqual([]);
+
+    // The note is still the athlete's, and still here.
+    expect((await read(planned)).comment).toBe('Refused upstream');
+  });
+
+  // Written off a refusal, not off a call that never arrived: their end faltering is
+  // the one failure where asking again next hour is the whole of the fix.
+  it('tries again after a failure the platform never answered', async () => {
+    await connect();
+    const planned = await createWorkout();
+    const [event] = await calendar();
+    await pair(event.id);
+    await analysed();
+    await control('setup', { failing: { '/activity/': 503 } });
+    await comment(planned, { comment: 'Their end fell over' });
+
+    await control('setup', { failing: {} });
+    await analysed();
+
+    expect(await upstreamNote()).toBe('Their end fell over');
   });
 
   // A lap outside its band reads differently once the athlete has said why.

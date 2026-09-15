@@ -321,6 +321,41 @@ describe('names, notes and intensity', () => {
     expect(step).toMatchObject({ wktStepName: '400m rep', notes: 'Hold form, relax the shoulders' });
   });
 
+  /**
+   * A FIT string field holds 255 bytes and the SDK throws on the whole message, so
+   * the export 500'd and the push never landed on any workout whose notes ran long —
+   * and `notes` is allowed 1000 characters here. What fits goes out; the rest is cut.
+   */
+  it('cuts a long note down to what a FIT string field can hold', () => {
+    const notes = 'Ten by four hundred off ninety seconds. '.repeat(30);
+    const step = { goal_meters: 400, notes: notes.slice(0, 200) };
+    const workout = build([step], { notes: notes.slice(0, 1000) });
+
+    const decoded = roundTrip(workout);
+    const description = decoded.workoutMesgs[0].wktDescription as string;
+    expect(new TextEncoder().encode(description).length).toBeLessThanOrEqual(254);
+    expect(description.startsWith('Ten by four hundred off ninety seconds.')).toBe(true);
+    expect(description.endsWith('…')).toBe(true);
+    // A step note inside its own 200 characters is under the ceiling and comes through whole.
+    expect(decoded.workoutStepMesgs[0].notes).toBe(step.notes.trim());
+  });
+
+  /**
+   * The limits here are in characters and the one in the file is in bytes, so a note
+   * well inside 200 characters is well outside 255 bytes in any script that does not
+   * fit in one. Cutting by byte has to stop on a character: half a surrogate pair is
+   * a string no decoder can read back.
+   */
+  it('counts the bytes, not the characters, and never splits one', () => {
+    // 100 four-byte characters: 200 of the units the 200-character limit counts.
+    const step = roundTrip(build([{ goal_s: 600, notes: '🏃'.repeat(100) }])).workoutStepMesgs[0];
+    const notes = step.notes as string;
+
+    expect(new TextEncoder().encode(notes).length).toBeLessThanOrEqual(254);
+    expect(notes).toBe(`${'🏃'.repeat(62)}…`);
+    expect(notes).not.toContain('\ufffd');
+  });
+
   it('writes every intensity FIT understands', () => {
     const intensities = ['warmup', 'active', 'interval', 'rest', 'recovery', 'cooldown'];
     const steps = roundTrip(

@@ -88,8 +88,11 @@ const INTERVALS_AUTHORIZE = 'https://intervals.icu/oauth/authorize';
 const INTERVALS_TOKEN = 'https://intervals.icu/api/oauth/token';
 
 // Calendar write pushes the workouts; activity read is completions and the recorded
-// files. Nothing needs the athlete profile: their token response names the athlete.
-const INTERVALS_SCOPE = 'CALENDAR:WRITE,ACTIVITY:READ';
+// files, and activity write is the post-workout comment going onto the session —
+// without it their `PUT /activity/{id}` is refused and every note stays here. Both
+// activity scopes are asked for by name rather than leaning on write implying read.
+// Nothing needs the athlete profile: their token response names the athlete.
+const INTERVALS_SCOPE = 'CALENDAR:WRITE,ACTIVITY:READ,ACTIVITY:WRITE';
 
 export const intervalsConfigured = (env: Env): boolean =>
   Boolean(env.INTERVALS_CLIENT_ID && env.INTERVALS_CLIENT_SECRET);

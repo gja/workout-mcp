@@ -134,7 +134,7 @@ target, so there is nothing sensible to convert a range into. Use
 | `name` | Defaults to the sport and date |
 | `sport` | `running`, `cycling`, `swimming`, `walking`, `hiking`, `rowing`, `training`, `generic` |
 | `sub_sport` | How it is done: `treadmill`, `track`, `trail`, `road`, `indoor_cycling`, `lap_swimming`, … |
-| `notes` | Description of the session, written into the FIT file so the watch shows it |
+| `notes` | Description of the session, written into the FIT file so the watch shows it — about 250 characters of it |
 | `tags` | Free-form labels — see below |
 | `external_id` | Your own key — see below |
 | `completed_at` | Read-only here; set through the completion routes |
@@ -142,6 +142,12 @@ target, so there is nothing sensible to convert a range into. Use
 
 `sub_sport` is worth setting: a watch picks its activity profile from it, so a
 treadmill session will not sit waiting for a GPS fix.
+
+`notes` is validated to 1000 characters, but a FIT string field holds 254 bytes
+and the file carries the start of anything longer — see [fit.md](fit.md). The
+whole note is kept here and handed back in full; it is only the watch's copy
+that is cut. A session's brief is the place for what to do on the day, and the
+context documents are the place for why.
 
 `tags` are labels you choose — `["key"]`, `["quality", "long run"]` — up to ten
 of thirty characters each. Nothing here reads them; what they are for is the

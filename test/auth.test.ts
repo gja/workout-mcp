@@ -219,11 +219,13 @@ describe('signing in with intervals.icu', () => {
     };
   };
 
+  // `ACTIVITY:WRITE` among them: the post-workout comment is a write onto the activity,
+  // and a grant without it is refused for as long as it lives. See docs/integrations.md.
   it('sends the athlete to intervals.icu with the scopes the integration needs', async () => {
     const { authorize } = await signInWithIntervals();
     expect(authorize.origin).toBe('https://intervals.icu');
     expect(authorize.pathname).toBe('/oauth/authorize');
-    expect(authorize.searchParams.get('scope')).toBe('CALENDAR:WRITE,ACTIVITY:READ');
+    expect(authorize.searchParams.get('scope')).toBe('CALENDAR:WRITE,ACTIVITY:READ,ACTIVITY:WRITE');
     expect(authorize.searchParams.get('redirect_uri')).toBe(`${BASE}/auth/intervals/callback`);
   });
 

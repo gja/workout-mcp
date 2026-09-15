@@ -11,6 +11,42 @@ const MAX_FIT_BYTES = 1024 * 1024;
 /** What a watch or an importer shows as the origin of the file. */
 const FIT_PRODUCT_NAME = 'WorkoutsMCP';
 
+/**
+ * A FIT string field holds 255 bytes, its null terminator included, and the SDK
+ * throws on the whole message rather than the one field — so a long note is not a
+ * truncated description, it is a workout that will not encode at all, and a 500 on
+ * the export and a push that never lands. Our own limits are in characters and
+ * generous by comparison (a workout's notes run to 1000), and a character is up to
+ * four bytes, so even a step name inside its 60 can overflow in a non-Latin script.
+ *
+ * Cut to fit here rather than tightened upstream: the ceiling belongs to the file
+ * format, not to the plan, and an athlete writing their brief should not be held to
+ * what a watch screen can carry. The plan keeps the whole text; the file gets as
+ * much of it as FIT allows, ending in an ellipsis where anything was dropped.
+ */
+const MAX_FIT_STRING_BYTES = 254;
+
+const utf8 = new TextEncoder();
+
+/** Whole characters only: half a code point is not a string a decoder can read back. */
+function fitString(text: string): string {
+  if (utf8.encode(text).length <= MAX_FIT_STRING_BYTES) return text;
+
+  const ellipsis = '\u2026';
+  const budget = MAX_FIT_STRING_BYTES - utf8.encode(ellipsis).length;
+
+  let kept = '';
+  let bytes = 0;
+  // Iterating the string yields code points, so a surrogate pair is never split.
+  for (const character of text) {
+    const size = utf8.encode(character).length;
+    if (bytes + size > budget) break;
+    kept += character;
+    bytes += size;
+  }
+  return `${kept.trimEnd()}${ellipsis}`;
+}
+
 /** `workoutHr`: 0-100 is a percentage of max HR, above 100 is bpm + 100. */
 const encodeHr = (hr: HrValue): number => (hr.unit === 'percent' ? hr.value : hr.value + 100);
 
@@ -159,8 +195,8 @@ export function flattenSteps(steps: ResolvedStep[], out: StepMesg[] = []): StepM
       ...targetMesgFields(step.target, false),
       ...(step.secondary_target ? targetMesgFields(step.secondary_target, true) : {}),
     };
-    if (step.name) mesg.wktStepName = step.name;
-    if (step.notes) mesg.notes = step.notes;
+    if (step.name) mesg.wktStepName = fitString(step.name);
+    if (step.notes) mesg.notes = fitString(step.notes);
     out.push(mesg);
   }
   return out;
@@ -245,11 +281,11 @@ export function encodeWorkoutFit(workout: Workout, now: Date = new Date()): Uint
   });
 
   write(encoder, Profile.MesgNum.WORKOUT, {
-    wktName: workout.name,
+    wktName: fitString(workout.name),
     sport: FIT_SPORT[workout.sport],
     numValidSteps: steps.length,
     ...(workout.sub_sport ? { subSport: FIT_SUB_SPORT[workout.sub_sport] } : {}),
-    ...(workout.notes ? { wktDescription: workout.notes } : {}),
+    ...(workout.notes ? { wktDescription: fitString(workout.notes) } : {}),
   });
 
   for (const step of steps) {
