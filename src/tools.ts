@@ -66,7 +66,10 @@ export const STEP_SCHEMA = {
     type: 'object',
     properties: {
       name: { type: 'string', description: 'Step name shown on the watch, e.g. "Warmup", "400m rep".' },
-      notes: { type: 'string', description: 'Longer note shown on the watch.' },
+      notes: {
+        type: 'string',
+        description: 'Longer note shown on the watch. Cut past about 250 characters, as the session note is.',
+      },
       intensity: {
         type: 'string',
         enum: ['warmup', 'active', 'interval', 'rest', 'recovery', 'cooldown'],
@@ -116,7 +119,13 @@ const WORKOUT_PROPERTIES = {
     ],
     description: 'How the sport is done. The watch picks its activity profile from this, so a treadmill session does not wait for GPS.',
   },
-  notes: { type: 'string', description: 'Description of the session. Written into the FIT file, so the watch shows it.' },
+  notes: {
+    type: 'string',
+    description:
+      'Description of the session. Written into the FIT file, so the watch shows it — and a FIT ' +
+      'field holds about 250 characters, past which the file carries the start and drops the rest. ' +
+      'Say the point of the session in that, and leave the reasoning for the context documents.',
+  },
   tags: {
     type: 'array',
     items: { type: 'string' },
