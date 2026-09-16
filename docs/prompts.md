@@ -80,6 +80,60 @@ they are about how wide a target may be rather than what a target is:
   stays the single source of truth; a band written into a workout is a
   *tolerance*, allowed to be wider than the zone it came from.
 
+## Three doors to the same interview
+
+The body in `src/getting-started.md` is reached three ways, because the one that
+is right for a person is no use to a model and vice versa:
+
+| Door | Who opens it | When |
+| --- | --- | --- |
+| the `getting-started` prompt | the athlete, from the picker | "set up my training context" |
+| `get_onboarding_instructions` | the model | asked to, or a context read came back empty |
+| `next_step` on an empty read | nobody — it is just there | every read of a document with nothing in it |
+
+A prompt is offered to the athlete alone: the model receives `tools/list` and
+nothing else, and cannot call `prompts/get` on its own. That is the right shape
+for "I want to redo my setup" and no use for the case the interview is actually
+for, because a brand-new athlete does not browse a prompt picker. So the same
+body sits behind a tool, which works in every client whether or not it
+implements prompts, and can be reached mid-conversation rather than only at the
+moment a client connects.
+
+The tool's description says when *not* to call it. It returns some fifteen
+hundred words, which is worth it exactly once and wasteful on every session
+after, so it is fetched when asked for or when a read has just come back empty —
+never speculatively, and never as a way of finding out whether the athlete is
+set up, which the context readers answer for nothing.
+
+### Why not `initialize`
+
+`initialize` has an `instructions` field, and an earlier draft built it per
+athlete: the whole interview while the documents were empty, nothing once they
+were filled. It reads well and it was dropped.
+
+It is pushy in a way a tool is not — every session with an empty context opens
+with the model already holding an interview it will try to start. It fires once
+per *connection*, so it cannot answer "help me set up" said in the middle of a
+conversation. `instructions` is optional and clients vary in whether they pass
+it on. And it is the legacy door: see [mcp.md](mcp.md).
+
+The tool costs what `initialize` did not — some fifty words of `tools/list` on
+every session forever — and that is the price of the other three properties.
+
+### Nothing is stored about who has been asked
+
+There is no `offered_at` column, and with nothing being pushed there is nothing
+to remember. `next_step` is inert: it states a fact about a document that is
+empty, and stops appearing when the document is not, so the stop condition is
+the thing actually worth tracking and it is already stored. An athlete who would
+rather type their zones on the dashboard silences it by typing them.
+
+A flag would have been worse than useless. It would record that the *server*
+sent something, which is not the same as the athlete having seen it or turned it
+down — a client that connects once and is closed would burn the only offer and
+leave that athlete permanently un-onboarded, which is the failure this exists to
+prevent.
+
 ## Adding another
 
 Append to `PROMPTS` in `src/prompts.ts`. A name, a title, a description that

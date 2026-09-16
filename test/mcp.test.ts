@@ -62,6 +62,7 @@ describe('protocol', () => {
     expect(readOnly.sort()).toEqual([
       'export_workout_fit',
       'get_current_plan',
+      'get_onboarding_instructions',
       'get_scheduling_instructions',
       'get_workout',
       'get_workout_library',
@@ -119,6 +120,33 @@ describe('protocol', () => {
 
   it('rejects a prompt it does not have', async () => {
     expect((await rpc('prompts/get', { name: 'nope' })).error).toMatchObject({ code: -32602 });
+  });
+
+  it('hands over the interview only when something asks for it', async () => {
+    // Not in initialize: a client pays for the tool list, not for a setup that
+    // happened months ago.
+    expect((await rpc('initialize', {})).result).not.toHaveProperty('instructions');
+
+    const { markdown } = (await callTool('get_onboarding_instructions', {})) as { markdown: string };
+    expect(markdown).toContain('Round 1 — sport and goal');
+    expect(markdown).toContain('Never invent a number');
+    // The prompt and the tool are the same body, reached two ways.
+    const prompt = (await rpc('prompts/get', { name: 'getting-started' })).result as {
+      messages: { content: { text: string } }[];
+    };
+    expect(prompt.messages[0].content.text).toBe(markdown);
+  });
+
+  it('says what to do about an empty document in the read itself', async () => {
+    const empty = await callTool('get_current_plan', {});
+    expect(empty.markdown).toBeNull();
+    // Nothing else tells a caller the interview exists, so this names the tool.
+    expect(empty.next_step).toContain('get_onboarding_instructions');
+
+    await callTool('update_context', { kind: 'current-plan', markdown: '# Plan\nSub-60 10K.' });
+    expect((await callTool('get_current_plan', {})).next_step).toBeNull();
+    // The library always has its built-in document, so it never asks for one.
+    expect((await callTool('get_workout_library', {})).next_step).toBeNull();
   });
 
   it('answers a ping and rejects an unknown method', async () => {

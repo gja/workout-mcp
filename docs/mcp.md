@@ -68,8 +68,8 @@ identically:
 `list_workouts`, `get_workout`, `create_workout`, `update_workout`,
 `delete_workout`, `complete_workout`, `comment_workout`, `export_workout_fit`,
 `get_workout_stats`, `get_workout_library`, `get_current_plan`,
-`get_scheduling_instructions`, `get_workout_zones`, `update_context`,
-`list_recorded_workouts`.
+`get_scheduling_instructions`, `get_workout_zones`, `get_onboarding_instructions`,
+`update_context`, `list_recorded_workouts`.
 
 Each is also reachable over REST at `POST /api/tools/<name>` with the same
 arguments, so a non-MCP client gets identical behaviour. The schemas live in
@@ -142,7 +142,8 @@ when the URL works for whoever ends up holding it, and not otherwise.
 ### Annotations
 
 `list_workouts`, `get_workout`, `get_workout_stats`, the four context readers,
-`export_workout_fit` and `list_recorded_workouts` carry `readOnlyHint`,
+`get_onboarding_instructions`, `export_workout_fit` and `list_recorded_workouts`
+carry `readOnlyHint`,
 which is what lets a client group them apart from the writes and allow them
 without asking each time. `update_workout`, `delete_workout` and
 `update_context` carry `destructiveHint` — the last of those because it
@@ -163,5 +164,32 @@ tools. There is one — `getting-started`, the interview that fills an athlete's
 context documents from their answers — and a client offers it as something the
 athlete picks rather than something the model calls. Only the name, title and
 description go out in the list; the body is sent once it is asked for, which is
-why it can be long where a tool description cannot. See
-[prompts.md](prompts.md).
+why it can be long where a tool description cannot.
+
+The model never sees a prompt, so the same interview also sits behind
+`get_onboarding_instructions`, and every empty context read carries a
+`next_step` naming it. See [prompts.md](prompts.md).
+
+## `initialize` is a legacy handshake
+
+Worth knowing before building anything on it. Revision `2026-07-28` removed the
+handshake: protocol version, identity and capabilities became per-request
+`_meta`, carried on HTTP in an `MCP-Protocol-Version` header, and the spec now
+calls a server that expects `initialize` **legacy** — `2025-11-25` and earlier.
+This server pins `2025-06-18` and is legacy by that definition, as is every
+client that currently talks to it, so nothing here is broken.
+
+A modern server negotiates nothing: it accepts or rejects each request on the
+version that request declares, answering `UnsupportedProtocolVersionError` with
+the list it does support, and **MUST** implement `server/discover` — which
+returns the supported versions, capabilities, `serverInfo` and the same optional
+`instructions` an `initialize` result carries. A dual-era server may answer both
+on one endpoint, choosing by how the client opens.
+
+Statelessness is not the obstacle here — this server is already one JSON-RPC
+request per POST, which is what a modern revision assumes. What it would cost is
+`_meta` and header validation, the new error, and `server/discover`. Nothing
+speaks modern to this deployment yet, so it is not built. One trap for whoever
+does: `server/discover` is cacheable, through `ttlMs` and `cacheScope`, so
+anything per-athlete in that result must go out `cacheScope: "private"` — a
+public cache there would serve one athlete's state to another.

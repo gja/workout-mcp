@@ -1,4 +1,4 @@
-// The prompt surface: templates the athlete invokes by name. See docs/prompts.md.
+// The prompt surface, and the same body behind a tool. See docs/prompts.md.
 
 import GETTING_STARTED from './getting-started.md';
 
@@ -34,3 +34,6 @@ export const promptMessages = (prompt: Prompt) => ({
   description: prompt.description,
   messages: [{ role: 'user', content: { type: 'text', text: prompt.markdown } }],
 });
+
+/** The same interview, for a caller that asks for it by name rather than picking a prompt. */
+export const ONBOARDING_INSTRUCTIONS = GETTING_STARTED;
