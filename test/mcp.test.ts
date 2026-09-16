@@ -192,9 +192,10 @@ describe('protocol', () => {
     expect(empty.next_step).toContain('get_onboarding_instructions');
 
     await callTool('update_context', { kind: 'current-plan', markdown: '# Plan\nSub-60 10K.' });
-    expect((await callTool('get_current_plan', {})).next_step).toBeNull();
+    // Gone once there is something there, rather than null on every read forever.
+    expect(await callTool('get_current_plan', {})).not.toHaveProperty('next_step');
     // The library always has its built-in document, so it never asks for one.
-    expect((await callTool('get_workout_library', {})).next_step).toBeNull();
+    expect(await callTool('get_workout_library', {})).not.toHaveProperty('next_step');
   });
 
   it('answers a ping, and an unknown method with a 404', async () => {

@@ -29,12 +29,20 @@ assistant is *told* they have said nothing, rather than handed a plausible
 default it would then plan against. A guessed threshold is worse than a missing
 one.
 
-An empty document says what to do about itself: `next_step` is null once
-something is written, and otherwise names `get_onboarding_instructions`. The
-absence is the signal, so it carries the remedy rather than leaving it to be
-inferred — and it is the only thing that does, since a model never sees a prompt
-and will not fetch an interview it has no reason to know exists. It names the
-tool alone for that reason: the prompt is not something its reader can call.
+An empty document says what to do about itself: `next_step` names
+`get_onboarding_instructions`, and is **absent** on a document that has
+something in it. The absence is the signal, so it carries the remedy rather than
+leaving it to be inferred — and it is the only thing that does, since a model
+never sees a prompt and will not fetch an interview it has no reason to know
+exists. It names the tool alone for that reason: the prompt is not something its
+reader can call.
+
+Absent rather than `null`, unlike the figures in [stats.md](stats.md) where an
+explicit null is load-bearing. There, null distinguishes *not recorded* from
+zero, and a reader that guessed wrong would be wrong about the training. Here
+`markdown` has already said the document is empty, so a `next_step` on every
+written document would be a field whose only meaning is "ignore me", on every
+read, forever.
 
 The three with no default are what the `getting-started` prompt exists to fill:
 absence is the right answer for one missing document and a poor start for an
