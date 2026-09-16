@@ -5,6 +5,17 @@ import { newId } from '../src/db';
 /** The revision the server speaks. Every request carries it in the body and a header. */
 export const MCP_VERSION = '2026-07-28';
 
+/**
+ * The per-request envelope the revision requires: the protocol version, and
+ * who is asking with what. All three are mandatory — a request carrying only
+ * the version is refused, which is what a conformant client would find.
+ */
+export const mcpEnvelope = (version: string = MCP_VERSION) => ({
+  'io.modelcontextprotocol/protocolVersion': version,
+  'io.modelcontextprotocol/clientInfo': { name: 'workout-mcp-tests', version: '1' },
+  'io.modelcontextprotocol/clientCapabilities': {},
+});
+
 /** The methods whose `Mcp-Name` header the server checks against the body. */
 const NAMED_BY = new Set(['tools/call', 'prompts/get', 'resources/read']);
 
@@ -26,6 +37,7 @@ export function mcpFetch(
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
       'MCP-Protocol-Version': MCP_VERSION,
       'Mcp-Method': method,
       ...(named === null ? {} : { 'Mcp-Name': named }),
@@ -34,7 +46,7 @@ export function mcpFetch(
       jsonrpc: '2.0',
       id: 1,
       method,
-      params: { ...params, _meta: { 'io.modelcontextprotocol/protocolVersion': MCP_VERSION } },
+      params: { ...params, _meta: mcpEnvelope() },
     }),
   });
 }

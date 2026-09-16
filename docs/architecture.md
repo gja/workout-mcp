@@ -15,7 +15,7 @@ src/identity.ts         signing in with Google or Apple
 src/auth.ts             sessions, accounts and API tokens
 src/context.ts          what an assistant reads before planning; the library default is the .md beside it
 src/tools.ts            the tool surface shared by MCP and REST
-src/mcp.ts              JSON-RPC over Streamable HTTP
+src/mcp.ts              the MCP surface, on the official SDK's handler
 src/router.ts           a small path router: `:params`, and 405 apart from 404
 src/http.ts             the context a route is given, and `withUser`
 src/routes/             one module per group of routes, each declaring its own paths

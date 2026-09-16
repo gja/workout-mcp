@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { listPrompts } from '../src/prompts';
 import { TOOLS } from '../src/tools';
 import { shiftDate, today } from '../src/units';
-import { resetDatabase, seedUser } from './helpers';
+import { mcpEnvelope, resetDatabase, seedUser } from './helpers';
 
 const BASE = 'https://workouts.example';
 
@@ -46,6 +46,7 @@ async function post(
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
       'MCP-Protocol-Version': version,
       'Mcp-Method': method,
       ...(named === null ? {} : { 'Mcp-Name': named }),
@@ -55,7 +56,7 @@ async function post(
       jsonrpc: '2.0',
       ...(options.id === null ? {} : { id: options.id ?? 1 }),
       method,
-      params: { ...params, _meta: { 'io.modelcontextprotocol/protocolVersion': version } },
+      params: { ...params, _meta: mcpEnvelope(version) },
     }),
   });
 }
@@ -82,16 +83,31 @@ async function callTool(name: string, args: unknown): Promise<Record<string, unk
 }
 
 describe('protocol', () => {
-  it('shakes hands with a client from the era that does', async () => {
+  it('shakes hands with a client from the era that does, at the revision it asked for', async () => {
     // No version header at all, which is what `initialize` looks like: the handshake
     // is where the version gets agreed, so there is nothing to put in one yet.
-    const response = await legacy({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
+    const shake = async (protocolVersion: string) => {
+      const response = await legacy({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion, capabilities: {}, clientInfo: { name: 'c', version: '1' } },
+      });
+      expect(response.status, protocolVersion).toBe(200);
+      return ((await response.json()) as RpcResult).result;
+    };
 
-    expect(response.status).toBe(200);
-    expect(((await response.json()) as RpcResult).result).toMatchObject({
-      protocolVersion: '2025-06-18',
-      serverInfo: { name: 'workout-mcp' },
-    });
+    // Each handshake revision is answered at itself, rather than at whichever one
+    // this server would have picked for everybody.
+    for (const version of ['2025-03-26', '2025-06-18', '2025-11-25']) {
+      expect(await shake(version), version).toMatchObject({
+        protocolVersion: version,
+        serverInfo: { name: 'workout-mcp' },
+      });
+    }
+
+    // One nobody here has heard of is answered at the newest we do speak.
+    expect(await shake('2099-01-01')).toMatchObject({ protocolVersion: '2025-11-25' });
   });
 
   it('serves a handshake client its tools, without the modern envelope', async () => {
@@ -207,9 +223,19 @@ describe('protocol', () => {
     expect(await callTool('get_workout_library', {})).not.toHaveProperty('next_step');
   });
 
-  it('answers a ping, and an unknown method with a 404', async () => {
-    expect((await rpc('ping')).result).toMatchObject({ resultType: 'complete' });
+  it('has no ping on the modern era, which the revision removed', async () => {
+    // SEP-2577: `2026-07-28` dropped ping. The handshake revisions keep it, and a
+    // client on one of those still gets an answer.
+    const modern = await post('ping');
+    expect(modern.status).toBe(404);
+    expect(((await modern.json()) as RpcResult).error).toMatchObject({ code: -32601 });
 
+    const handshake = await legacy({ jsonrpc: '2.0', id: 1, method: 'ping' });
+    expect(handshake.status).toBe(200);
+    expect(((await handshake.json()) as RpcResult).result).toEqual({});
+  });
+
+  it('answers an unknown method with a 404', async () => {
     // The status is contract: it is how a client tells a live endpoint from an empty URL.
     const unknown = await post('what/ever');
     expect(unknown.status).toBe(404);
@@ -252,8 +278,10 @@ describe('the wire', () => {
   it('answers server/discover with the version it serves', async () => {
     const { result } = await rpc('server/discover');
 
+    // Modern revisions only: the handshake era is negotiated through `initialize`,
+    // not advertised here. `initialize` still answers 2025-06-18 — see "protocol".
     expect(result).toMatchObject({
-      supportedVersions: ['2026-07-28', '2025-06-18'],
+      supportedVersions: ['2026-07-28'],
       capabilities: { tools: {}, prompts: {} },
       _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'workout-mcp' } },
     });
@@ -276,7 +304,7 @@ describe('the wire', () => {
   it('says what kind of result it is, on every result', async () => {
     // The revision requires it on all of them. An absent one is read as complete only
     // from an older server, so a client is right to refuse it from this one.
-    const methods = ['server/discover', 'ping', 'tools/list', 'prompts/list', 'resources/list', 'skills/list'];
+    const methods = ['server/discover', 'tools/list', 'prompts/list', 'resources/list', 'skills/list'];
     for (const method of methods) {
       expect((await rpc(method)).result, method).toMatchObject({ resultType: 'complete' });
     }
@@ -290,7 +318,7 @@ describe('the wire', () => {
   });
 
   it('names itself on every result, without anything having to remember a handshake', async () => {
-    for (const method of ['ping', 'tools/list', 'server/discover']) {
+    for (const method of ['tools/list', 'server/discover']) {
       expect((await rpc(method)).result?._meta, method).toMatchObject({
         'io.modelcontextprotocol/serverInfo': { name: 'workout-mcp' },
       });
@@ -303,10 +331,7 @@ describe('the wire', () => {
 
     expect(response.status).toBe(400);
     expect(body.error).toMatchObject({ code: -32022 });
-    expect(body.error?.data).toMatchObject({
-      supported: ['2026-07-28', '2025-06-18'],
-      requested: '1900-01-01',
-    });
+    expect(body.error?.data).toMatchObject({ supported: ['2026-07-28'] });
   });
 
   it('checks the headers against the body, on every request that claims the modern era', async () => {
@@ -328,6 +353,7 @@ describe('the wire', () => {
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
         'MCP-Protocol-Version': VERSION,
         'Mcp-Method': 'tools/list',
       },
@@ -335,7 +361,7 @@ describe('the wire', () => {
         jsonrpc: '2.0',
         id: 1,
         method: 'tools/list',
-        params: { _meta: { 'io.modelcontextprotocol/protocolVersion': '2025-06-18' } },
+        params: { _meta: mcpEnvelope('2025-06-18') },
       }),
     });
     expect(twoVersions.status).toBe(400);
@@ -366,8 +392,60 @@ describe('the wire', () => {
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: {} }),
     });
 
+    // Refused because the envelope the era requires is simply not there — there
+    // is nothing for the headers to agree with. Either way the body never runs.
     expect(response.status).toBe(400);
-    expect(((await response.json()) as RpcResult).error).toMatchObject({ code: -32020 });
+    const { error } = (await response.json()) as RpcResult;
+    expect(error).toMatchObject({ code: -32602 });
+    expect(error?.message).toContain('_meta');
+  });
+
+  it('requires the whole per-request envelope, not just the version', async () => {
+    // The revision asks for who is calling and what they can do on every request,
+    // alongside the version. A request carrying only the version is refused — this
+    // server used to take one, which no conformant client would have sent.
+    const response = await SELF.fetch(`${BASE}/mcp`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+        'MCP-Protocol-Version': VERSION,
+        'Mcp-Method': 'tools/list',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/list',
+        params: { _meta: { 'io.modelcontextprotocol/protocolVersion': VERSION } },
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as RpcResult).error?.message).toContain('clientCapabilities');
+  });
+
+  it('answers the handshake era in JSON, and without demanding an event-stream Accept', async () => {
+    // Both are the era's own rules and both would be conformant to enforce, but a
+    // client that has been talking to this server in plain JSON without that header
+    // must not be dropped by a change of implementation.
+    const response = await legacy({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('application/json');
+    expect(((await response.json()) as RpcResult).result).toHaveProperty('tools');
+  });
+
+  it('still takes a batch on the handshake era, and answers it as one array', async () => {
+    const response = await legacy([
+      { jsonrpc: '2.0', id: 1, method: 'ping' },
+      { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
+    ]);
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as RpcResult[];
+    expect(Array.isArray(body)).toBe(true);
+    expect(body).toHaveLength(2);
   });
 
   it('reads a name the ASCII range cannot carry', async () => {
@@ -668,8 +746,11 @@ describe('tools', () => {
     expect(JSON.stringify(response.result?.content)).toContain('not a valid duration');
   });
 
-  it('reports an unknown tool', async () => {
+  it('reports an unknown tool as a protocol error, not a refused call', async () => {
+    // `isError` is for a tool that refused its input. A name that is not in
+    // `tools/list` never reached a tool, so it is the caller's mistake about the
+    // surface, and only protocol-level problems become JSON-RPC errors.
     const response = await rpc('tools/call', { name: 'make_coffee', arguments: {} });
-    expect(response.result?.isError).toBe(true);
+    expect(response.error).toMatchObject({ code: -32602 });
   });
 });
