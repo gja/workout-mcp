@@ -136,6 +136,7 @@ const FLAG_NOTES: Record<string, string> = {
   gps_dropout: 'GPS dropped out, so pace is unreliable',
   long_pause: 'the recording was paused for a while',
   laps_do_not_match_plan: 'the laps do not line up with the plan, so nothing is matched to a step',
+  extra_lap: 'this lap is past the end of the plan, so it is matched to no step',
   source_unreadable: 'the recording could not be read',
 };
 
