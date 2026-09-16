@@ -14,8 +14,6 @@ const GITHUB_MARK =
 
 const STARTER_PROMPT = 'Run the workouts-mcp-onboarding-wizard skill from the Workouts MCP server.';
 
-const WEEKLY_PROMPT = `Help me schedule a task via Claude for every Sunday at 3pm to analyse my previous week of workouts, print a progress report (attached as a nice HTML report), and schedule next week's activities in WorkoutsMCP. Create every workout for the week, not just the key sessions — the easy and recovery ones too. This runs without supervision so be as independent as possible. Do not update the zones or any other context unless explicitly asked. Give me the prompt and help me find the right screen.`;
-
 function Badge({ href, label, value }: { href: string; label: string; value: string }) {
   return (
     <a className="badge" href={href} target="_blank" rel="noreferrer">
@@ -87,29 +85,13 @@ export function Faq() {
             your goal, how much of the planning you want done for you, the week you actually have, your numbers per
             sport, and anything that constrains the plan. The answers are saved as your zones, your scheduling
             instructions and your current plan, so the next conversation starts from them instead of from questions.
-            Then it offers to write the first session.
+            It ends by offering the next step: a week of workouts written there and then, or a scheduled task that
+            reviews last week and places the coming one every Sunday.
           </p>
           <p className="note">
             Some clients offer the same interview as a prompt you pick rather than something you type, under a name
             like <code>/mcp__Workouts_MCP__getting-started</code>. The prefix is whatever you called this connector,
             so look for <code>getting-started</code> in the picker. Either door runs the same thing.
-          </p>
-        </Section>
-
-        <Section group="faq" title="Can Claude schedule each week for me?" hint="A weekly task">
-          <p className="note">
-            Once your context is set up, this one asks Claude to do the weekly job on its own: read what you actually
-            did, report on it, and place next week's sessions. Paste it into a conversation and Claude walks you
-            through creating the scheduled task.
-          </p>
-          <pre className="snippet prose">{WEEKLY_PROMPT}</pre>
-          <div className="actions">
-            <CopyButton label="Copy prompt" text={WEEKLY_PROMPT} />
-          </div>
-          <p className="note">
-            It runs unsupervised, so it is told to schedule the whole week rather than the key sessions alone, and to
-            leave your context documents alone unless you ask for a change. Those stay yours to edit here or to
-            revisit by running the setup interview again.
           </p>
         </Section>
 
