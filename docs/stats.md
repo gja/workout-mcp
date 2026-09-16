@@ -99,29 +99,40 @@ than on the counts agreeing. When it is not, every lap comes back `unmatched`
 with a `laps_do_not_match_plan` flag on the session, and the numbers are all
 still there.
 
-### The stop lap is dropped before any of that is weighed
+### The one lap past the end is held out of the weighing
 
-A watch closes a file with a scrap of a lap — four seconds, a handful of
-records — when the athlete presses stop. It is no step, and left in the
-evidence it does not merely fail to match: it is counted as a pair that failed,
-and the fewer steps a session has the more of the vote that scrap is. A
-one-step ride recorded as one 40-minute lap and one 4-second lap was exactly
-half of it, which is enough to lose a strict majority, so a ride executed
-perfectly came back entirely unmatched.
+A recording often has one lap more than the plan has steps, and it is one of two
+things. A watch closes a file with a scrap — four seconds, a handful of records
+— when the athlete presses stop. Or the athlete kept going: a jog home, a few
+more minutes spinning, real work the plan simply does not cover.
 
-Only a lap the plan has no step left for can be one. A session that ends short
-of its plan ends on a *real* step run badly — 120 m of a planned kilometre —
-and that lap is the cooldown however little of it was done; refusing it would
-throw away the thing the loose bar above exists to report. Beyond the last step
-there is nothing left for a lap to be, so one too brief to hold any execution
-is the file closing rather than training. The exception is a plan whose own
-last step is that short — strides — where it is a lap like any other and is
-matched as one.
+Neither is a step, and left in the evidence neither merely fails to match: it is
+counted as a pair that failed, and the fewer steps a session has the more of the
+vote it is. A one-step ride recorded as one 40-minute lap and one 4-second lap
+was exactly half of it, which is enough to lose a strict majority, so a ride
+executed perfectly came back entirely unmatched.
 
-Dropped means dropped from the weighing, and left `unmatched`: a stop lap is
-not the last step either, and folding it in would put four seconds of nothing
-against a 40-minute spin. Its measurements are still reported, with the
-`short_lap` flag every lap under a minute carries.
+So a lap the plan has no step for is held out before anything is weighed — held
+out of the *weighing*, not out of the session. Every lap the plan does have a
+step for still matches as it would have, which is the point: the reps in the
+middle are what anybody is asking about.
+
+| The tail lap | What it is | How it reads |
+| --- | --- | --- |
+| under a minute | the file closing | `unmatched`, with `short_lap` |
+| a minute or more | training past the end of the plan | `unmatched`, with `extra_lap` |
+| under a minute, and the length of the last step | strides — that step again | matched, like any other lap |
+
+Only a lap the plan has no step left for can be either. A session that ends
+short of its plan ends on a *real* step run badly — 120 m of a planned kilometre
+— and that lap is the cooldown however little of it was done; refusing it would
+throw away the thing the loose bar above exists to report.
+
+An extra lap is left `unmatched` rather than folded into the last step, which is
+what this used to do. Eight minutes jogging home is not the five-minute cooldown
+run long, and reporting it as that step at `low` confidence made a claim about
+execution out of what is really a lap with nowhere to go. It keeps its
+measurements and its quarters — it is real training — and says what it is.
 
 `role` comes from the planned step where there is one (`warmup`, `work`,
 `recovery`, `cooldown`) and from the lap's own FIT `intensity` where there is
@@ -243,7 +254,8 @@ than reported as fact. On the session:
 | `laps_do_not_match_plan` | The mapping was withheld; see above |
 | `source_unreadable` | The file could not be fetched or read; there is nothing else here |
 
-And on a lap: `short_lap`, where quarters were suppressed.
+And on a lap: `short_lap`, where quarters were suppressed, and `extra_lap`, where
+the lap is past the end of the plan and matched to no step.
 
 ## When it runs, and once
 

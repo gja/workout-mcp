@@ -165,7 +165,7 @@ describe('what the recording did not say', () => {
     expect(laps[0].avg_hr).toBeGreaterThan(0);
   });
 
-  it('folds a lap run past the end into the step it overran', () => {
+  it('calls a lap run past the end extra rather than claiming it as the last step', () => {
     // The cooldown was pressed in two: five minutes, then another eight jogging home.
     const extended: ActivitySpec = {
       laps: [...AS_PLANNED.laps, { seconds: 480, speed: 2.2, hr: [115, 105] }],
@@ -174,12 +174,14 @@ describe('what the recording did not say', () => {
 
     expect(flags).not.toContain('laps_do_not_match_plan');
     expect(laps).toHaveLength(9);
-    // The reps are untouched, and both tail laps are the cooldown they belong to.
+    // Every lap the plan has a step for still matches: the tail is held out, not disqualifying.
     expect(laps[1]).toMatchObject({ planned_step_name: 'Threshold', match_confidence: 'high' });
     expect(laps[7]).toMatchObject({ planned_step_index: 7, planned_step_name: 'Cooldown', role: 'cooldown' });
-    expect(laps[8]).toMatchObject({ planned_step_index: 7, planned_step_name: 'Cooldown', role: 'cooldown' });
-    // It is still not the step as written, and says so rather than claiming a clean hit.
-    expect(laps[8].match_confidence).toBe('low');
+    // Eight minutes of real running, and no step left for it to be.
+    expect(laps[8]).toMatchObject({ planned_step_name: null, match_confidence: 'unmatched' });
+    expect(laps[8].flags).toContain('extra_lap');
+    // Real training, so it is quartered like any other lap over a minute.
+    expect(laps[8].quarters).not.toBeNull();
   });
 
   it('matches what was run when the session stopped early', () => {
@@ -527,6 +529,29 @@ describe('the lap a watch writes when the athlete presses stop', () => {
     expect(laps[0]).toMatchObject({ planned_step_name: 'Recovery spin', match_confidence: 'high' });
     // Dropped from the weighing, not mapped: it is not the recovery spin either.
     expect(laps[1]).toMatchObject({ match_confidence: 'unmatched', planned_step_name: null });
+  });
+
+  it('holds the scrap out of the weighing rather than out of the session', () => {
+    // Warmup and one rep recorded as written, then the stop press: the two real laps still match.
+    const plan = workout([{ name: 'Warmup', goal_s: 600 }, { name: 'Rep', goal_s: 240 }]);
+    const { laps, flags } = statsFrom(
+      encodeActivityFit({
+        laps: [
+          { seconds: 600, speed: 2.6 },
+          { seconds: 240, speed: 4.0 },
+          { seconds: 4, speed: 0.5, trigger: 'time' },
+        ],
+      }),
+      plan,
+      SOURCE,
+    );
+
+    expect(flags).not.toContain('laps_do_not_match_plan');
+    expect(laps[0]).toMatchObject({ planned_step_name: 'Warmup', match_confidence: 'high' });
+    expect(laps[1]).toMatchObject({ planned_step_name: 'Rep', match_confidence: 'high' });
+    expect(laps[2]).toMatchObject({ match_confidence: 'unmatched', planned_step_name: null });
+    // The file closing, not training: it is short_lap, and not held up as extra.
+    expect(laps[2].flags).toEqual(['short_lap']);
   });
 
   it('leaves a real last step alone, however little of it was done', () => {

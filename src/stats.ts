@@ -296,9 +296,9 @@ const matches = (planned: PlannedStep, lap: LapStats): boolean => within(planned
  * Paired in order, with both ends free to move, because the ends are where a real
  * session differs from the plan: one stopped early — aborted, or the cooldown
  * skipped — leaves the last steps with no lap at all, and one that carried on past
- * the end — a cooldown extended, a jog home — folds its extra laps into the step it
- * overran. Neither is a reason to withhold the reps in the middle, which are the
- * part anybody is asking about.
+ * the end — a jog home, the file closing — leaves a lap with no step. Neither is a
+ * reason to withhold the reps in the middle, which are the part anybody is asking
+ * about, so the one lap past the end is held out rather than counted against them.
  *
  * What *is* withheld is a mapping that has drifted. A lap press missed halfway
  * through puts every later lap against the wrong step, and a mapping shifted by one
@@ -311,9 +311,9 @@ function alignToPlan(planned: PlannedStep[], laps: LapStats[]): Array<PlannedSte
   const none: Array<PlannedStep | undefined> = laps.map(() => undefined);
   if (last < 0) return none;
 
-  // Dropped before anything is weighed: it is nobody's step, and counted as a pair
+  // Held out before anything is weighed: it is nobody's step, and counted as a pair
   // that failed it can outvote the session around it. See docs/stats.md.
-  const considered = endsOnStopLap(planned, laps) ? laps.slice(0, -1) : laps;
+  const considered = tailBeyondPlan(planned, laps) ? laps.slice(0, -1) : laps;
 
   let best: Array<PlannedStep | undefined> = considered.map(() => undefined);
   let bestScore = 0;
@@ -338,18 +338,23 @@ function alignToPlan(planned: PlannedStep[], laps: LapStats[]): Array<PlannedSte
 }
 
 /**
- * The scrap of a lap a watch closes the file with when the athlete presses stop.
+ * One lap more than the plan has steps, and what that last lap is.
  *
- * Only a lap the plan has no step left for can be one: a session that ends short of its
- * plan ends on a real step run badly — 120 m of a planned kilometre — and that lap is the
- * cooldown, however little of it was done. Beyond the last step there is nothing left for
- * a lap to be, so one too brief to hold any execution is the file closing, not training.
- * Unless the last step is itself that short — strides — where it is a lap like any other.
+ * `stop` is the scrap a watch closes the file with when the athlete presses stop: seconds
+ * long, no execution in it, not training. `extra` is real work past the end of the plan —
+ * a jog home, a few more minutes spinning.
+ *
+ * Only a lap the plan has no step left for can be either. A session that ends *short* of
+ * its plan ends on a real step run badly — 120 m of a planned kilometre — and that lap is
+ * the cooldown however little of it was done, which is the thing the loose confidence bar
+ * exists to report. The exception to `stop` is a last step itself that short — strides —
+ * where a lap of the same length is that step again rather than the file closing.
  */
-function endsOnStopLap(planned: PlannedStep[], laps: LapStats[]): boolean {
+function tailBeyondPlan(planned: PlannedStep[], laps: LapStats[]): 'stop' | 'extra' | null {
   const tail = laps[laps.length - 1];
-  if (laps.length <= planned.length || tail === undefined) return false;
-  return (tail.duration_s ?? 0) < SHORT_LAP_S && !matches(planned[planned.length - 1], tail);
+  if (laps.length !== planned.length + 1 || tail === undefined) return null;
+  if ((tail.duration_s ?? 0) >= SHORT_LAP_S) return 'extra';
+  return matches(planned[planned.length - 1], tail) ? null : 'stop';
 }
 
 /** The bounds a target puts on a metric we can measure without knowing the athlete's thresholds. */
@@ -710,6 +715,11 @@ export function statsFrom(
       stats.planned_step_name = step.name;
       stats.match_confidence = within(step, stats, TOLERANCE.confidence) ? 'high' : 'low';
       stats.role = ROLE_BY_INTENSITY[step.intensity] ?? stats.role;
+    }
+
+    // Said out loud, because it is the one lap that is real training and matched to nothing.
+    if (index === laps.length - 1 && tailBeyondPlan(planned, laps) === 'extra') {
+      stats.flags.push('extra_lap');
     }
 
     // Quartering a stride measures noise, so a short lap keeps its averages and nothing else.
