@@ -203,5 +203,7 @@ What block they are in and what it is for.
 ## Finally
 
 Tell them what was written, that they can edit any of it on the dashboard, and
-that the workout library — the session shapes — lives there too. Then offer to
-write the first session.
+that the workout library — the session shapes — lives there too. Then offer the
+next step and let them choose: a week of workouts written now, or a scheduled
+task in their assistant that every Sunday reviews the week just gone and places
+the coming one, so the weeks keep arriving without them having to ask.

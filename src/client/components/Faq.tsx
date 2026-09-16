@@ -12,9 +12,7 @@ const GITHUB_MARK =
   '.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A7.995' +
   ' 7.995 0 0016 8c0-4.42-3.58-8-8-8z';
 
-const STARTER_PROMPT = `I would like to create a 6 week training plan and to save it in WorkoutsMCP. Create a week by week plan, and list out the goal and the key sessions for each week. Do not assign the sessions to any particular date yet, that will be done later. If you are unclear on my goals, workout zones or instructions for scheduling, please ask me, and then save my instructions. Don't forget to ask more detailed questions if you need to build up a schedule, such as how much time I'll get on weekdays v/s weekends. If it's cycling in scope ask about FTP. If running related ask about easy run pace, recent relevant results. Walk me through the updates you've made, and help me make tweaks if needed. After you have enough clarity and have saved the plan, give me a sample set of workouts across the weeks, so I can provide feedback.
-
-Finally help me schedule a task via Claude for every Sunday at 3pm to analyse my previous week of workouts, print a progress report (attached as a nice HTML report), and schedule next week's activities in WorkoutsMCP. Create every workout for the week, not just the key sessions — the easy and recovery ones too. This runs without supervision so be as independent as possible. Do not update the zones or any other context unless explictly asked. Give me the prompt and help me find the right screen.`;
+const STARTER_PROMPT = 'Run the workouts-mcp-onboarding-wizard skill from the Workouts MCP server.';
 
 function Badge({ href, label, value }: { href: string; label: string; value: string }) {
   return (
@@ -73,21 +71,27 @@ export function Faq() {
           </p>
         </Section>
 
-        <Section group="faq" title="Can you give me a prompt to get started with Claude?" hint="Copy this one">
+        <Section group="faq" title="Can you give me a prompt to get started with Claude?" hint="One line">
           <p className="note">
-            Once the connector is added, paste this into a fresh Claude conversation. It asks Claude to build a six
-            week block and save it here, and — because it tells Claude to ask rather than guess — most of the work is
-            answering questions about how you train. Change the six weeks, the sport and the goal to whatever you are
-            actually training for.
+            Once the connector is added, paste this into a fresh Claude conversation. The interview lives on this
+            server, so the line only has to name it — Claude fetches the rest and runs it.
           </p>
           <pre className="snippet prose">{STARTER_PROMPT}</pre>
           <div className="actions">
             <CopyButton label="Copy prompt" text={STARTER_PROMPT} />
           </div>
           <p className="note">
-            What you get back is a plan with a goal and key sessions per week, nothing on the calendar yet, and
-            whatever you told it about your zones and your week saved as context so the next conversation starts from
-            it. Dates come later, a week at a time.
+            It reads whatever you have already written before it asks anything, then works through your sports and
+            your goal, how much of the planning you want done for you, the week you actually have, your numbers per
+            sport, and anything that constrains the plan. The answers are saved as your zones, your scheduling
+            instructions and your current plan, so the next conversation starts from them instead of from questions.
+            It ends by offering the next step: a week of workouts written there and then, or a scheduled task that
+            reviews last week and places the coming one every Sunday.
+          </p>
+          <p className="note">
+            Some clients offer the same interview as a prompt you pick rather than something you type, under a name
+            like <code>/mcp__Workouts_MCP__getting-started</code>. The prefix is whatever you called this connector,
+            so look for <code>getting-started</code> in the picker. Either door runs the same thing.
           </p>
         </Section>
 
