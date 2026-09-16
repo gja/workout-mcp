@@ -9,6 +9,7 @@ import * as drive from './drive';
 import * as identity from './identity';
 import type { Env, User } from './db';
 import { handleMcp } from './mcp';
+import { handleMcpWithAgents } from './mcp-agents';
 import * as platforms from './platforms';
 import { SCOPE } from './routes/oauth';
 import { ToolError } from './tools';
@@ -35,9 +36,16 @@ const mcpHandler = {
   },
 } satisfies ExportedHandler<Env>;
 
+/** SPIKE: the same surface, served by the Agents SDK. See src/mcp-agents.ts. */
+const sdkMcpHandler = {
+  fetch: (request: Request, env: Env, ctx: ExecutionContext) => handleMcpWithAgents(request, env, ctx),
+} satisfies ExportedHandler<Env>;
+
 const provider = new OAuthProvider<Env>({
-  apiRoute: '/mcp',
-  apiHandler: mcpHandler,
+  apiHandlers: {
+    '/mcp': mcpHandler,
+    '/sdkmcp': sdkMcpHandler,
+  },
   defaultHandler: app,
 
   // The authorize endpoint is ours: only we know how to sign someone in.
