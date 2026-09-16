@@ -331,7 +331,10 @@ describe('the wire', () => {
 
     expect(response.status).toBe(400);
     expect(body.error).toMatchObject({ code: -32022 });
-    expect(body.error?.data).toMatchObject({ supported: ['2026-07-28'] });
+    expect(body.error?.data).toMatchObject({
+      supported: ['2026-07-28', '2025-11-25', '2025-06-18', '2025-03-26'],
+      requested: '1900-01-01',
+    });
   });
 
   it('checks the headers against the body, on every request that claims the modern era', async () => {
@@ -456,9 +459,13 @@ describe('the wire', () => {
 
     expect(result?.isError).toBe(true);
     const text = (result?.content as Array<{ text: string }>)[0].text;
-    expect(text).toBe('internal error');
     expect(text).not.toContain('SQLITE');
     expect(text).not.toContain('D1_ERROR');
+    expect(text).not.toContain('workouts');
+    // An id to quote, and nothing else: the fault itself is in the logs.
+    expect(text).toMatch(
+      /^internal error\. Quote [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12} when reporting this\.$/,
+    );
   });
 
   it('gives a JSON-RPC code the status the table says, on the modern era', async () => {
@@ -521,6 +528,29 @@ describe('the wire', () => {
     // A single request object is still answered with an object.
     const single = await legacy({ jsonrpc: '2.0', id: 1, method: 'ping' });
     expect(Array.isArray(await single.json())).toBe(false);
+  });
+
+  it('offers only the handshake revisions it implements', async () => {
+    const shake = async (protocolVersion: string) => {
+      const response = await legacy({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion, capabilities: {}, clientInfo: { name: 'c', version: '1' } },
+      });
+      return ((await response.json()) as RpcResult).result?.protocolVersion;
+    };
+
+    // Older than anything written here: answered at the newest we do speak,
+    // rather than agreeing to a revision nothing has been built against.
+    expect(await shake('2024-11-05')).toBe('2025-11-25');
+    expect(await shake('2024-10-07')).toBe('2025-11-25');
+  });
+
+  it('answers a discover notification with nothing, like every other method', async () => {
+    const response = await legacy({ jsonrpc: '2.0', method: 'server/discover' });
+    expect(response.status).toBe(202);
+    expect(await response.text()).toBe('');
   });
 
   it('reads a name the ASCII range cannot carry', async () => {

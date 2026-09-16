@@ -26,6 +26,29 @@ const SERVER_INFO = { name: 'workout-mcp', version: '0.1.0' };
 /** The revision `server/discover` advertises. The handshake era negotiates its own. */
 const MODERN_VERSION = '2026-07-28';
 
+/**
+ * The handshake revisions this server implements, newest first: `initialize`
+ * counter-offers the first of these a client can take. Left unset the SDK
+ * offers its own list, which reaches back to revisions nothing here has been
+ * written against — a client asking for `2024-11-05` would be told yes.
+ */
+const HANDSHAKE_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'];
+
+/** Allocated to the protocol itself, and answered with a 400. */
+const UNSUPPORTED_PROTOCOL_VERSION = -32022;
+
+/**
+ * What a caller is told about a fault that is ours, and the only thing they are
+ * told. The message may hold a table name, a query, a token — none of which is
+ * a client's to read, and a model handed one will try to act on it. The id is
+ * what ties the answer to the log line.
+ */
+function report(where: string, error: unknown): string {
+  const id = crypto.randomUUID();
+  console.error(`mcp error ${id} (${where})`, error);
+  return `internal error. Quote ${id} when reporting this.`;
+}
+
 /** Every result a client may cache, and for how long. See docs/mcp.md. */
 const CACHE_HINT = { ttlMs: 300_000, cacheScope: 'public' } as const;
 
@@ -48,13 +71,20 @@ const advertiseOnly = (schema: Record<string, unknown>) => {
 };
 
 /**
- * `TOOLS` is compiled into the Worker and cannot change under us, so the
- * schemas are converted once per isolate rather than on every request — a
- * server is built per request, and this is the only expensive part of it.
+ * `TOOLS` is compiled into the Worker and cannot change under us, so a schema is
+ * converted once per isolate rather than on every request — a server is built
+ * per request, and this is the only expensive part of it. Lazily, because an
+ * isolate that never serves MCP should not pay for sixteen of them at startup.
  */
-const ADVERTISED = new Map(
-  TOOLS.map((tool) => [tool.name, advertiseOnly(tool.inputSchema as Record<string, unknown>)]),
-);
+const advertised = new Map<string, ReturnType<typeof advertiseOnly>>();
+const schemaFor = (tool: (typeof TOOLS)[number]) => {
+  let schema = advertised.get(tool.name);
+  if (!schema) {
+    schema = advertiseOnly(tool.inputSchema as Record<string, unknown>);
+    advertised.set(tool.name, schema);
+  }
+  return schema;
+};
 
 /**
  * `cacheHints` covers only the revision's closed list of cacheable results, so
@@ -67,6 +97,7 @@ const skillsCacheHint = (era: 'legacy' | 'modern') => (era === 'modern' ? CACHE_
 /** One server per request: it closes over the athlete the token resolved to. */
 function buildServer(env: Env, user: User, origin: string, era: 'legacy' | 'modern'): McpServer {
   const server = new McpServer(SERVER_INFO, {
+    supportedProtocolVersions: HANDSHAKE_VERSIONS,
     capabilities: {
       tools: { listChanged: false },
       prompts: { listChanged: false },
@@ -81,13 +112,17 @@ function buildServer(env: Env, user: User, origin: string, era: 'legacy' | 'mode
     },
   });
 
+  // Nothing of ours should fail silently: the protocol layer reports out-of-band
+  // faults and rejected requests here, and nowhere else.
+  server.server.onerror = (error) => void report('server', error);
+
   for (const tool of TOOLS) {
     server.registerTool(
       tool.name,
       {
         description: tool.description,
         annotations: tool.annotations,
-        inputSchema: ADVERTISED.get(tool.name)!,
+        inputSchema: schemaFor(tool),
       },
       async (args) => {
         try {
@@ -102,8 +137,7 @@ function buildServer(env: Env, user: User, origin: string, era: 'legacy' | 'mode
           if (isCallerError(error)) {
             return { content: [{ type: 'text' as const, text: error.message }], isError: true };
           }
-          console.error('mcp error', error);
-          throw new ProtocolError(INTERNAL_ERROR, 'internal error');
+          throw new ProtocolError(INTERNAL_ERROR, report(`tool ${tool.name}`, error));
         }
       },
     );
@@ -214,6 +248,7 @@ async function handleHandshakeEra(env: Env, user: User, origin: string, request:
     sessionIdGenerator: undefined,
     enableJsonResponse: true,
   });
+  transport.onerror = (error) => void report('handshake transport', error);
 
   try {
     await server.connect(transport);
@@ -249,11 +284,15 @@ async function discoverProbe(
   }
   if (body?.method !== 'server/discover') return null;
 
+  // A notification is accepted and answered with nothing at all, as it is on
+  // every other method in both eras.
+  if (body.id === undefined || body.id === null) return new Response(null, { status: 202 });
+
   const server = buildServer(env, user, origin, 'legacy');
   try {
     return Response.json({
       jsonrpc: '2.0',
-      id: body.id ?? null,
+      id: body.id as string | number,
       result: {
         supportedVersions: [MODERN_VERSION],
         capabilities: server.server.getCapabilities(),
@@ -292,6 +331,26 @@ async function rebatch(response: Response, wasBatch: boolean): Promise<Response>
 export async function handleMcp(request: Request, env: Env, user: User): Promise<Response> {
   const origin = new URL(request.url).origin;
 
+  // A version this server does not serve is refused here, naming what it does.
+  // Left to the transport it comes back as a generic `-32000`, where the era
+  // table promises `-32022` — and that is the one answer such a client can act
+  // on. Absent is not unknown: `initialize` carries no version header.
+  const declared = request.headers.get('MCP-Protocol-Version');
+  if (declared !== null && declared !== MODERN_VERSION && !HANDSHAKE_VERSIONS.includes(declared)) {
+    return Response.json(
+      {
+        jsonrpc: '2.0',
+        id: null,
+        error: {
+          code: UNSUPPORTED_PROTOCOL_VERSION,
+          message: `unsupported protocol version "${declared}"`,
+          data: { supported: [MODERN_VERSION, ...HANDSHAKE_VERSIONS], requested: declared },
+        },
+      },
+      { status: 400 },
+    );
+  }
+
   if (await isLegacyRequest(request)) {
     return await handleHandshakeEra(env, user, origin, request);
   }
@@ -300,6 +359,7 @@ export async function handleMcp(request: Request, env: Env, user: User): Promise
     // This lane serves the modern era only; the handshake era went to the
     // transport above.
     legacy: 'reject',
+    onerror: (error: Error) => void report('modern handler', error),
     // One JSON body per POST, never a stream. Nothing here emits a message
     // before its result, so `auto` would never upgrade anyway — saying so makes
     // it a rule rather than a coincidence, and means the handler can be closed
