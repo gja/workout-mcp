@@ -67,10 +67,12 @@ The interview writes some things into `scheduling-instructions` that the
 athlete would never think to ask for and no tool schema can express, because
 they are about how wide a target may be rather than what a target is:
 
-- **Outdoor running: bands at least 0:30/km wide**, up to about 0:45. Pace on
-  the road moves 20–40 s/km inside a single interval from terrain, junctions
-  and ordinary variation. A 0:10 band reports honest running as a miss, and
-  planned-versus-actual stops being worth reading.
+- **Outdoor running: bands at least 0:30/km wide, up to a minute**, and wider
+  where something makes pace genuinely unreliable — trails, hills, heat, a route
+  full of junctions. Pace on the road moves 20–40 s/km inside a single interval
+  from terrain, junctions and ordinary variation. A 0:10 band reports honest
+  running as a miss, and planned-versus-actual stops being worth reading. Too
+  wide costs less than too narrow: the first is vague, the second is wrong.
 - **Cycling: at least 25 W**, indoors or out.
 - **Indoors is the exception**, not the rule — a treadmill or a trainer holds
   the number, so those bands may be narrower.
@@ -89,7 +91,15 @@ is right for a person is no use to a model and vice versa:
 | --- | --- | --- |
 | the `getting-started` prompt | the athlete, from the picker | "set up my training context" |
 | `get_onboarding_instructions` | the model | asked to, or a context read came back empty |
+| the `workouts-mcp-onboarding-wizard` skill | either of them | a host that implements the extension |
 | `next_step` on an empty read | nobody — it is just there | every read of a document with nothing in it |
+
+The skill is the one the other two were working around: a prompt reaches only
+the athlete, a tool only the model, and a skill is the primitive the spec lets
+either choose. It is served over MCP as well, and the mechanics — the manifest,
+the digests, why its name is qualified where the prompt's is not — are in
+[mcp.md](mcp.md). The prompt and the tool stay, because a host that does not
+implement the extension still has to be able to reach the thing.
 
 A prompt is offered to the athlete alone: the model receives `tools/list` and
 nothing else, and cannot call `prompts/get` on its own. That is the right shape

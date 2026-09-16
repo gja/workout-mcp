@@ -1,25 +1,86 @@
-// MCP over Streamable HTTP, stateless: one JSON-RPC request per POST. See docs/mcp.md.
+// MCP over Streamable HTTP: revision 2026-07-28, which carries the protocol version,
+// the client's identity and its capabilities on every request. See docs/mcp.md.
 
 import { findPrompt, listPrompts, promptMessages } from './prompts';
+import { SKILLS_EXTENSION, findSkill, listResources, listSkills, readResource } from './skills';
 import { TOOLS, ToolError, callTool, isCallerError } from './tools';
 import type { Env, User } from './db';
 
-const PROTOCOL_VERSION = '2025-06-18';
+const PROTOCOL_VERSION = '2026-07-28';
 
-type JsonRpcRequest = { jsonrpc: '2.0'; id?: string | number | null; method: string; params?: unknown };
+/** The only one served. A client asking for another is told this, and retries. */
+const SUPPORTED_VERSIONS = [PROTOCOL_VERSION];
 
-type JsonRpcResponse = {
+const META_PROTOCOL_VERSION = 'io.modelcontextprotocol/protocolVersion';
+const META_SERVER_INFO = 'io.modelcontextprotocol/serverInfo';
+
+type JsonRpcRequest = {
   jsonrpc: '2.0';
-  id: string | number | null;
-  result?: unknown;
-  error?: { code: number; message: string };
+  id?: string | number | null;
+  method: string;
+  params?: { _meta?: Record<string, unknown>; [key: string]: unknown };
 };
 
-const INVALID_PARAMS = -32602;
+const PARSE_ERROR = -32700;
+const INVALID_REQUEST = -32600;
 const METHOD_NOT_FOUND = -32601;
+const INVALID_PARAMS = -32602;
 const INTERNAL_ERROR = -32603;
 
+/** Allocated to the protocol itself, and both answered with a 400. */
+const HEADER_MISMATCH = -32020;
+const UNSUPPORTED_PROTOCOL_VERSION = -32022;
+
+/** What a JSON-RPC code means to HTTP. Only our own fault is a 5xx. */
+const STATUS: Record<number, number> = {
+  [PARSE_ERROR]: 400,
+  [INVALID_REQUEST]: 400,
+  [METHOD_NOT_FOUND]: 404,
+  [INVALID_PARAMS]: 400,
+  [INTERNAL_ERROR]: 500,
+  [HEADER_MISMATCH]: 400,
+  [UNSUPPORTED_PROTOCOL_VERSION]: 400,
+};
+
 const SERVER_INFO = { name: 'workout-mcp', version: '0.1.0' };
+
+const CAPABILITIES = {
+  tools: { listChanged: false },
+  prompts: { listChanged: false },
+  resources: { listChanged: false },
+  // An empty settings object is support without `resources/directory/read`, which
+  // a manifest of one file has nothing to say that `resources/list` does not.
+  extensions: { [SKILLS_EXTENSION]: {} },
+};
+
+/**
+ * The results a client may cache, and for how long. Every one of them is the same
+ * for every athlete — built from code, not from their data — so a shared cache may
+ * hold one. Anything per-athlete here would have to be `private`.
+ */
+const CACHEABLE = new Set([
+  'server/discover',
+  'tools/list',
+  'prompts/list',
+  'resources/list',
+  'resources/read',
+  'skills/list',
+  'skills/get',
+]);
+const CACHE_HINTS = { resultType: 'complete', ttlMs: 300_000, cacheScope: 'public' } as const;
+
+/** Which body field the `Mcp-Name` header mirrors, for the methods that carry one. */
+const NAMED_BY: Record<string, 'name' | 'uri'> = {
+  'tools/call': 'name',
+  'prompts/get': 'name',
+  'resources/read': 'uri',
+};
+
+class MethodNotFound extends Error {
+  constructor(method: string) {
+    super(`unknown method "${method}"`);
+  }
+}
 
 async function handleRequest(
   request: JsonRpcRequest,
@@ -28,11 +89,11 @@ async function handleRequest(
   origin: string,
 ): Promise<unknown> {
   switch (request.method) {
-    case 'initialize':
+    case 'server/discover':
       return {
-        protocolVersion: PROTOCOL_VERSION,
-        capabilities: { tools: { listChanged: false }, prompts: { listChanged: false } },
-        serverInfo: SERVER_INFO,
+        supportedVersions: SUPPORTED_VERSIONS,
+        capabilities: CAPABILITIES,
+        _meta: { [META_SERVER_INFO]: SERVER_INFO },
       };
 
     case 'ping':
@@ -51,6 +112,26 @@ async function handleRequest(
       return promptMessages(prompt);
     }
 
+    case 'resources/list':
+      return { resources: listResources() };
+
+    case 'resources/read': {
+      const uri = (request.params ?? {}).uri;
+      const text = readResource(uri);
+      if (text === undefined) throw new ToolError(`no resource at "${String(uri ?? '')}"`);
+      return { contents: [{ uri, mimeType: 'text/markdown', text }] };
+    }
+
+    case 'skills/list':
+      return { skills: await listSkills() };
+
+    case 'skills/get': {
+      const uri = (request.params ?? {}).uri;
+      const skill = await findSkill(uri);
+      if (!skill) throw new ToolError(`no skill at "${String(uri ?? '')}"`);
+      return { skill };
+    }
+
     case 'tools/call': {
       const params = (request.params ?? {}) as { name?: string; arguments?: unknown };
       if (!params.name) throw new ToolError('tools/call requires a tool name');
@@ -66,64 +147,126 @@ async function handleRequest(
   }
 }
 
-class MethodNotFound extends Error {
-  constructor(method: string) {
-    super(`unknown method "${method}"`);
-  }
-}
+// --- Validation --------------------------------------------------------------
 
-/** A successful call carrying `isError`, so the model reads the message and can retry. */
-function toToolErrorResult(error: Error) {
-  return { content: [{ type: 'text', text: error.message }], isError: true };
-}
-
-async function dispatch(
-  request: JsonRpcRequest,
-  env: Env,
-  user: User,
-  origin: string,
-): Promise<JsonRpcResponse | null> {
-  const id = request.id ?? null;
-  const isNotification = request.id === undefined || request.id === null;
-
+/** `=?base64?…?=`, which is how a header carries a name the ASCII range cannot. */
+function decodeHeader(value: string): string {
+  if (!value.startsWith('=?base64?') || !value.endsWith('?=')) return value;
   try {
-    const result = await handleRequest(request, env, user, origin);
-    return isNotification ? null : { jsonrpc: '2.0', id, result };
-  } catch (error) {
-    if (isNotification) return null;
-    if (isCallerError(error) && request.method === 'tools/call') {
-      return { jsonrpc: '2.0', id, result: toToolErrorResult(error) };
-    }
-    if (error instanceof MethodNotFound) {
-      return { jsonrpc: '2.0', id, error: { code: METHOD_NOT_FOUND, message: error.message } };
-    }
-    if (isCallerError(error)) {
-      return { jsonrpc: '2.0', id, error: { code: INVALID_PARAMS, message: error.message } };
-    }
-    console.error('mcp error', error);
-    return { jsonrpc: '2.0', id, error: { code: INTERNAL_ERROR, message: 'internal error' } };
+    const bytes = Uint8Array.from(atob(value.slice(9, -2)), (c) => c.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return value;
   }
 }
+
+/**
+ * The headers mirror body fields so a gateway can route without parsing the body.
+ * Checked rather than trusted: a proxy acting on the header while this Worker acts
+ * on the body is exactly the split the rule exists to close.
+ */
+function headerMismatch(request: Request, body: JsonRpcRequest): string | null {
+  const declared = request.headers.get('MCP-Protocol-Version');
+  if (declared === null) return 'MCP-Protocol-Version is required';
+  if (declared !== body.params?._meta?.[META_PROTOCOL_VERSION]) {
+    return `MCP-Protocol-Version header "${declared}" does not match the body's ${META_PROTOCOL_VERSION}`;
+  }
+
+  const method = request.headers.get('Mcp-Method');
+  if (method === null) return 'Mcp-Method is required';
+  if (method !== body.method) return `Mcp-Method header "${method}" does not match the body's method`;
+
+  const field = NAMED_BY[body.method];
+  if (field === undefined) return null;
+
+  const named = request.headers.get('Mcp-Name');
+  if (named === null) return `Mcp-Name is required for ${body.method}`;
+  const inBody = (body.params ?? {})[field];
+  if (typeof inBody === 'string' && decodeHeader(named) !== inBody) {
+    return `Mcp-Name header does not match the body's params.${field}`;
+  }
+  return null;
+}
+
+/** A JSON-RPC request object, rather than a notification, an array or a bare null. */
+const isRequestObject = (body: unknown): body is JsonRpcRequest =>
+  typeof body === 'object' && body !== null && !Array.isArray(body) && typeof (body as JsonRpcRequest).method === 'string';
+
+// --- The door ----------------------------------------------------------------
+
+const fail = (id: string | number | null, code: number, message: string, data?: unknown) =>
+  Response.json(
+    { jsonrpc: '2.0', id, error: { code, message, ...(data === undefined ? {} : { data }) } },
+    { status: STATUS[code] ?? 400 },
+  );
 
 export async function handleMcp(request: Request, env: Env, user: User): Promise<Response> {
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return Response.json(
-      { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'parse error' } },
-      { status: 400 },
+    return fail(null, PARSE_ERROR, 'parse error');
+  }
+
+  if (!isRequestObject(body)) {
+    return fail(null, INVALID_REQUEST, 'expected a single JSON-RPC request object');
+  }
+
+  const id = body.id ?? null;
+
+  // A legacy client cannot fall forward, so this error is the only diagnostic it
+  // will ever surface. Say the version it needs rather than "unknown method".
+  if (body.method === 'initialize') {
+    return fail(
+      id,
+      UNSUPPORTED_PROTOCOL_VERSION,
+      `this server speaks ${PROTOCOL_VERSION} only, which has no initialize handshake; ` +
+        'send the protocol version, client info and capabilities on each request instead',
+      { supported: SUPPORTED_VERSIONS, requested: null },
     );
   }
 
-  // Notifications drop out of a batched response, and an all-notification batch gets a 202.
-  const batch = Array.isArray(body) ? (body as JsonRpcRequest[]) : [body as JsonRpcRequest];
-  // Where a signed download link points: this deployment, as the caller reached it.
-  const origin = new URL(request.url).origin;
-  const responses = (await Promise.all(batch.map((r) => dispatch(r, env, user, origin)))).filter(
-    (r): r is JsonRpcResponse => r !== null,
-  );
+  const mismatch = headerMismatch(request, body);
+  if (mismatch) return fail(id, HEADER_MISMATCH, mismatch);
 
-  if (responses.length === 0) return new Response(null, { status: 202 });
-  return Response.json(Array.isArray(body) ? responses : responses[0]);
+  const version = body.params?._meta?.[META_PROTOCOL_VERSION];
+  if (typeof version !== 'string' || !SUPPORTED_VERSIONS.includes(version)) {
+    return fail(id, UNSUPPORTED_PROTOCOL_VERSION, 'Unsupported protocol version', {
+      supported: SUPPORTED_VERSIONS,
+      requested: version ?? null,
+    });
+  }
+
+  // A notification is accepted and answered with nothing at all.
+  if (body.id === undefined || body.id === null) {
+    try {
+      await handleRequest(body, env, user, origin(request));
+    } catch (error) {
+      if (!isCallerError(error) && !(error instanceof MethodNotFound)) console.error('mcp error', error);
+    }
+    return new Response(null, { status: 202 });
+  }
+
+  try {
+    const result = await handleRequest(body, env, user, origin(request));
+    const hints = CACHEABLE.has(body.method) ? CACHE_HINTS : {};
+    return Response.json({ jsonrpc: '2.0', id, result: { ...hints, ...(result as object) } });
+  } catch (error) {
+    // A tool that refused its input is a successful call carrying `isError`, so the
+    // model reads the message and can retry.
+    if (isCallerError(error) && body.method === 'tools/call') {
+      return Response.json({
+        jsonrpc: '2.0',
+        id,
+        result: { content: [{ type: 'text', text: error.message }], isError: true },
+      });
+    }
+    if (error instanceof MethodNotFound) return fail(id, METHOD_NOT_FOUND, error.message);
+    if (isCallerError(error)) return fail(id, INVALID_PARAMS, error.message);
+    console.error('mcp error', error);
+    return fail(id, INTERNAL_ERROR, 'internal error');
+  }
 }
+
+/** Where a signed download link points: this deployment, as the caller reached it. */
+const origin = (request: Request): string => new URL(request.url).origin;

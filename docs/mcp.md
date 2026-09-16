@@ -1,9 +1,9 @@
 # Connecting an MCP client
 
-The server speaks Streamable HTTP and is **stateless** — one JSON-RPC request
-per POST, no sessions and no SSE, which is what keeps it inside the Workers
-free plan. A client may batch requests into an array; notifications drop out of
-the response, and an all-notification batch gets a bare 202.
+The server speaks Streamable HTTP at revision **`2026-07-28`**, and only that
+one. It is stateless — one JSON-RPC request per POST, no sessions, no SSE — which
+is both what the revision assumes and what keeps this inside the Workers free
+plan. A notification gets a bare 202.
 
 ## With OAuth
 
@@ -170,26 +170,140 @@ The model never sees a prompt, so the same interview also sits behind
 `get_onboarding_instructions`, and every empty context read carries a
 `next_step` naming it. See [prompts.md](prompts.md).
 
-## `initialize` is a legacy handshake
+## One era: `2026-07-28`
 
-Worth knowing before building anything on it. Revision `2026-07-28` removed the
-handshake: protocol version, identity and capabilities became per-request
-`_meta`, carried on HTTP in an `MCP-Protocol-Version` header, and the spec now
-calls a server that expects `initialize` **legacy** — `2025-11-25` and earlier.
-This server pins `2025-06-18` and is legacy by that definition, as is every
-client that currently talks to it, so nothing here is broken.
+Revision `2026-07-28` removed the handshake. Protocol version, identity and
+capabilities became per-request `_meta`, mirrored into HTTP headers, and a
+server that still expects `initialize` is what the spec now calls **legacy**.
+This server does not: there is one code path, and every request is checked.
 
-A modern server negotiates nothing: it accepts or rejects each request on the
-version that request declares, answering `UnsupportedProtocolVersionError` with
-the list it does support, and **MUST** implement `server/discover` — which
-returns the supported versions, capabilities, `serverInfo` and the same optional
-`instructions` an `initialize` result carries. A dual-era server may answer both
-on one endpoint, choosing by how the client opens.
+Serving both was written and then dropped. It worked, but the era had to be
+chosen from the request, and the only honest signal was the body's `_meta` —
+which meant a caller could route itself into the legacy path, where no header
+is compared, simply by leaving the metadata out. The header validation below
+is only worth having if it cannot be opted out of, and one era is how that is
+guaranteed.
 
-Statelessness is not the obstacle here — this server is already one JSON-RPC
-request per POST, which is what a modern revision assumes. What it would cost is
-`_meta` and header validation, the new error, and `server/discover`. Nothing
-speaks modern to this deployment yet, so it is not built. One trap for whoever
-does: `server/discover` is cacheable, through `ttlMs` and `cacheScope`, so
-anything per-athlete in that result must go out `cacheScope: "private"` — a
-public cache there would serve one athlete's state to another.
+The cost is real and worth stating: **a legacy client cannot connect, and
+cannot discover why on its own.** It has no fall-forward — no error it can read
+and retry from. So `initialize` is answered specially, with the version to use
+rather than "unknown method", because that message is the only diagnostic such
+a client will ever surface to whoever is looking at it.
+
+### What every request has to satisfy
+
+`server/discover` replaces `initialize` and every modern server **MUST**
+implement it. It returns the version served, the capabilities, and `serverInfo`
+under `_meta` — no handshake, nothing remembered.
+
+The headers mirror body fields so a gateway can route without parsing the body,
+and the server checks them rather than trusting either alone. A proxy acting on
+the header while this Worker acts on the body is exactly the split the rule
+exists to close.
+
+| Header | Mirrors | Required on |
+| --- | --- | --- |
+| `MCP-Protocol-Version` | `_meta` protocol version | every request |
+| `Mcp-Method` | `method` | every request |
+| `Mcp-Name` | `params.name`, or `params.uri` | `tools/call`, `prompts/get`, `resources/read` |
+
+A missing or mismatched header is `400` with `-32020` (`HeaderMismatch`). A name
+outside the ASCII range arrives as `=?base64?…?=` and is decoded before being
+compared. A version we do not serve is `400` with `-32022`, carrying the one we
+do. An unknown method is **`404`** with `-32601` — the status is part of the
+contract, because it is how a client tells a live MCP endpoint from a URL with
+nothing behind it.
+
+The body is a single request object. An array, a `null` or an object with no
+`method` is `400` with `-32600`, rather than whatever a cast to the request type
+would have done with it. Batching was a legacy affordance and is gone.
+
+### Which failures are whose
+
+The JSON-RPC code decides the HTTP status, and only our own fault is a `5xx`:
+
+| Code | Status | Meaning |
+| --- | --- | --- |
+| `-32020`, `-32022`, `-32600`, `-32602`, `-32700` | `400` | the request was wrong |
+| `-32601` | `404` | no such method here |
+| `-32603` | `500` | we broke |
+
+That last row is the one worth keeping honest. An internal fault answered with
+a `400` tells a client it sent something bad, and every retry layer in between
+believes it — so a transient database failure would read as a permanent client
+error and never be retried.
+
+A tool that *refuses its input* is none of these. It stays a `200` carrying
+`isError`, so the model reads the message and can try again; only protocol-level
+problems become JSON-RPC errors.
+
+### Cacheable results
+
+`server/discover`, `tools/list` and `prompts/list` carry `resultType`, `ttlMs`
+and `cacheScope`, which the spec requires of them. All three go out
+`cacheScope: "public"`, and that is a claim worth checking rather than copying:
+each is built from code rather than from the athlete's data, so one athlete's
+copy really is every athlete's. **Anything per-athlete in one of these would
+have to be `private`** — a public cache is allowed to serve it across
+authorization contexts, from an authenticated endpoint. This is why the
+onboarding interview lives behind a tool rather than in a discover-time field;
+see [prompts.md](prompts.md).
+
+## Skills
+
+The [Skills extension](https://modelcontextprotocol.io/extensions/skills/overview)
+is declared as `io.modelcontextprotocol/skills` and serves one skill: the
+onboarding interview, the same body the prompt and `get_onboarding_instructions`
+serve. `skills/list` and `skills/get` hand over the entry; the bytes come back
+through `resources/read`, which is why the `resources` capability is declared
+alongside.
+
+**Why a skill, when the interview already had three doors.** A prompt reaches
+only the athlete and a tool only the model; a skill is the one primitive the
+spec lets *either* choose — "selected by the model based on their names and
+descriptions, or explicitly by the user". It is also the only one where the body
+is not paid for until it is wanted: `skills/list` carries the frontmatter and a
+file manifest, and a host **MUST NOT** fetch the files ahead of need.
+
+### The name is qualified where the prompt's is not
+
+`workouts-mcp-onboarding-wizard`, against the prompt's `getting-started`. A
+prompt is listed under the server that serves it, so its name is read in that
+company. A skill's name travels with it into a space holding every skill a host
+knows, where "getting-started" says nothing about what it starts. The skill's
+`name` must also match the last segment of its URI's parent directory, which is
+what makes `skill://workouts-mcp-onboarding-wizard/SKILL.md` the URI.
+
+### One file, deliberately
+
+A skill may be a directory, and splitting the interview — the rounds in
+`SKILL.md`, the per-document detail under `references/` — is the obvious use of
+the manifest. It is not done, because **deferring a file that is always needed
+buys nothing**: every run of this interview ends by writing all three documents,
+so the reference would be fetched every time, one round-trip later than if it
+had been there.
+
+### What a host checks, and therefore what we serve
+
+The entry's manifest gives each file's URI, SHA-256 digest and byte size, and a
+host verifies all three — plus the frontmatter, field by field — before loading
+anything. So the digests are taken of exactly the bytes `resources/read` returns,
+frontmatter included, and the frontmatter is written as **double-quoted YAML**: a
+description is prose, and a colon or a `#` in a plain scalar would parse as
+something else and fail the comparison.
+
+The bytes are compiled into the Worker and cannot change under us, so the
+manifest is hashed once per isolate rather than per request.
+
+## What is not built
+
+SSE response streams, `subscriptions/listen`, and multi round-trip requests.
+Every tool here answers in one shot, so a stream would be an empty pipe.
+`resources/directory/read` is not implemented either, and the extension is
+declared with the empty settings object that says so — a manifest of one file
+has nothing to tell a directory walk that `resources/list` does not.
+
+The `Origin` check the transport calls for is also not implemented. It guards
+against DNS rebinding, which works by borrowing a browser's ambient credentials;
+`/mcp` has none to borrow, since it is bearer-token guarded and sets no cookie.
+Worth revisiting if that ever stops being true.

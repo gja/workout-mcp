@@ -1,6 +1,43 @@
-import { env } from 'cloudflare:test';
+import { SELF, env } from 'cloudflare:test';
 import { issueToken } from '../src/auth';
 import { newId } from '../src/db';
+
+/** The revision the server speaks. Every request carries it in the body and a header. */
+export const MCP_VERSION = '2026-07-28';
+
+/** The methods whose `Mcp-Name` header the server checks against the body. */
+const NAMED_BY = new Set(['tools/call', 'prompts/get', 'resources/read']);
+
+/**
+ * One well-formed MCP request. The metadata goes in the body and the headers mirror
+ * it, which the server checks — so a test that hand-rolls half of it gets a 400 and
+ * says nothing about what it meant to test.
+ */
+export function mcpFetch(
+  token: string,
+  method: string,
+  params: Record<string, unknown> = {},
+): Promise<Response> {
+  const field = method === 'resources/read' ? 'uri' : 'name';
+  const named = NAMED_BY.has(method) ? String(params[field] ?? '') : null;
+
+  return SELF.fetch('https://workouts.example/mcp', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'MCP-Protocol-Version': MCP_VERSION,
+      'Mcp-Method': method,
+      ...(named === null ? {} : { 'Mcp-Name': named }),
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method,
+      params: { ...params, _meta: { 'io.modelcontextprotocol/protocolVersion': MCP_VERSION } },
+    }),
+  });
+}
 
 // The real migrations, in order, so a broken one fails the suite rather than
 // the next deploy.

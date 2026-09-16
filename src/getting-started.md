@@ -159,11 +159,15 @@ for:
   physiology and the single source of truth; a band written into a workout may
   be wider than the zone it comes from, and overlap the next one, as long as
   the intent of the session survives.
-- **Outdoor running: at least 0:30/km wide**, up to about 0:45. Real pace on
-  the road moves 20–40 s/km within a single interval from terrain, junctions,
-  wind and ordinary variation. A 0:10 band reports honest running as a miss,
-  which makes the planned-versus-actual review worthless. Widen both ways, goal
-  race pace included, and say in the notes where inside the band to sit.
+- **Outdoor running: at least 0:30/km wide, and up to a minute.** Wider still
+  where something makes pace genuinely unreliable — trails, hills, heat, traffic,
+  a route full of junctions — and say why in the notes when you go past a minute.
+  Real pace on the road moves 20–40 s/km within a single interval from terrain,
+  junctions, wind and ordinary variation. A 0:10 band reports honest running as a
+  miss, which makes the planned-versus-actual review worthless. A band that is too
+  wide costs far less than one that is too narrow: the first is vague, the second
+  is wrong. Widen both ways, goal race pace included, and say in the notes where
+  inside the band to sit.
 - **Cycling: at least 25 W wide**, indoors or out. Narrower than that on a
   trainer measures the trainer, and outdoors it measures the hill.
 - **A floor for easy riding**, if they have one — the lowest watts worth
