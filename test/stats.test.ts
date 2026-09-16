@@ -505,6 +505,43 @@ describe('the ground a lap was run on', () => {
   });
 });
 
+describe('the lap a watch writes when the athlete presses stop', () => {
+  /** One step, and the two laps a trainer session actually came back as. */
+  const SPIN = workout([{ name: 'Recovery spin', goal_s: 2400, target_watts: [118, 145] }]);
+
+  const spun = (tail: LapSpec[]): ActivitySpec => ({
+    sport: 'cycling',
+    subSport: 'indoorCycling',
+    laps: [{ seconds: 2400, power: 125, cadence: 88, hr: [137, 149] }, ...tail],
+  });
+
+  it('does not let four seconds outvote the forty minutes before them', () => {
+    const { laps, flags } = statsFrom(
+      encodeActivityFit(spun([{ seconds: 4, power: 71, hr: [153, 153], trigger: 'time' }])),
+      SPIN,
+      SOURCE,
+    );
+
+    // One step and two laps: counted as a pair that failed, the scrap is half the evidence.
+    expect(flags).not.toContain('laps_do_not_match_plan');
+    expect(laps[0]).toMatchObject({ planned_step_name: 'Recovery spin', match_confidence: 'high' });
+    // Dropped from the weighing, not mapped: it is not the recovery spin either.
+    expect(laps[1]).toMatchObject({ match_confidence: 'unmatched', planned_step_name: null });
+  });
+
+  it('leaves a real last step alone, however little of it was done', () => {
+    const strides = workout([{ name: 'Easy', goal_s: 600 }, { name: 'Strides', goal_s: 20 }]);
+    const { laps } = statsFrom(
+      encodeActivityFit({ laps: [{ seconds: 600, speed: 2.6 }, { seconds: 20, speed: 4.2 }] }),
+      strides,
+      SOURCE,
+    );
+
+    // As short as a stop lap, and the step the plan actually ends on.
+    expect(laps[1]).toMatchObject({ planned_step_name: 'Strides', match_confidence: 'high' });
+  });
+});
+
 describe('what the file left for the reader to work out', () => {
   /** A steady run with a cooldown, which is where the lengths stop lining up exactly. */
   const LONG_RUN = workout([

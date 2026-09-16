@@ -311,17 +311,21 @@ function alignToPlan(planned: PlannedStep[], laps: LapStats[]): Array<PlannedSte
   const none: Array<PlannedStep | undefined> = laps.map(() => undefined);
   if (last < 0) return none;
 
-  let best = none;
+  // Dropped before anything is weighed: it is nobody's step, and counted as a pair
+  // that failed it can outvote the session around it. See docs/stats.md.
+  const considered = endsOnStopLap(planned, laps) ? laps.slice(0, -1) : laps;
+
+  let best: Array<PlannedStep | undefined> = considered.map(() => undefined);
   let bestScore = 0;
 
   // Offset 0 is the session as it should have been recorded; the rest are the laps a
   // watch collects before the athlete sets off, which belong to no step at all.
-  for (let offset = 0; offset <= Math.min(FALSE_STARTS, laps.length - 1); offset += 1) {
-    const attempt = laps.map((_lap, index) =>
+  for (let offset = 0; offset <= Math.min(FALSE_STARTS, considered.length - 1); offset += 1) {
+    const attempt = considered.map((_lap, index) =>
       index < offset ? undefined : planned[Math.min(index - offset, last)],
     );
     const paired = attempt.filter((step) => step !== undefined).length;
-    const lining = attempt.filter((step, index) => Boolean(step && matches(step, laps[index]))).length;
+    const lining = attempt.filter((step, index) => Boolean(step && matches(step, considered[index]))).length;
 
     // An offset claims some of the recording is junk, which takes more than one lap
     // happening to be the right length to believe.
@@ -330,7 +334,22 @@ function alignToPlan(planned: PlannedStep[], laps: LapStats[]): Array<PlannedSte
       bestScore = lining;
     }
   }
-  return best;
+  return best.length === laps.length ? best : [...best, undefined];
+}
+
+/**
+ * The scrap of a lap a watch closes the file with when the athlete presses stop.
+ *
+ * Only a lap the plan has no step left for can be one: a session that ends short of its
+ * plan ends on a real step run badly — 120 m of a planned kilometre — and that lap is the
+ * cooldown, however little of it was done. Beyond the last step there is nothing left for
+ * a lap to be, so one too brief to hold any execution is the file closing, not training.
+ * Unless the last step is itself that short — strides — where it is a lap like any other.
+ */
+function endsOnStopLap(planned: PlannedStep[], laps: LapStats[]): boolean {
+  const tail = laps[laps.length - 1];
+  if (laps.length <= planned.length || tail === undefined) return false;
+  return (tail.duration_s ?? 0) < SHORT_LAP_S && !matches(planned[planned.length - 1], tail);
 }
 
 /** The bounds a target puts on a metric we can measure without knowing the athlete's thresholds. */

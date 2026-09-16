@@ -99,6 +99,30 @@ than on the counts agreeing. When it is not, every lap comes back `unmatched`
 with a `laps_do_not_match_plan` flag on the session, and the numbers are all
 still there.
 
+### The stop lap is dropped before any of that is weighed
+
+A watch closes a file with a scrap of a lap — four seconds, a handful of
+records — when the athlete presses stop. It is no step, and left in the
+evidence it does not merely fail to match: it is counted as a pair that failed,
+and the fewer steps a session has the more of the vote that scrap is. A
+one-step ride recorded as one 40-minute lap and one 4-second lap was exactly
+half of it, which is enough to lose a strict majority, so a ride executed
+perfectly came back entirely unmatched.
+
+Only a lap the plan has no step left for can be one. A session that ends short
+of its plan ends on a *real* step run badly — 120 m of a planned kilometre —
+and that lap is the cooldown however little of it was done; refusing it would
+throw away the thing the loose bar above exists to report. Beyond the last step
+there is nothing left for a lap to be, so one too brief to hold any execution
+is the file closing rather than training. The exception is a plan whose own
+last step is that short — strides — where it is a lap like any other and is
+matched as one.
+
+Dropped means dropped from the weighing, and left `unmatched`: a stop lap is
+not the last step either, and folding it in would put four seconds of nothing
+against a 40-minute spin. Its measurements are still reported, with the
+`short_lap` flag every lap under a minute carries.
+
 `role` comes from the planned step where there is one (`warmup`, `work`,
 `recovery`, `cooldown`) and from the lap's own FIT `intensity` where there is
 not.
