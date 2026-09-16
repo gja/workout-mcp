@@ -60,7 +60,7 @@ async function post(
   });
 }
 
-/** The handshake era: no metadata, no mirrored headers, and a batch is allowed. */
+/** A request from the era this no longer serves: no metadata, no mirrored headers. */
 const legacy = (body: unknown): Promise<Response> =>
   SELF.fetch(`${BASE}/mcp`, {
     method: 'POST',
@@ -82,16 +82,15 @@ async function callTool(name: string, args: unknown): Promise<Record<string, unk
 }
 
 describe('protocol', () => {
-  it('still shakes hands with a client from the era that does', async () => {
-    // No version header at all, which is what `initialize` looks like: the handshake
-    // is where the version gets agreed, so there is nothing to put in one yet.
+  it('tells a handshake client what it needs, rather than "unknown method"', async () => {
+    // It has no fall-forward, so this error is the only diagnostic it will surface.
     const response = await legacy({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
+    const body = (await response.json()) as RpcResult;
 
-    expect(response.status).toBe(200);
-    expect(((await response.json()) as RpcResult).result).toMatchObject({
-      protocolVersion: '2025-06-18',
-      serverInfo: { name: 'workout-mcp' },
-    });
+    expect(response.status).toBe(400);
+    expect(body.error).toMatchObject({ code: -32022 });
+    expect(body.error?.data).toMatchObject({ supported: ['2026-07-28'] });
+    expect(body.error?.message).toContain('2026-07-28');
   });
 
   it('lists every tool with an input schema', async () => {
@@ -199,7 +198,7 @@ describe('protocol', () => {
   });
 
   it('answers a ping, and an unknown method with a 404', async () => {
-    expect((await rpc('ping')).result).toEqual({});
+    expect((await rpc('ping')).result).toMatchObject({ resultType: 'complete' });
 
     // The status is contract: it is how a client tells a live endpoint from an empty URL.
     const unknown = await post('what/ever');
@@ -212,7 +211,7 @@ describe('protocol', () => {
   });
 
   it('refuses a body that is not a single request object', async () => {
-    // A batch was a legacy affordance; this revision is one message per POST.
+    // One message per POST: a batch was an affordance of the era this no longer serves.
     for (const body of ['null', '[]', '{"jsonrpc":"2.0","id":1}']) {
       const response = await SELF.fetch(`${BASE}/mcp`, {
         method: 'POST',
@@ -244,7 +243,7 @@ describe('the wire', () => {
     const { result } = await rpc('server/discover');
 
     expect(result).toMatchObject({
-      supportedVersions: ['2026-07-28', '2025-06-18'],
+      supportedVersions: ['2026-07-28'],
       capabilities: { tools: {}, prompts: {} },
       _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'workout-mcp' } },
     });
@@ -257,8 +256,35 @@ describe('the wire', () => {
       expect(result, method).toMatchObject({ resultType: 'complete', cacheScope: 'public' });
       expect(result?.ttlMs, method).toBeGreaterThan(0);
     }
-    // Not a cacheable operation, so it says nothing about freshness.
-    expect((await rpc('tools/call', { name: 'list_workouts', arguments: {} })).result).not.toHaveProperty('ttlMs');
+    // Not a cacheable operation, so it says nothing about freshness — but it still
+    // says what kind of result it is.
+    const called = (await rpc('tools/call', { name: 'list_workouts', arguments: {} })).result;
+    expect(called).not.toHaveProperty('ttlMs');
+    expect(called).toMatchObject({ resultType: 'complete' });
+  });
+
+  it('says what kind of result it is, on every result', async () => {
+    // The revision requires it on all of them. An absent one is read as complete only
+    // from an older server, so a client is right to refuse it from this one.
+    const methods = ['server/discover', 'ping', 'tools/list', 'prompts/list', 'resources/list', 'skills/list'];
+    for (const method of methods) {
+      expect((await rpc(method)).result, method).toMatchObject({ resultType: 'complete' });
+    }
+
+    expect((await rpc('prompts/get', { name: 'getting-started' })).result).toMatchObject({
+      resultType: 'complete',
+    });
+    // Including the one a refused tool call comes back as.
+    const refused = (await rpc('tools/call', { name: 'get_workout', arguments: { date: 'nope' } })).result;
+    expect(refused).toMatchObject({ resultType: 'complete', isError: true });
+  });
+
+  it('names itself on every result, without anything having to remember a handshake', async () => {
+    for (const method of ['ping', 'tools/list', 'server/discover']) {
+      expect((await rpc(method)).result?._meta, method).toMatchObject({
+        'io.modelcontextprotocol/serverInfo': { name: 'workout-mcp' },
+      });
+    }
   });
 
   it('refuses a version it does not serve, and says which it does', async () => {
@@ -267,10 +293,7 @@ describe('the wire', () => {
 
     expect(response.status).toBe(400);
     expect(body.error).toMatchObject({ code: -32022 });
-    expect(body.error?.data).toMatchObject({
-      supported: ['2026-07-28', '2025-06-18'],
-      requested: '1900-01-01',
-    });
+    expect(body.error?.data).toMatchObject({ supported: ['2026-07-28'], requested: '1900-01-01' });
   });
 
   it('checks the headers against the body, on every request that claims the modern era', async () => {
