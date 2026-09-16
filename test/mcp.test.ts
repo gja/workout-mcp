@@ -60,7 +60,7 @@ async function post(
   });
 }
 
-/** A request from the era this no longer serves: no metadata, no mirrored headers. */
+/** The handshake era: no metadata, no mirrored headers, and a batch is allowed. */
 const legacy = (body: unknown): Promise<Response> =>
   SELF.fetch(`${BASE}/mcp`, {
     method: 'POST',
@@ -82,15 +82,25 @@ async function callTool(name: string, args: unknown): Promise<Record<string, unk
 }
 
 describe('protocol', () => {
-  it('tells a handshake client what it needs, rather than "unknown method"', async () => {
-    // It has no fall-forward, so this error is the only diagnostic it will surface.
+  it('shakes hands with a client from the era that does', async () => {
+    // No version header at all, which is what `initialize` looks like: the handshake
+    // is where the version gets agreed, so there is nothing to put in one yet.
     const response = await legacy({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
-    const body = (await response.json()) as RpcResult;
 
-    expect(response.status).toBe(400);
-    expect(body.error).toMatchObject({ code: -32022 });
-    expect(body.error?.data).toMatchObject({ supported: ['2026-07-28'] });
-    expect(body.error?.message).toContain('2026-07-28');
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as RpcResult).result).toMatchObject({
+      protocolVersion: '2025-06-18',
+      serverInfo: { name: 'workout-mcp' },
+    });
+  });
+
+  it('serves a handshake client its tools, without the modern envelope', async () => {
+    const response = await legacy({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
+    const { result } = (await response.json()) as RpcResult;
+
+    expect((result as { tools: unknown[] }).tools).toHaveLength(TOOLS.length);
+    // `resultType` is a 2026-07-28 concept; a client of the older era would not know it.
+    expect(result).not.toHaveProperty('resultType');
   });
 
   it('lists every tool with an input schema', async () => {
@@ -211,7 +221,7 @@ describe('protocol', () => {
   });
 
   it('refuses a body that is not a single request object', async () => {
-    // One message per POST: a batch was an affordance of the era this no longer serves.
+    // One message per POST in this era; a batch is a handshake-era affordance.
     for (const body of ['null', '[]', '{"jsonrpc":"2.0","id":1}']) {
       const response = await SELF.fetch(`${BASE}/mcp`, {
         method: 'POST',
@@ -243,7 +253,7 @@ describe('the wire', () => {
     const { result } = await rpc('server/discover');
 
     expect(result).toMatchObject({
-      supportedVersions: ['2026-07-28'],
+      supportedVersions: ['2026-07-28', '2025-06-18'],
       capabilities: { tools: {}, prompts: {} },
       _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'workout-mcp' } },
     });
@@ -293,7 +303,10 @@ describe('the wire', () => {
 
     expect(response.status).toBe(400);
     expect(body.error).toMatchObject({ code: -32022 });
-    expect(body.error?.data).toMatchObject({ supported: ['2026-07-28'], requested: '1900-01-01' });
+    expect(body.error?.data).toMatchObject({
+      supported: ['2026-07-28', '2025-06-18'],
+      requested: '1900-01-01',
+    });
   });
 
   it('checks the headers against the body, on every request that claims the modern era', async () => {

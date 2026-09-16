@@ -1,9 +1,9 @@
 # Connecting an MCP client
 
-The server speaks Streamable HTTP at revision **`2026-07-28`**, and only that one.
-It is stateless — one JSON-RPC request per POST, no sessions, no SSE — which is
-both what the revision assumes and what keeps this inside the Workers free plan. A
-notification gets a bare 202.
+The server speaks Streamable HTTP at revision **`2026-07-28`**, and the handshake
+revisions before it. It is stateless — one JSON-RPC request per POST, no sessions,
+no SSE — which is both what the modern revision assumes and what keeps this inside
+the Workers free plan. A notification gets a bare 202.
 
 ## With OAuth
 
@@ -170,36 +170,50 @@ The model never sees a prompt, so the same interview also sits behind
 `get_onboarding_instructions`, and every empty context read carries a
 `next_step` naming it. See [prompts.md](prompts.md).
 
-## One era, decided by one header
+## Two eras, decided by one header
 
 Revision `2026-07-28` removed the handshake: protocol version, identity and
-capabilities became per-request `_meta`, mirrored into HTTP headers. This server
-serves that and nothing else.
+capabilities became per-request `_meta`, mirrored into HTTP headers. The
+revisions before it negotiate once, with `initialize`. Both are answered here, on
+the same endpoint.
 
-**The era is read off `MCP-Protocol-Version`, and never off the body.** That
-header is what tells anything in the path whether the mirrored headers are
-contractual — the transport spec says an intermediary routing on them SHOULD
-reject a request whose version does not require header-body validation. A header
-naming this revision gets the full validation below; anything else, including a
-request with no header at all, gets `400` and `-32022` naming what is served.
+**The era is read off `MCP-Protocol-Version`, and never off the body:**
 
-Choosing from the body was tried and is wrong: a caller could send the mirrored
-headers a gateway routes on — `Mcp-Method: tools/list` — with a body doing
-something else, and by omitting `_meta` skip every check. Validation that can be
-skipped by leaving a field out is not validation. The header cannot be left out,
-because it is what decides.
+| `MCP-Protocol-Version` | Era | What happens |
+| --- | --- | --- |
+| `2026-07-28` | modern | every mirrored header checked, then the method |
+| a handshake revision, or absent | legacy | `initialize` and what it negotiates |
+| anything else | — | `400` and `-32022`, naming what is served |
 
-### The handshake era was served, and is not any more
+Absent means legacy because `initialize` carries no version header: the handshake
+is where the version is agreed, so there is nothing to put in one yet.
 
-It was, for one deploy, after a modern-only server turned out to have no
-reachable client: the clients then in use opened with `2025-06-18`. They have
-since moved, so the old era is gone again and the codebase is one path rather
-than two.
+That header is also what tells anything in the path whether the mirrored headers
+are contractual — the transport spec says an intermediary routing on them SHOULD
+reject a request whose version does not require header-body validation. So it is
+the right thing to route on, and it is the only thing that cannot be left out.
 
-A handshake client has no fall-forward — no error it can read and retry from — so
-`initialize` is answered specially: `-32022`, naming the version to use, rather
-than "unknown method". That message is the only diagnostic such a client will
-ever surface, and it is the thing to look for if one ever appears again.
+### Why the body is the wrong thing to route on
+
+The first attempt at two eras chose from the body's `_meta`, and it was wrong in
+a way worth recording. A caller could send the mirrored headers a gateway would
+route on — `Mcp-Method: tools/list` — with a body doing something else entirely,
+and by omitting `_meta` land in the legacy path, where no header is ever
+compared. Validation that can be skipped by leaving a field out is not
+validation. Routing on the header closes that, because the header is what
+decides: a request claiming the modern era is checked whatever its body says.
+
+### Both, because both exist
+
+This has been modern-only twice, and each time a real client turned out to be on
+the older revision — first the assistant clients, which have since moved, then a
+connector reaching the server through different plumbing. The protocol was right
+and the server was unreachable, which is worse.
+
+A handshake client cannot work that out for itself: it has no fall-forward, no
+error it can read and retry from. Serving both costs one extra path and removes
+that whole failure mode, so both are served until nothing on the older revision
+is left.
 
 ### What every request has to satisfy
 
@@ -218,29 +232,32 @@ exists to close.
 | `Mcp-Method` | `method` | every request |
 | `Mcp-Name` | `params.name`, or `params.uri` | `tools/call`, `prompts/get`, `resources/read` |
 
-A missing or mismatched header is `400` with `-32020`
+These apply to a request that claims `2026-07-28`; the handshake era defines none
+of them. A missing or mismatched header is `400` with `-32020`
 (`HeaderMismatch`). A name outside the ASCII range arrives as `=?base64?…?=` and
 is decoded before being compared. An unknown method is **`404`** with `-32601` —
 the status is part of the contract, because it is how a client tells a live MCP
 endpoint from a URL with nothing behind it.
 
-The body is a single request object; an array, a `null` or an object with no
+A modern body is a single request object; an array, a `null` or an object with no
 `method` is `400` with `-32600`, rather than whatever a cast to the request type
-would have done with it. Batching was an affordance of the era this no longer
-serves, and is gone.
+would have done with it. Batching stays a handshake-era affordance, where
+notifications drop out of the response and an all-notification batch gets a bare
+202.
 
 ### Every result says what it is
 
-`resultType` goes on **every** result, not only the cacheable ones — the revision
-requires it, and an absent one is read as `complete` *only* from a server speaking
+`resultType` goes on **every** modern result, not only the cacheable ones — the
+revision requires it, and an absent one is read as `complete` *only* from a server speaking
 an earlier revision. This got it wrong once: the caching rules say which results
 carry `ttlMs` and `cacheScope`, and were misread as saying which carry
 `resultType` at all. A conforming client refused every `tools/call` until it was
 fixed, correctly.
 
-`io.modelcontextprotocol/serverInfo` rides on every result too, which the spec
-asks for so a stateless server identifies itself without anything having to
-remember a handshake.
+`io.modelcontextprotocol/serverInfo` rides on every modern result too, which the
+spec asks for so a stateless server identifies itself without anything having to
+remember a handshake. Neither field goes on a handshake-era result: both are
+`2026-07-28` concepts, and a client of the older revision would not know them.
 
 ### Which failures are whose
 
