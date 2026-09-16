@@ -60,6 +60,14 @@ async function post(
   });
 }
 
+/** The handshake era: no metadata, no mirrored headers, and a batch is allowed. */
+const legacy = (body: unknown): Promise<Response> =>
+  SELF.fetch(`${BASE}/mcp`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
 async function rpc(method: string, params: Record<string, unknown> = {}, options: Options = {}): Promise<RpcResult> {
   const response = await post(method, params, options);
   const text = await response.text();
@@ -74,15 +82,16 @@ async function callTool(name: string, args: unknown): Promise<Record<string, unk
 }
 
 describe('protocol', () => {
-  it('tells a legacy client what it needs, rather than "unknown method"', async () => {
-    // A handshake client has no fall-forward, so this error is its only diagnostic.
-    const response = await post('initialize', { protocolVersion: '2025-06-18', capabilities: {} });
-    const body = (await response.json()) as RpcResult;
+  it('still shakes hands with a client from the era that does', async () => {
+    // No version header at all, which is what `initialize` looks like: the handshake
+    // is where the version gets agreed, so there is nothing to put in one yet.
+    const response = await legacy({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
 
-    expect(response.status).toBe(400);
-    expect(body.error).toMatchObject({ code: -32022 });
-    expect(body.error?.data).toMatchObject({ supported: ['2026-07-28'] });
-    expect(body.error?.message).toContain('2026-07-28');
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as RpcResult).result).toMatchObject({
+      protocolVersion: '2025-06-18',
+      serverInfo: { name: 'workout-mcp' },
+    });
   });
 
   it('lists every tool with an input schema', async () => {
@@ -234,7 +243,7 @@ describe('the wire', () => {
     const { result } = await rpc('server/discover');
 
     expect(result).toMatchObject({
-      supportedVersions: ['2026-07-28'],
+      supportedVersions: ['2026-07-28', '2025-06-18'],
       capabilities: { tools: {}, prompts: {} },
       _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'workout-mcp' } },
     });
@@ -257,21 +266,43 @@ describe('the wire', () => {
 
     expect(response.status).toBe(400);
     expect(body.error).toMatchObject({ code: -32022 });
-    expect(body.error?.data).toMatchObject({ supported: ['2026-07-28'], requested: '1900-01-01' });
+    expect(body.error?.data).toMatchObject({
+      supported: ['2026-07-28', '2025-06-18'],
+      requested: '1900-01-01',
+    });
   });
 
-  it('checks the headers against the body rather than trusting either alone', async () => {
+  it('checks the headers against the body, on every request that claims the modern era', async () => {
     // A proxy routing on the header and this Worker acting on the body is the split the rule closes.
     const cases: Array<[string, Record<string, string>]> = [
       ['a method that is not the one in the body', { 'Mcp-Method': 'tools/call' }],
-      ['a version that is not the one in the body', { 'MCP-Protocol-Version': '2025-06-18' }],
-      ['no protocol version at all', { 'MCP-Protocol-Version': '' }],
+      ['no mirrored method at all', { 'Mcp-Method': '' }],
     ];
     for (const [what, headers] of cases) {
       const response = await post('tools/list', {}, { headers });
       expect(response.status, what).toBe(400);
       expect(((await response.json()) as RpcResult).error, what).toMatchObject({ code: -32020 });
     }
+
+    // A header naming this era over a body naming another: the routing believed the
+    // header, and the body has to agree with it before anything is done.
+    const twoVersions = await SELF.fetch(`${BASE}/mcp`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'MCP-Protocol-Version': VERSION,
+        'Mcp-Method': 'tools/list',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/list',
+        params: { _meta: { 'io.modelcontextprotocol/protocolVersion': '2025-06-18' } },
+      }),
+    });
+    expect(twoVersions.status).toBe(400);
+    expect(((await twoVersions.json()) as RpcResult).error).toMatchObject({ code: -32020 });
 
     const wrongName = await post(
       'tools/call',
@@ -282,16 +313,20 @@ describe('the wire', () => {
     expect(((await wrongName.json()) as RpcResult).error).toMatchObject({ code: -32020 });
   });
 
-  it('requires the mirrored headers to be there at all', async () => {
+  it('cannot be talked out of that validation by leaving the body metadata off', async () => {
+    // The era is read off the header, so a request claiming the modern one is checked
+    // whatever the body says. Choosing from the body is what let this be skipped.
     const response = await SELF.fetch(`${BASE}/mcp`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'tools/list',
-        params: { _meta: { 'io.modelcontextprotocol/protocolVersion': VERSION } },
-      }),
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'MCP-Protocol-Version': VERSION,
+        'Mcp-Method': 'tools/list',
+        'Mcp-Name': 'list_workouts',
+      },
+      // Headers a gateway would route on; a body that does something else entirely.
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: {} }),
     });
 
     expect(response.status).toBe(400);

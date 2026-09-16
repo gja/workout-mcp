@@ -1,15 +1,25 @@
-// MCP over Streamable HTTP: revision 2026-07-28, which carries the protocol version,
-// the client's identity and its capabilities on every request. See docs/mcp.md.
+// MCP over Streamable HTTP, in both eras: `2026-07-28` carries the protocol version,
+// the client's identity and its capabilities on every request; the handshake versions
+// before it negotiate once with `initialize`. See docs/mcp.md.
 
 import { findPrompt, listPrompts, promptMessages } from './prompts';
 import { SKILLS_EXTENSION, findSkill, listResources, listSkills, readResource } from './skills';
 import { TOOLS, ToolError, callTool, isCallerError } from './tools';
 import type { Env, User } from './db';
 
-const PROTOCOL_VERSION = '2026-07-28';
+const MODERN_VERSION = '2026-07-28';
 
-/** The only one served. A client asking for another is told this, and retries. */
-const SUPPORTED_VERSIONS = [PROTOCOL_VERSION];
+/** What `initialize` answers. The handshake revisions before it are served too. */
+const LEGACY_VERSION = '2025-06-18';
+
+/**
+ * Handshake revisions we recognise. A client naming one of these is served the old
+ * way; one naming something we have never heard of is told what we do serve, which
+ * is the only answer it can act on.
+ */
+const KNOWN_LEGACY = new Set(['2025-03-26', LEGACY_VERSION, '2025-11-25']);
+
+const SUPPORTED_VERSIONS = [MODERN_VERSION, LEGACY_VERSION];
 
 const META_PROTOCOL_VERSION = 'io.modelcontextprotocol/protocolVersion';
 const META_SERVER_INFO = 'io.modelcontextprotocol/serverInfo';
@@ -165,9 +175,7 @@ function decodeHeader(value: string): string {
  * Checked rather than trusted: a proxy acting on the header while this Worker acts
  * on the body is exactly the split the rule exists to close.
  */
-function headerMismatch(request: Request, body: JsonRpcRequest): string | null {
-  const declared = request.headers.get('MCP-Protocol-Version');
-  if (declared === null) return 'MCP-Protocol-Version is required';
+function headerMismatch(request: Request, declared: string, body: JsonRpcRequest): string | null {
   if (declared !== body.params?._meta?.[META_PROTOCOL_VERSION]) {
     return `MCP-Protocol-Version header "${declared}" does not match the body's ${META_PROTOCOL_VERSION}`;
   }
@@ -192,7 +200,71 @@ function headerMismatch(request: Request, body: JsonRpcRequest): string | null {
 const isRequestObject = (body: unknown): body is JsonRpcRequest =>
   typeof body === 'object' && body !== null && !Array.isArray(body) && typeof (body as JsonRpcRequest).method === 'string';
 
-// --- The door ----------------------------------------------------------------
+// --- The legacy era ----------------------------------------------------------
+
+type JsonRpcResponse = {
+  jsonrpc: '2.0';
+  id: string | number | null;
+  result?: unknown;
+  error?: { code: number; message: string };
+};
+
+async function dispatch(
+  request: JsonRpcRequest,
+  env: Env,
+  user: User,
+  origin: string,
+): Promise<JsonRpcResponse | null> {
+  const id = request.id ?? null;
+  const isNotification = request.id === undefined || request.id === null;
+
+  try {
+    // The handshake, which this era opens with and the modern one has no method for.
+    const result =
+      request.method === 'initialize'
+        ? { protocolVersion: LEGACY_VERSION, capabilities: CAPABILITIES, serverInfo: SERVER_INFO }
+        : await handleRequest(request, env, user, origin);
+    return isNotification ? null : { jsonrpc: '2.0', id, result };
+  } catch (error) {
+    if (isNotification) return null;
+    // A tool that refused its input is a successful call carrying `isError`.
+    if (isCallerError(error) && request.method === 'tools/call') {
+      return {
+        jsonrpc: '2.0',
+        id,
+        result: { content: [{ type: 'text', text: error.message }], isError: true },
+      };
+    }
+    if (error instanceof MethodNotFound) {
+      return { jsonrpc: '2.0', id, error: { code: METHOD_NOT_FOUND, message: error.message } };
+    }
+    if (isCallerError(error)) {
+      return { jsonrpc: '2.0', id, error: { code: INVALID_PARAMS, message: error.message } };
+    }
+    console.error('mcp error', error);
+    return { jsonrpc: '2.0', id, error: { code: INTERNAL_ERROR, message: 'internal error' } };
+  }
+}
+
+async function handleLegacy(body: unknown, env: Env, user: User, origin: string): Promise<Response> {
+  // Notifications drop out of a batched response, and an all-notification batch gets a 202.
+  const batch = Array.isArray(body) ? (body as JsonRpcRequest[]) : [body as JsonRpcRequest];
+  if (batch.some((request) => !isRequestObject(request))) {
+    return Response.json(
+      { jsonrpc: '2.0', id: null, error: { code: INVALID_REQUEST, message: 'expected JSON-RPC requests' } },
+      { status: 400 },
+    );
+  }
+
+  const responses = (await Promise.all(batch.map((r) => dispatch(r, env, user, origin)))).filter(
+    (r): r is JsonRpcResponse => r !== null,
+  );
+
+  if (responses.length === 0) return new Response(null, { status: 202 });
+  return Response.json(Array.isArray(body) ? responses : responses[0]);
+}
+
+// --- The modern era ----------------------------------------------------------
 
 const fail = (id: string | number | null, code: number, message: string, data?: unknown) =>
   Response.json(
@@ -200,47 +272,27 @@ const fail = (id: string | number | null, code: number, message: string, data?: 
     { status: STATUS[code] ?? 400 },
   );
 
-export async function handleMcp(request: Request, env: Env, user: User): Promise<Response> {
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return fail(null, PARSE_ERROR, 'parse error');
-  }
-
+async function handleModern(
+  request: Request,
+  declared: string,
+  body: unknown,
+  env: Env,
+  user: User,
+  origin: string,
+): Promise<Response> {
   if (!isRequestObject(body)) {
     return fail(null, INVALID_REQUEST, 'expected a single JSON-RPC request object');
   }
 
   const id = body.id ?? null;
 
-  // A legacy client cannot fall forward, so this error is the only diagnostic it
-  // will ever surface. Say the version it needs rather than "unknown method".
-  if (body.method === 'initialize') {
-    return fail(
-      id,
-      UNSUPPORTED_PROTOCOL_VERSION,
-      `this server speaks ${PROTOCOL_VERSION} only, which has no initialize handshake; ` +
-        'send the protocol version, client info and capabilities on each request instead',
-      { supported: SUPPORTED_VERSIONS, requested: null },
-    );
-  }
-
-  const mismatch = headerMismatch(request, body);
+  const mismatch = headerMismatch(request, declared, body);
   if (mismatch) return fail(id, HEADER_MISMATCH, mismatch);
-
-  const version = body.params?._meta?.[META_PROTOCOL_VERSION];
-  if (typeof version !== 'string' || !SUPPORTED_VERSIONS.includes(version)) {
-    return fail(id, UNSUPPORTED_PROTOCOL_VERSION, 'Unsupported protocol version', {
-      supported: SUPPORTED_VERSIONS,
-      requested: version ?? null,
-    });
-  }
 
   // A notification is accepted and answered with nothing at all.
   if (body.id === undefined || body.id === null) {
     try {
-      await handleRequest(body, env, user, origin(request));
+      await handleRequest(body, env, user, origin);
     } catch (error) {
       if (!isCallerError(error) && !(error instanceof MethodNotFound)) console.error('mcp error', error);
     }
@@ -248,7 +300,7 @@ export async function handleMcp(request: Request, env: Env, user: User): Promise
   }
 
   try {
-    const result = await handleRequest(body, env, user, origin(request));
+    const result = await handleRequest(body, env, user, origin);
     const hints = CACHEABLE.has(body.method) ? CACHE_HINTS : {};
     return Response.json({ jsonrpc: '2.0', id, result: { ...hints, ...(result as object) } });
   } catch (error) {
@@ -268,5 +320,43 @@ export async function handleMcp(request: Request, env: Env, user: User): Promise
   }
 }
 
-/** Where a signed download link points: this deployment, as the caller reached it. */
-const origin = (request: Request): string => new URL(request.url).origin;
+// --- The door ----------------------------------------------------------------
+
+/**
+ * The era is read off `MCP-Protocol-Version`, and not off the body.
+ *
+ * That header is what tells anything in the path whether the mirrored headers below
+ * are contractual — the spec says an intermediary routing on them SHOULD reject a
+ * request whose version does not require header-body validation. Choosing the era
+ * from the body instead would let a caller skip that validation by leaving one field
+ * out, while still sending headers a proxy would act on. The header decides, so
+ * there is nothing to leave out.
+ *
+ * `initialize` carries no version header — the handshake is where the version is
+ * agreed — so a request without one is the old era by definition.
+ */
+export async function handleMcp(request: Request, env: Env, user: User): Promise<Response> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return fail(null, PARSE_ERROR, 'parse error');
+  }
+
+  const origin = new URL(request.url).origin;
+  const declared = request.headers.get('MCP-Protocol-Version');
+
+  if (declared === MODERN_VERSION) {
+    return await handleModern(request, declared, body, env, user, origin);
+  }
+  if (declared === null || KNOWN_LEGACY.has(declared)) {
+    return await handleLegacy(body, env, user, origin);
+  }
+
+  // Neither era: name what we do serve, which is the only thing it can act on.
+  const id = isRequestObject(body) ? (body.id ?? null) : null;
+  return fail(id, UNSUPPORTED_PROTOCOL_VERSION, `unsupported protocol version "${declared}"`, {
+    supported: SUPPORTED_VERSIONS,
+    requested: declared,
+  });
+}
