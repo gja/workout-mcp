@@ -1,4 +1,4 @@
-// SPIKE: the same protocol surface as test/mcp.test.ts, against the Agents SDK
+// SPIKE: the same protocol surface as test/mcp.test.ts, against the MCP SDK v2
 // route mounted at /sdkmcp. Answers the four spike questions empirically.
 
 import { SELF } from 'cloudflare:test';

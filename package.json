@@ -28,7 +28,7 @@
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^0.10.3",
     "@garmin/fitsdk": "^21.214.0",
-    "agents": "^0.20.1",
+    "@modelcontextprotocol/server": "^2.0.0",
     "arctic": "^3.7.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"

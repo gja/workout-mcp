@@ -1,15 +1,15 @@
-// SPIKE ONLY — the same MCP surface, served by Cloudflare's Agents SDK
-// (`createMcpHandler`) on top of MCP SDK v2, mounted beside the hand-rolled
-// `src/mcp.ts` for comparison. Not wired into production. See docs/mcp.md.
+// SPIKE ONLY — the same MCP surface on MCP SDK v2's own `createMcpHandler`,
+// with no `agents` dependency. `agents/mcp/server` is a 317-line wrapper over
+// this: route match, CORS, Host/Origin checks, and an AsyncLocalStorage that
+// carries the OAuth props. A Worker that only serves MCP needs none of that —
+// the props are already on `ctx`, so they go in by closure and `nodejs_compat`
+// is not required. Mounted beside `src/mcp.ts`. See docs/mcp.md.
 
-import { createMcpHandler, getMcpAuthContext } from 'agents/mcp/server';
-import { McpServer, fromJsonSchema } from '@modelcontextprotocol/server';
+import { createMcpHandler, McpServer, fromJsonSchema } from '@modelcontextprotocol/server';
 import { ONBOARDING, promptMessages } from './prompts';
 import { SKILLS_EXTENSION, findSkill, listResources, listSkills, readResource } from './skills';
 import { TOOLS, callTool, isCallerError } from './tools';
 import type { Env, User } from './db';
-
-type AuthProps = { userId: string; email: string | null };
 
 const SERVER_INFO = { name: 'workout-mcp', version: '0.1.0' };
 
@@ -38,17 +38,7 @@ const advertiseOnly = (schema: Record<string, unknown>) => {
 const CUSTOM_CACHE_HINT = (era: 'legacy' | 'modern') =>
   era === 'modern' ? { ttlMs: 300_000, cacheScope: 'public' as const } : {};
 
-/**
- * The library hands the factory an era, the Request and `authInfo` — but never
- * `env`. The Worker binding has to arrive by closure, so the handler is built
- * per `env` object and memoised on it.
- */
-const handlers = new WeakMap<object, ReturnType<typeof createMcpHandler>>();
-
-function buildServer(env: Env, origin: string, era: 'legacy' | 'modern'): McpServer {
-  const props = getMcpAuthContext()?.props as AuthProps | undefined;
-  const user: User = { id: props?.userId ?? '', email: props?.email ?? null };
-
+function buildServer(env: Env, user: User, origin: string, era: 'legacy' | 'modern'): McpServer {
   const server = new McpServer(SERVER_INFO, {
     capabilities: {
       tools: { listChanged: false },
@@ -137,22 +127,22 @@ function buildServer(env: Env, origin: string, era: 'legacy' | 'modern'): McpSer
   return server;
 }
 
-export function handleMcpWithAgents(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-  let handler = handlers.get(env as object);
-  if (!handler) {
-    handler = createMcpHandler(
-      (mcpCtx) =>
-        buildServer(env, new URL(mcpCtx.requestInfo?.url ?? request.url).origin, mcpCtx.era),
-      {
-        route: '/sdkmcp',
-        // Match the hand-rolled handler, which does no Origin validation and
-        // answers every origin. The library's default would reject a browser
-        // Origin on a custom domain.
-        allowedOriginHostnames: '*',
-        corsOptions: { origin: '*' },
-      },
-    );
-    handlers.set(env as object, handler);
+/**
+ * One handler per request: the factory closes over the athlete, so there is
+ * nothing to memoise and nothing to carry the identity in. `close()` releases
+ * the modern leg; the legacy lane holds nothing between exchanges.
+ */
+export async function handleMcpWithSdk(request: Request, env: Env, user: User): Promise<Response> {
+  const origin = new URL(request.url).origin;
+  const handler = createMcpHandler((mcpCtx) => buildServer(env, user, origin, mcpCtx.era));
+
+  try {
+    const response = await handler.fetch(request);
+    // The hand-rolled handler answers every origin; match it.
+    const headers = new Headers(response.headers);
+    headers.set('Access-Control-Allow-Origin', '*');
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  } finally {
+    await handler.close().catch(() => {});
   }
-  return handler(request, env, ctx);
 }

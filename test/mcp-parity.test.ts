@@ -1,9 +1,9 @@
-// SPIKE: what adopting the Agents SDK would and would not change, asserted.
+// SPIKE: what adopting MCP SDK v2 would and would not change, asserted.
 //
-// The hand-rolled handler (/mcp) and the library handler (/sdkmcp) are asked
+// The hand-rolled handler (/mcp) and the SDK handler (/sdkmcp) are asked
 // the same questions. The first block pins the cases where they agree; the
 // second pins every case where they do NOT, so the cost of adopting is a list
-// a reader can check rather than a claim. Delete with src/mcp-agents.ts if the
+// a reader can check rather than a claim. Delete with src/mcp-sdk.ts if the
 // spike is not taken up.
 
 import { SELF } from 'cloudflare:test';
@@ -147,7 +147,7 @@ describe('the library answers exactly as the hand-rolled handler does', () => {
 
   it('keeps the error messages src/tools.ts writes for the model', async () => {
     // The SDK would validate against the JSON Schema first and answer in
-    // schema prose; `advertiseOnly` in src/mcp-agents.ts stops it, so the
+    // schema prose; `advertiseOnly` in src/mcp-sdk.ts stops it, so the
     // athlete-facing wording survives. This is the assertion that pins that.
     const args = { date: '2026-09-20', name: 'Easy', sport: 'quidditch', steps: [{ name: 'Run', goal_s: 60 }] };
     const { hand, sdk } = await both('tools/call', { name: 'create_workout', arguments: args });

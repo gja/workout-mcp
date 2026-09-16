@@ -12,9 +12,6 @@
 		"command": "npm run build"
 	},
 	"compatibility_date": "2025-09-01",
-	// SPIKE: the Agents SDK imports `node:async_hooks` (AsyncLocalStorage) to carry
-	// the OAuth props into the MCP handler. Required by src/mcp-agents.ts.
-	"compatibility_flags": ["nodejs_compat"],
 	// `wrangler deploy` bundles the Worker with esbuild rather than Vite, and
 	// esbuild has no loader for the workout library's markdown without this.
 	// `vite-markdown.ts` is the same thing for the Vite and vitest builds.

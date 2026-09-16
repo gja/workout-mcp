@@ -9,7 +9,7 @@ import * as drive from './drive';
 import * as identity from './identity';
 import type { Env, User } from './db';
 import { handleMcp } from './mcp';
-import { handleMcpWithAgents } from './mcp-agents';
+import { handleMcpWithSdk } from './mcp-sdk';
 import * as platforms from './platforms';
 import { SCOPE } from './routes/oauth';
 import { ToolError } from './tools';
@@ -36,15 +36,19 @@ const mcpHandler = {
   },
 } satisfies ExportedHandler<Env>;
 
-/** SPIKE: the same surface, served by the Agents SDK. See src/mcp-agents.ts. */
-const sdkMcpHandler = {
-  fetch: (request: Request, env: Env, ctx: ExecutionContext) => handleMcpWithAgents(request, env, ctx),
+/** SPIKE: the same surface on MCP SDK v2. See src/mcp-sdk.ts. */
+const bareMcpHandler = {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const props = (ctx as ExecutionContext & { props?: AuthProps }).props;
+    if (!props?.userId) return Response.json({ error: 'no authenticated user' }, { status: 401 });
+    return await handleMcpWithSdk(request, env, { id: props.userId, email: props.email });
+  },
 } satisfies ExportedHandler<Env>;
 
 const provider = new OAuthProvider<Env>({
   apiHandlers: {
     '/mcp': mcpHandler,
-    '/sdkmcp': sdkMcpHandler,
+    '/sdkmcp': bareMcpHandler,
   },
   defaultHandler: app,
 
