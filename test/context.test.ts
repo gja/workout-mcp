@@ -2,7 +2,7 @@ import { SELF } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { CONTEXTS, CONTEXT_KINDS, MAX_CONTEXT_BYTES, WRITABLE_KINDS, readToolName } from '../src/context';
 import { TOOLS } from '../src/tools';
-import { resetDatabase, seedUser } from './helpers';
+import { mcpFetch, resetDatabase, seedUser } from './helpers';
 import { readZip } from './zip-reader';
 
 const BASE = 'https://workouts.example';
@@ -157,11 +157,7 @@ describe('writing one over REST', () => {
 
 describe('over MCP', () => {
   const rpc = async (name: string, args: unknown) => {
-    const response = await SELF.fetch(`${BASE}/mcp`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
-    });
+    const response = await mcpFetch(token, 'tools/call', { name, arguments: args });
     return (await response.json()) as {
       result?: { isError?: boolean; structuredContent?: Record<string, unknown>; content?: { text: string }[] };
     };

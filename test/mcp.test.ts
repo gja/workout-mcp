@@ -18,16 +18,52 @@ type RpcResult = {
   jsonrpc: string;
   id: number | null;
   result?: Record<string, unknown>;
-  error?: { code: number; message: string };
+  error?: { code: number; message: string; data?: Record<string, unknown> };
 };
 
-async function rpc(method: string, params?: unknown, id: number | null = 1): Promise<RpcResult> {
-  const response = await SELF.fetch(`${BASE}/mcp`, {
+const VERSION = '2026-07-28';
+
+/** Which body field `Mcp-Name` mirrors, as the server expects it to. */
+const NAMED_BY: Record<string, string> = {
+  'tools/call': 'name',
+  'prompts/get': 'name',
+  'resources/read': 'uri',
+};
+
+type Options = { id?: number | null; headers?: Record<string, string>; version?: string };
+
+/** A well-formed request: the metadata in the body, and the headers that mirror it. */
+async function post(
+  method: string,
+  params: Record<string, unknown> = {},
+  options: Options = {},
+): Promise<Response> {
+  const version = options.version ?? VERSION;
+  const named = NAMED_BY[method] === undefined ? null : String(params[NAMED_BY[method]] ?? '');
+
+  return await SELF.fetch(`${BASE}/mcp`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'MCP-Protocol-Version': version,
+      'Mcp-Method': method,
+      ...(named === null ? {} : { 'Mcp-Name': named }),
+      ...options.headers,
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      ...(options.id === null ? {} : { id: options.id ?? 1 }),
+      method,
+      params: { ...params, _meta: { 'io.modelcontextprotocol/protocolVersion': version } },
+    }),
   });
-  return (await response.json()) as RpcResult;
+}
+
+async function rpc(method: string, params: Record<string, unknown> = {}, options: Options = {}): Promise<RpcResult> {
+  const response = await post(method, params, options);
+  const text = await response.text();
+  return text ? (JSON.parse(text) as RpcResult) : ({} as RpcResult);
 }
 
 /** Call a tool and return its structured result, asserting it did not error. */
@@ -38,12 +74,15 @@ async function callTool(name: string, args: unknown): Promise<Record<string, unk
 }
 
 describe('protocol', () => {
-  it('initializes', async () => {
-    const response = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {} });
-    expect(response.result).toMatchObject({
-      protocolVersion: '2025-06-18',
-      serverInfo: { name: 'workout-mcp' },
-    });
+  it('tells a legacy client what it needs, rather than "unknown method"', async () => {
+    // A handshake client has no fall-forward, so this error is its only diagnostic.
+    const response = await post('initialize', { protocolVersion: '2025-06-18', capabilities: {} });
+    const body = (await response.json()) as RpcResult;
+
+    expect(response.status).toBe(400);
+    expect(body.error).toMatchObject({ code: -32022 });
+    expect(body.error?.data).toMatchObject({ supported: ['2026-07-28'] });
+    expect(body.error?.message).toContain('2026-07-28');
   });
 
   it('lists every tool with an input schema', async () => {
@@ -84,7 +123,7 @@ describe('protocol', () => {
   });
 
   it('offers its prompts, with the bodies left behind prompts/get', async () => {
-    expect((await rpc('initialize', {})).result).toMatchObject({
+    expect((await rpc('server/discover')).result).toMatchObject({
       capabilities: { prompts: { listChanged: false } },
     });
 
@@ -123,9 +162,9 @@ describe('protocol', () => {
   });
 
   it('hands over the interview only when something asks for it', async () => {
-    // Not in initialize: a client pays for the tool list, not for a setup that
-    // happened months ago.
-    expect((await rpc('initialize', {})).result).not.toHaveProperty('instructions');
+    // Not in server/discover: a client pays for the tool list, not for a setup
+    // that happened months ago.
+    expect((await rpc('server/discover')).result).not.toHaveProperty('instructions');
 
     const { markdown } = (await callTool('get_onboarding_instructions', {})) as { markdown: string };
     expect(markdown).toContain('Round 1 — sport and goal');
@@ -149,18 +188,35 @@ describe('protocol', () => {
     expect((await callTool('get_workout_library', {})).next_step).toBeNull();
   });
 
-  it('answers a ping and rejects an unknown method', async () => {
+  it('answers a ping, and an unknown method with a 404', async () => {
     expect((await rpc('ping')).result).toEqual({});
-    expect((await rpc('what/ever')).error).toMatchObject({ code: -32601 });
+
+    // The status is contract: it is how a client tells a live endpoint from an empty URL.
+    const unknown = await post('what/ever');
+    expect(unknown.status).toBe(404);
+    expect(((await unknown.json()) as RpcResult).error).toMatchObject({ code: -32601 });
   });
 
   it('returns nothing for a notification', async () => {
-    const response = await SELF.fetch(`${BASE}/mcp`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
-    });
-    expect(response.status).toBe(202);
+    expect((await post('ping', {}, { id: null })).status).toBe(202);
+  });
+
+  it('refuses a body that is not a single request object', async () => {
+    // A batch was a legacy affordance; this revision is one message per POST.
+    for (const body of ['null', '[]', '{"jsonrpc":"2.0","id":1}']) {
+      const response = await SELF.fetch(`${BASE}/mcp`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'MCP-Protocol-Version': VERSION,
+          'Mcp-Method': 'tools/list',
+        },
+        body,
+      });
+      expect(response.status, body).toBe(400);
+      expect(((await response.json()) as RpcResult).error, body).toMatchObject({ code: -32600 });
+    }
   });
 
   it('needs a token', async () => {
@@ -170,6 +226,168 @@ describe('protocol', () => {
     expect(response.headers.get('WWW-Authenticate')).toContain(
       `resource_metadata="${BASE}/.well-known/oauth-protected-resource/mcp"`,
     );
+  });
+});
+
+describe('the wire', () => {
+  it('answers server/discover with the version it serves', async () => {
+    const { result } = await rpc('server/discover');
+
+    expect(result).toMatchObject({
+      supportedVersions: ['2026-07-28'],
+      capabilities: { tools: {}, prompts: {} },
+      _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'workout-mcp' } },
+    });
+  });
+
+  it('carries caching hints on the lists, and shares them because they are nobody in particular', async () => {
+    for (const method of ['server/discover', 'tools/list', 'prompts/list']) {
+      const { result } = await rpc(method);
+      // Every one of these is built from code, so one athlete's copy is every athlete's.
+      expect(result, method).toMatchObject({ resultType: 'complete', cacheScope: 'public' });
+      expect(result?.ttlMs, method).toBeGreaterThan(0);
+    }
+    // Not a cacheable operation, so it says nothing about freshness.
+    expect((await rpc('tools/call', { name: 'list_workouts', arguments: {} })).result).not.toHaveProperty('ttlMs');
+  });
+
+  it('refuses a version it does not serve, and says which it does', async () => {
+    const response = await post('tools/list', {}, { version: '1900-01-01' });
+    const body = (await response.json()) as RpcResult;
+
+    expect(response.status).toBe(400);
+    expect(body.error).toMatchObject({ code: -32022 });
+    expect(body.error?.data).toMatchObject({ supported: ['2026-07-28'], requested: '1900-01-01' });
+  });
+
+  it('checks the headers against the body rather than trusting either alone', async () => {
+    // A proxy routing on the header and this Worker acting on the body is the split the rule closes.
+    const cases: Array<[string, Record<string, string>]> = [
+      ['a method that is not the one in the body', { 'Mcp-Method': 'tools/call' }],
+      ['a version that is not the one in the body', { 'MCP-Protocol-Version': '2025-06-18' }],
+      ['no protocol version at all', { 'MCP-Protocol-Version': '' }],
+    ];
+    for (const [what, headers] of cases) {
+      const response = await post('tools/list', {}, { headers });
+      expect(response.status, what).toBe(400);
+      expect(((await response.json()) as RpcResult).error, what).toMatchObject({ code: -32020 });
+    }
+
+    const wrongName = await post(
+      'tools/call',
+      { name: 'list_workouts', arguments: {} },
+      { headers: { 'Mcp-Name': 'delete_workout' } },
+    );
+    expect(wrongName.status).toBe(400);
+    expect(((await wrongName.json()) as RpcResult).error).toMatchObject({ code: -32020 });
+  });
+
+  it('requires the mirrored headers to be there at all', async () => {
+    const response = await SELF.fetch(`${BASE}/mcp`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/list',
+        params: { _meta: { 'io.modelcontextprotocol/protocolVersion': VERSION } },
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as RpcResult).error).toMatchObject({ code: -32020 });
+  });
+
+  it('reads a name the ASCII range cannot carry', async () => {
+    const encoded = `=?base64?${btoa('list_workouts')}?=`;
+    const response = await post(
+      'tools/call',
+      { name: 'list_workouts', arguments: {} },
+      { headers: { 'Mcp-Name': encoded } },
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  it('keeps a tool refusing its input a successful call, and its own faults a 5xx', async () => {
+    // The model reads the message and retries, so this is a 200 carrying isError.
+    const refused = await post('tools/call', { name: 'get_workout', arguments: { date: 'nope' } });
+    expect(refused.status).toBe(200);
+    expect(((await refused.json()) as RpcResult).result).toMatchObject({ isError: true });
+  });
+});
+
+describe('the interview as a skill', () => {
+  const URI = 'skill://workouts-mcp-onboarding-wizard/SKILL.md';
+
+  type Entry = {
+    uri: string;
+    frontmatter: { name: string; description: string };
+    resources: Array<{ uri: string; digest: string; size: number }>;
+  };
+
+  it('declares the extension, and the resources it is built on', async () => {
+    const { result } = await rpc('server/discover');
+
+    expect(result?.capabilities).toMatchObject({
+      resources: {},
+      extensions: { 'io.modelcontextprotocol/skills': {} },
+    });
+  });
+
+  it('lists the skill with a complete manifest', async () => {
+    const { skills } = (await rpc('skills/list')).result as { skills: Entry[] };
+
+    expect(skills).toHaveLength(1);
+    expect(skills[0].uri).toBe(URI);
+    expect(skills[0].frontmatter.name).toBe('workouts-mcp-onboarding-wizard');
+    expect(skills[0].frontmatter.description).toBeTruthy();
+    // A manifest must name SKILL.md and every supporting file.
+    expect(skills[0].resources.map((file) => file.uri)).toEqual([URI]);
+  });
+
+  it('serves bytes a host can verify against the manifest, and frontmatter that matches', async () => {
+    const { skills } = (await rpc('skills/list')).result as { skills: Entry[] };
+    const [file] = skills[0].resources;
+
+    const { contents } = (await rpc('resources/read', { uri: URI })).result as {
+      contents: { uri: string; mimeType: string; text: string }[];
+    };
+    const text = contents[0].text;
+
+    // What a host does before it loads anything: size, digest, then frontmatter.
+    const bytes = new TextEncoder().encode(text);
+    expect(bytes.length).toBe(file.size);
+
+    const hash = await crypto.subtle.digest('SHA-256', bytes);
+    const hex = Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, '0')).join('');
+    expect(`sha256:${hex}`).toBe(file.digest);
+
+    // The frontmatter opens the file and says what the entry said.
+    expect(text.startsWith('---\n')).toBe(true);
+    const front = text.slice(4, text.indexOf('\n---\n'));
+    expect(front).toContain(`name: "${skills[0].frontmatter.name}"`);
+    expect(front).toContain(JSON.stringify(skills[0].frontmatter.description));
+    // And the interview itself is underneath it.
+    expect(text).toContain('Round 1 — sport and goal');
+  });
+
+  it('answers skills/get by uri, and refuses one it does not serve', async () => {
+    const { result } = await rpc('skills/get', { uri: URI });
+    expect((result as { skill: Entry }).skill.uri).toBe(URI);
+
+    expect((await rpc('skills/get', { uri: 'skill://nope/SKILL.md' })).error).toMatchObject({ code: -32602 });
+    expect((await rpc('resources/read', { uri: 'skill://nope/SKILL.md' })).error).toMatchObject({ code: -32602 });
+  });
+
+  it('serves the same interview as the prompt and the tool do', async () => {
+    const { contents } = (await rpc('resources/read', { uri: URI })).result as {
+      contents: { text: string }[];
+    };
+    const { markdown } = (await callTool('get_onboarding_instructions', {})) as { markdown: string };
+
+    // One body, four doors: the skill adds frontmatter and nothing else.
+    expect(contents[0].text.endsWith(markdown)).toBe(true);
   });
 });
 

@@ -9,7 +9,7 @@
 import { SELF, env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { shiftDate, today } from '../src/units';
-import { resetDatabase, seedUser, sessionCookieFor } from './helpers';
+import { mcpFetch, resetDatabase, seedUser, sessionCookieFor } from './helpers';
 
 const BASE = 'https://workouts.example';
 const REDIRECT = 'http://localhost:41234/callback';
@@ -86,12 +86,7 @@ const exchange = (clientId: string, code: string, verifier: string) =>
     redirect_uri: REDIRECT,
   });
 
-const listTools = (token: string) =>
-  SELF.fetch(`${BASE}/mcp`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
-  });
+const listTools = (token: string) => mcpFetch(token, 'tools/list');
 
 describe('discovery', () => {
   it('publishes protected-resource metadata for /mcp', async () => {
@@ -195,16 +190,10 @@ describe('token exchange', () => {
 
     // Create through MCP, then read back with a plain API token for the same
     // account — proof the grant resolved to the right user.
-    const created = await SELF.fetch(`${BASE}/mcp`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${access_token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'tools/call',
-        // Relative to today, so the write stays inside the retention window.
-        params: { name: 'create_workout', arguments: { date: shiftDate(today(), 2), steps: [{ goal_s: 600 }] } },
-      }),
+    // Relative to today, so the write stays inside the retention window.
+    const created = await mcpFetch(access_token, 'tools/call', {
+      name: 'create_workout',
+      arguments: { date: shiftDate(today(), 2), steps: [{ goal_s: 600 }] },
     });
     const result = (await created.json()) as { result: { structuredContent: { id: string; date: string } } };
     expect(result.result.structuredContent.id).toBeTruthy();
