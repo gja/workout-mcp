@@ -7,6 +7,7 @@
 // See docs/mcp.md.
 
 import {
+  INTERNAL_ERROR,
   INVALID_PARAMS,
   McpServer,
   ProtocolError,
@@ -21,6 +22,9 @@ import { TOOLS, callTool, isCallerError } from './tools';
 import type { Env, User } from './db';
 
 const SERVER_INFO = { name: 'workout-mcp', version: '0.1.0' };
+
+/** The revision `server/discover` advertises. The handshake era negotiates its own. */
+const MODERN_VERSION = '2026-07-28';
 
 /** Every result a client may cache, and for how long. See docs/mcp.md. */
 const CACHE_HINT = { ttlMs: 300_000, cacheScope: 'public' } as const;
@@ -42,6 +46,15 @@ const advertiseOnly = (schema: Record<string, unknown>) => {
     '~standard': { ...standard['~standard'], validate: (value: unknown) => ({ value }) },
   } as typeof standard;
 };
+
+/**
+ * `TOOLS` is compiled into the Worker and cannot change under us, so the
+ * schemas are converted once per isolate rather than on every request — a
+ * server is built per request, and this is the only expensive part of it.
+ */
+const ADVERTISED = new Map(
+  TOOLS.map((tool) => [tool.name, advertiseOnly(tool.inputSchema as Record<string, unknown>)]),
+);
 
 /**
  * `cacheHints` covers only the revision's closed list of cacheable results, so
@@ -74,7 +87,7 @@ function buildServer(env: Env, user: User, origin: string, era: 'legacy' | 'mode
       {
         description: tool.description,
         annotations: tool.annotations,
-        inputSchema: advertiseOnly(tool.inputSchema as Record<string, unknown>),
+        inputSchema: ADVERTISED.get(tool.name)!,
       },
       async (args) => {
         try {
@@ -89,7 +102,8 @@ function buildServer(env: Env, user: User, origin: string, era: 'legacy' | 'mode
           if (isCallerError(error)) {
             return { content: [{ type: 'text' as const, text: error.message }], isError: true };
           }
-          throw error;
+          console.error('mcp error', error);
+          throw new ProtocolError(INTERNAL_ERROR, 'internal error');
         }
       },
     );
@@ -147,6 +161,27 @@ function buildServer(env: Env, user: User, origin: string, era: 'legacy' | 'mode
 }
 
 /**
+ * The two request headers the transport refuses on, filled in rather than
+ * enforced: it wants **both** `application/json` and `text/event-stream` in
+ * `Accept` (406 otherwise) and a `Content-Type` of `application/json` (415).
+ * The server this replaces parsed the body regardless of either, so a client
+ * that has been talking to us without them must not be dropped by a change of
+ * implementation. With `enableJsonResponse` the answer is JSON either way, so
+ * nothing about the exchange changes for a client that does send them.
+ */
+function withTransportPreconditions(request: Request): Request {
+  const accept = request.headers.get('Accept') ?? '';
+  const wantsBoth = accept.includes('application/json') && accept.includes('text/event-stream');
+  const jsonBody = (request.headers.get('Content-Type') ?? '').includes('application/json');
+  if (wantsBoth && jsonBody) return request;
+
+  const headers = new Headers(request.headers);
+  if (!wantsBoth) headers.set('Accept', 'application/json, text/event-stream');
+  if (!jsonBody) headers.set('Content-Type', 'application/json');
+  return new Request(request, { headers });
+}
+
+/**
  * The handshake era, served here rather than by the SDK's own fallback.
  *
  * Left to itself the fallback answers this era over SSE, and holds a client to
@@ -159,16 +194,20 @@ function buildServer(env: Env, user: User, origin: string, era: 'legacy' | 'mode
  * `isLegacyRequest` in front of a `legacy: 'reject'` handler.
  */
 async function handleHandshakeEra(env: Env, user: User, origin: string, request: Request): Promise<Response> {
-  // The transport asks for the revision's `Accept` whatever it is going to
-  // answer with, so it is filled in when absent. With `enableJsonResponse` the
-  // body is JSON either way, so a client that never sent the header is served
-  // exactly what it was served before, rather than a 406.
-  const accept = request.headers.get('Accept') ?? '';
-  if (!accept.includes('text/event-stream')) {
-    const headers = new Headers(request.headers);
-    headers.set('Accept', 'application/json, text/event-stream');
-    request = new Request(request, { headers });
+  request = withTransportPreconditions(request);
+
+  // JSON-RPC 2.0: an array request is answered with an array, even when only one
+  // member had an id to answer. The transport unwraps a single response, so
+  // whether this was a batch has to be remembered before the body is read.
+  let wasBatch = false;
+  try {
+    wasBatch = Array.isArray(await request.clone().json());
+  } catch {
+    // Not JSON, or not readable twice: the transport will refuse it on its own.
   }
+
+  const discover = await discoverProbe(request, env, user, origin);
+  if (discover) return discover;
 
   const server = buildServer(env, user, origin, 'legacy');
   const transport = new WebStandardStreamableHTTPServerTransport({
@@ -178,11 +217,71 @@ async function handleHandshakeEra(env: Env, user: User, origin: string, request:
 
   try {
     await server.connect(transport);
-    return await transport.handleRequest(request);
+    return await rebatch(await transport.handleRequest(request), wasBatch);
   } finally {
     await transport.close().catch(() => {});
     await server.close().catch(() => {});
   }
+}
+
+/**
+ * `server/discover` without a version header.
+ *
+ * A client probing for the modern era has nothing to put in that header yet, so
+ * the probe is classified as the handshake era and the SDK answers `-32601` —
+ * it binds an instance to one era at construction and discover is a
+ * `2026-07-28` method. The dispatcher this replaces served discover in both
+ * eras, and a `-32601` here sends the probe back to `initialize` and pins a
+ * modern client to the handshake era for good. So it is answered directly,
+ * shaped as the handshake era shapes a result: no `resultType`, no cache hints.
+ */
+async function discoverProbe(
+  request: Request,
+  env: Env,
+  user: User,
+  origin: string,
+): Promise<Response | null> {
+  let body: { method?: unknown; id?: unknown } | undefined;
+  try {
+    body = (await request.clone().json()) as { method?: unknown; id?: unknown };
+  } catch {
+    return null;
+  }
+  if (body?.method !== 'server/discover') return null;
+
+  const server = buildServer(env, user, origin, 'legacy');
+  try {
+    return Response.json({
+      jsonrpc: '2.0',
+      id: body.id ?? null,
+      result: {
+        supportedVersions: [MODERN_VERSION],
+        capabilities: server.server.getCapabilities(),
+      },
+    });
+  } finally {
+    await server.close().catch(() => {});
+  }
+}
+
+/** Puts a lone response back in the array its batched request is owed. */
+async function rebatch(response: Response, wasBatch: boolean): Promise<Response> {
+  if (!wasBatch || response.status !== 200) return response;
+
+  const body = await response.clone().text();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return response;
+  }
+  if (Array.isArray(parsed)) return response;
+
+  return new Response(JSON.stringify([parsed]), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
 }
 
 /**
@@ -209,8 +308,47 @@ export async function handleMcp(request: Request, env: Env, user: User): Promise
   });
 
   try {
-    return await handler.fetch(request);
+    return await statusFromCode(await handler.fetch(withTransportPreconditions(request)));
   } finally {
     await handler.close().catch(() => {});
   }
+}
+
+/**
+ * What a JSON-RPC code means to HTTP, on the modern era. Only our own fault is
+ * a 5xx — an internal fault answered with a 400 tells a client it sent
+ * something bad, and every retry layer in between believes it.
+ */
+const STATUS: Record<number, number> = {
+  [-32700]: 400,
+  [-32600]: 400,
+  [-32601]: 404,
+  [-32602]: 400,
+  [-32603]: 500,
+  [-32020]: 400,
+  [-32022]: 400,
+};
+
+/**
+ * The SDK answers an error the handler raised in-band, with a 200. The status
+ * is part of this server's contract — a 404 is how a client tells a live MCP
+ * endpoint from a URL with nothing behind it — so a code that names a status
+ * gets it. The errors the SDK refuses before dispatch already carry one.
+ */
+async function statusFromCode(response: Response): Promise<Response> {
+  if (response.status !== 200) return response;
+
+  const body = await response.clone().text();
+  let parsed: { error?: { code?: unknown } } | undefined;
+  try {
+    parsed = JSON.parse(body) as { error?: { code?: unknown } };
+  } catch {
+    return response;
+  }
+
+  const code = parsed?.error?.code;
+  const status = typeof code === 'number' ? STATUS[code] : undefined;
+  if (status === undefined) return response;
+
+  return new Response(body, { status, statusText: response.statusText, headers: response.headers });
 }

@@ -1,4 +1,4 @@
-import { SELF } from 'cloudflare:test';
+import { SELF, env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { listPrompts } from '../src/prompts';
 import { TOOLS } from '../src/tools';
@@ -446,6 +446,81 @@ describe('the wire', () => {
     const body = (await response.json()) as RpcResult[];
     expect(Array.isArray(body)).toBe(true);
     expect(body).toHaveLength(2);
+  });
+
+  it('keeps an internal fault off the wire, and out of the tool result', async () => {
+    // A tool that breaks must not hand the model a database error to read, nor
+    // report one as a thing the caller did wrong.
+    await env.DB.prepare('DROP TABLE workouts').run();
+    const { result } = await rpc('tools/call', { name: 'list_workouts', arguments: {} });
+
+    expect(result?.isError).toBe(true);
+    const text = (result?.content as Array<{ text: string }>)[0].text;
+    expect(text).toBe('internal error');
+    expect(text).not.toContain('SQLITE');
+    expect(text).not.toContain('D1_ERROR');
+  });
+
+  it('gives a JSON-RPC code the status the table says, on the modern era', async () => {
+    // The status is contract, and the SDK answers a handler's error in-band.
+    const unknownTool = await post('tools/call', { name: 'make_coffee', arguments: {} });
+    expect(unknownTool.status).toBe(400);
+    expect(((await unknownTool.json()) as RpcResult).error).toMatchObject({ code: -32602 });
+
+    const unknownMethod = await post('what/ever');
+    expect(unknownMethod.status).toBe(404);
+  });
+
+  it('answers a discover probe that has no version header to send yet', async () => {
+    // A modern client looking for the modern era cannot fill in the header it
+    // would need to be routed there. Refusing the probe sends it to `initialize`
+    // and pins it to the handshake era for good.
+    const response = await legacy({ jsonrpc: '2.0', id: 1, method: 'server/discover', params: {} });
+
+    expect(response.status).toBe(200);
+    const { result } = (await response.json()) as RpcResult;
+    expect(result).toMatchObject({ supportedVersions: [VERSION] });
+    // Shaped as the handshake era shapes a result.
+    expect(result).not.toHaveProperty('resultType');
+  });
+
+  it('takes a handshake request that omits the headers the transport wants', async () => {
+    // Neither was ever required here, so a client that has been talking to this
+    // server without them must not be dropped by a change of implementation.
+    const send = (headers: Record<string, string>) =>
+      SELF.fetch(`${BASE}/mcp`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, ...headers },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+      });
+
+    const cases: Array<Record<string, string>> = [
+      { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      { 'Content-Type': 'application/json', Accept: 'application/json' },
+      { 'Content-Type': 'text/plain' },
+      {},
+    ];
+    for (const headers of cases) {
+      const response = await send(headers);
+      expect(response.status, JSON.stringify(headers)).toBe(200);
+      expect(((await response.json()) as RpcResult).result).toHaveProperty('tools');
+    }
+  });
+
+  it('answers an array request with an array, even when one member answers', async () => {
+    // JSON-RPC 2.0 says so, and the transport unwraps a lone response.
+    const one = await legacy([{ jsonrpc: '2.0', id: 1, method: 'ping' }]);
+    expect(await one.json()).toHaveLength(1);
+
+    const notificationAndOne = await legacy([
+      { jsonrpc: '2.0', method: 'notifications/initialized' },
+      { jsonrpc: '2.0', id: 2, method: 'ping' },
+    ]);
+    expect(await notificationAndOne.json()).toHaveLength(1);
+
+    // A single request object is still answered with an object.
+    const single = await legacy({ jsonrpc: '2.0', id: 1, method: 'ping' });
+    expect(Array.isArray(await single.json())).toBe(false);
   });
 
   it('reads a name the ASCII range cannot carry', async () => {

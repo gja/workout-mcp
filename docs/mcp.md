@@ -239,6 +239,14 @@ under `_meta` — no handshake, nothing remembered. `supportedVersions` names th
 modern revisions only: the handshake era is reached through `initialize`, not
 advertised here.
 
+It is also answered **without** a version header, where the routing table above
+would otherwise send it to the handshake era. A client probing for the modern
+era has nothing to put in that header yet, and the SDK binds an instance to one
+era at construction, so left alone the probe gets `-32601`, falls back to
+`initialize`, and pins a modern client to the handshake era for good. Answered
+that way it is shaped as the handshake era shapes a result: no `resultType`, no
+cache hints.
+
 `ping` is not among them. The revision removed it (SEP-2577), so it is `404`
 with `-32601` on `2026-07-28` and still answered on the handshake era.
 
@@ -313,10 +321,22 @@ a `400` tells a client it sent something bad, and every retry layer in between
 believes it — so a transient database failure would read as a permanent client
 error and never be retried.
 
+Those statuses hold on the modern era. The handshake era answers a JSON-RPC
+error with a `200`, as it always has — the transport succeeded, and the error is
+in the body.
+
 A tool that *refuses its input* is none of these. It stays a `200` carrying
 `isError`, so the model reads the message and can try again; only protocol-level
 problems become JSON-RPC errors. A tool *name* that is not in `tools/list` is one
 of those: it never reached a tool, so it is `-32602` rather than a refused call.
+
+A tool that *breaks* is the one case the SDK will not let out as an error: it
+turns every throw from a tool into an `isError` result, which is what the spec
+asks of a tool execution error. So an internal fault is logged and answered as
+`isError` with the message `internal error` and nothing else — a `D1_ERROR`
+reaching a model as tool output is both a leak and a thing it would try to act
+on. **This is the one place the documented code-to-status table does not reach**,
+and the reason a broken tool no longer shows up as a `5xx`.
 
 Those refusal messages are written in `src/tools.ts` and are what the model acts
 on — "steps[0]: unknown field target_zone; allowed: goal_km, goal_meters, …". The
