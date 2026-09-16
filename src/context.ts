@@ -101,8 +101,7 @@ type Stored = { markdown: string; updated_at: string };
 /** Said on every empty read: nothing else tells a caller the interview exists. */
 const NEXT_STEP =
   'Nothing is written here. Do not plan against a guess. Ask the athlete and write it with ' +
-  'update_context — or call get_onboarding_instructions for the whole interview, which the ' +
-  '"getting-started" prompt also runs.';
+  'update_context, or call get_onboarding_instructions for the whole interview.';
 
 function present(kind: ContextKind, stored: Stored | null): ContextDocument {
   const definition = CONTEXTS[kind];
