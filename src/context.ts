@@ -87,8 +87,8 @@ export type ContextDocument = {
   writable_over_mcp: boolean;
   /** The MCP tool that reads this one, so the dashboard names what an assistant will call. */
   read_tool: string;
-  /** What to do about an empty document, said in the result rather than left to be inferred. */
-  next_step: string | null;
+  /** Present only on an empty document, where it says what to do about it. */
+  next_step?: string;
   /** When they last saved it, or null while it is the built-in document or unset. */
   updated_at: string | null;
 };
@@ -115,7 +115,9 @@ function present(kind: ContextKind, stored: Stored | null): ContextDocument {
     has_built_in: definition.builtIn !== null,
     writable_over_mcp: definition.writableOverMcp,
     read_tool: readToolName(kind),
-    next_step: markdown === null ? NEXT_STEP : null,
+    // Absent rather than null: `markdown` already says the document is empty, so a
+    // `next_step` on every written one is a field that only ever means "ignore me".
+    ...(markdown === null ? { next_step: NEXT_STEP } : {}),
     updated_at: stored ? stored.updated_at : null,
   };
 }
