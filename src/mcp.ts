@@ -1,374 +1,414 @@
-// MCP over Streamable HTTP, in both eras: `2026-07-28` carries the protocol version,
-// the client's identity and its capabilities on every request; the handshake revisions
-// before it negotiate once with `initialize`. See docs/mcp.md.
+// MCP over Streamable HTTP, in both eras, served by the official SDK.
+// `createMcpHandler` owns the wire: it routes `2026-07-28` (per-request
+// envelope) and the handshake revisions before it off the same factory,
+// validates the envelope and the mirrored headers, and stamps `resultType`,
+// `serverInfo` and the cache hints. What lives here is this server's surface —
+// the tools, the prompt, the skill — and nothing about the protocol.
+// See docs/mcp.md.
 
-import { findPrompt, listPrompts, promptMessages } from './prompts';
+import {
+  INTERNAL_ERROR,
+  INVALID_PARAMS,
+  McpServer,
+  ProtocolError,
+  WebStandardStreamableHTTPServerTransport,
+  createMcpHandler,
+  fromJsonSchema,
+  isLegacyRequest,
+} from '@modelcontextprotocol/server';
+import { ONBOARDING, promptMessages } from './prompts';
 import { SKILLS_EXTENSION, findSkill, listResources, listSkills, readResource } from './skills';
-import { TOOLS, ToolError, callTool, isCallerError } from './tools';
+import { TOOLS, callTool, isCallerError } from './tools';
 import type { Env, User } from './db';
-
-const MODERN_VERSION = '2026-07-28';
-
-/** What `initialize` answers. The handshake revisions before it are served too. */
-const LEGACY_VERSION = '2025-06-18';
-
-/**
- * Handshake revisions we recognise. A client naming one of these is served the old
- * way; one naming something we have never heard of is told what we do serve, which
- * is the only answer it can act on.
- */
-const KNOWN_LEGACY = new Set(['2025-03-26', LEGACY_VERSION, '2025-11-25']);
-
-const SUPPORTED_VERSIONS = [MODERN_VERSION, LEGACY_VERSION];
-
-const META_PROTOCOL_VERSION = 'io.modelcontextprotocol/protocolVersion';
-const META_SERVER_INFO = 'io.modelcontextprotocol/serverInfo';
-
-type JsonRpcRequest = {
-  jsonrpc: '2.0';
-  id?: string | number | null;
-  method: string;
-  params?: { _meta?: Record<string, unknown>; [key: string]: unknown };
-};
-
-const PARSE_ERROR = -32700;
-const INVALID_REQUEST = -32600;
-const METHOD_NOT_FOUND = -32601;
-const INVALID_PARAMS = -32602;
-const INTERNAL_ERROR = -32603;
-
-/** Allocated to the protocol itself, and both answered with a 400. */
-const HEADER_MISMATCH = -32020;
-const UNSUPPORTED_PROTOCOL_VERSION = -32022;
-
-/** What a JSON-RPC code means to HTTP. Only our own fault is a 5xx. */
-const STATUS: Record<number, number> = {
-  [PARSE_ERROR]: 400,
-  [INVALID_REQUEST]: 400,
-  [METHOD_NOT_FOUND]: 404,
-  [INVALID_PARAMS]: 400,
-  [INTERNAL_ERROR]: 500,
-  [HEADER_MISMATCH]: 400,
-  [UNSUPPORTED_PROTOCOL_VERSION]: 400,
-};
 
 const SERVER_INFO = { name: 'workout-mcp', version: '0.1.0' };
 
-const CAPABILITIES = {
-  tools: { listChanged: false },
-  prompts: { listChanged: false },
-  resources: { listChanged: false },
-  // An empty settings object is support without `resources/directory/read`, which
-  // a manifest of one file has nothing to say that `resources/list` does not.
-  extensions: { [SKILLS_EXTENSION]: {} },
+/** The revision `server/discover` advertises. The handshake era negotiates its own. */
+const MODERN_VERSION = '2026-07-28';
+
+/**
+ * The handshake revisions this server implements, newest first: `initialize`
+ * counter-offers the first of these a client can take. Left unset the SDK
+ * offers its own list, which reaches back to revisions nothing here has been
+ * written against — a client asking for `2024-11-05` would be told yes.
+ */
+const HANDSHAKE_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'];
+
+/** Allocated to the protocol itself, and answered with a 400. */
+const UNSUPPORTED_PROTOCOL_VERSION = -32022;
+
+/**
+ * What a caller is told about a fault that is ours, and the only thing they are
+ * told. The message may hold a table name, a query, a token — none of which is
+ * a client's to read, and a model handed one will try to act on it. The id is
+ * what ties the answer to the log line.
+ */
+function report(where: string, error: unknown): string {
+  const id = crypto.randomUUID();
+  console.error(`mcp error ${id} (${where})`, error);
+  return `internal error. Quote ${id} when reporting this.`;
+}
+
+/** Every result a client may cache, and for how long. See docs/mcp.md. */
+const CACHE_HINT = { ttlMs: 300_000, cacheScope: 'public' } as const;
+
+/**
+ * Advertises a tool's JSON Schema in `tools/list` without rejecting on it.
+ *
+ * The SDK would validate arguments first and answer in schema prose —
+ * "#/steps: Items did not match schema." — in place of what `src/tools.ts`
+ * writes for the model: "steps[0]: unknown field target_zone; allowed:
+ * goal_km, goal_meters, ...". The schema is the contract a caller reads; the
+ * parser in `src/tools.ts` is what tells it what went wrong, and it refuses
+ * everything the schema does. Validating twice would only cost the message.
+ */
+const advertiseOnly = (schema: Record<string, unknown>) => {
+  const standard = fromJsonSchema(schema);
+  return {
+    ...standard,
+    '~standard': { ...standard['~standard'], validate: (value: unknown) => ({ value }) },
+  } as typeof standard;
 };
 
 /**
- * The results a client may cache, and for how long. Every one of them is the same
- * for every athlete — built from code, not from their data — so a shared cache may
- * hold one. Anything per-athlete here would have to be `private`.
+ * `TOOLS` is compiled into the Worker and cannot change under us, so a schema is
+ * converted once per isolate rather than on every request — a server is built
+ * per request, and this is the only expensive part of it. Lazily, because an
+ * isolate that never serves MCP should not pay for sixteen of them at startup.
  */
-const CACHEABLE = new Set([
-  'server/discover',
-  'tools/list',
-  'prompts/list',
-  'resources/list',
-  'resources/read',
-  'skills/list',
-  'skills/get',
-]);
-const CACHE_HINTS = { ttlMs: 300_000, cacheScope: 'public' } as const;
-
-/** Which body field the `Mcp-Name` header mirrors, for the methods that carry one. */
-const NAMED_BY: Record<string, 'name' | 'uri'> = {
-  'tools/call': 'name',
-  'prompts/get': 'name',
-  'resources/read': 'uri',
+const advertised = new Map<string, ReturnType<typeof advertiseOnly>>();
+const schemaFor = (tool: (typeof TOOLS)[number]) => {
+  let schema = advertised.get(tool.name);
+  if (!schema) {
+    schema = advertiseOnly(tool.inputSchema as Record<string, unknown>);
+    advertised.set(tool.name, schema);
+  }
+  return schema;
 };
 
-class MethodNotFound extends Error {
-  constructor(method: string) {
-    super(`unknown method "${method}"`);
+/**
+ * `cacheHints` covers only the revision's closed list of cacheable results, so
+ * the two skills methods — which are an extension, not spec vocabulary — carry
+ * their own. Era-gated, because the handshake revisions have no cache fields
+ * and would carry these straight through to the wire.
+ */
+const skillsCacheHint = (era: 'legacy' | 'modern') => (era === 'modern' ? CACHE_HINT : {});
+
+/** One server per request: it closes over the athlete the token resolved to. */
+function buildServer(env: Env, user: User, origin: string, era: 'legacy' | 'modern'): McpServer {
+  const server = new McpServer(SERVER_INFO, {
+    supportedProtocolVersions: HANDSHAKE_VERSIONS,
+    capabilities: {
+      tools: { listChanged: false },
+      prompts: { listChanged: false },
+      resources: { listChanged: false },
+    },
+    cacheHints: {
+      'tools/list': CACHE_HINT,
+      'prompts/list': CACHE_HINT,
+      'resources/list': CACHE_HINT,
+      'resources/read': CACHE_HINT,
+      'server/discover': CACHE_HINT,
+    },
+  });
+
+  // Nothing of ours should fail silently: the protocol layer reports out-of-band
+  // faults and rejected requests here, and nowhere else.
+  server.server.onerror = (error) => void report('server', error);
+
+  for (const tool of TOOLS) {
+    server.registerTool(
+      tool.name,
+      {
+        description: tool.description,
+        annotations: tool.annotations,
+        inputSchema: schemaFor(tool),
+      },
+      async (args) => {
+        try {
+          const result = await callTool(tool.name, args, env, user, origin);
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+            structuredContent: result as Record<string, unknown>,
+          };
+        } catch (error) {
+          // A tool that refused its input is a successful call carrying
+          // `isError`, so the model reads the message and can retry.
+          if (isCallerError(error)) {
+            return { content: [{ type: 'text' as const, text: error.message }], isError: true };
+          }
+          throw new ProtocolError(INTERNAL_ERROR, report(`tool ${tool.name}`, error));
+        }
+      },
+    );
   }
-}
 
-async function handleRequest(
-  request: JsonRpcRequest,
-  env: Env,
-  user: User,
-  origin: string,
-): Promise<unknown> {
-  switch (request.method) {
-    case 'server/discover':
-      return { supportedVersions: SUPPORTED_VERSIONS, capabilities: CAPABILITIES };
+  server.registerPrompt(
+    ONBOARDING.name,
+    { title: ONBOARDING.title, description: ONBOARDING.description },
+    () => promptMessages(ONBOARDING) as never,
+  );
 
-    case 'ping':
-      return {};
+  for (const resource of listResources()) {
+    server.registerResource(
+      resource.name,
+      resource.uri,
+      { mimeType: resource.mimeType, cacheHint: CACHE_HINT },
+      async (uri: URL) => ({
+        contents: [{ uri: uri.href, mimeType: 'text/markdown', text: readResource(uri.href) ?? '' }],
+      }),
+    );
+  }
 
-    case 'tools/list':
-      return { tools: TOOLS };
+  // The Skills extension is not spec vocabulary and the SDK has no support for
+  // it, so the two methods are registered as custom ones. `params` must be a
+  // Standard Schema, hence `fromJsonSchema` over a schema written here.
+  server.server.registerCapabilities({ extensions: { [SKILLS_EXTENSION]: {} } } as never);
 
-    case 'prompts/list':
-      return { prompts: listPrompts() };
+  server.server.setRequestHandler(
+    'skills/list',
+    { params: fromJsonSchema({ type: 'object', additionalProperties: true }) },
+    async () => ({ ...skillsCacheHint(era), skills: await listSkills() }),
+  );
 
-    case 'prompts/get': {
-      const params = (request.params ?? {}) as { name?: string };
-      const prompt = findPrompt(params.name);
-      if (!prompt) throw new ToolError(`unknown prompt "${String(params.name ?? '')}"`);
-      return promptMessages(prompt);
-    }
-
-    case 'resources/list':
-      return { resources: listResources() };
-
-    case 'resources/read': {
-      const uri = (request.params ?? {}).uri;
-      const text = readResource(uri);
-      if (text === undefined) throw new ToolError(`no resource at "${String(uri ?? '')}"`);
-      return { contents: [{ uri, mimeType: 'text/markdown', text }] };
-    }
-
-    case 'skills/list':
-      return { skills: await listSkills() };
-
-    case 'skills/get': {
-      const uri = (request.params ?? {}).uri;
+  server.server.setRequestHandler(
+    'skills/get',
+    {
+      params: fromJsonSchema({
+        type: 'object',
+        properties: { uri: { type: 'string' } },
+        required: ['uri'],
+        additionalProperties: true,
+      }),
+    },
+    async (params) => {
+      const uri = (params as { uri?: string })?.uri;
       const skill = await findSkill(uri);
-      if (!skill) throw new ToolError(`no skill at "${String(uri ?? '')}"`);
-      return { skill };
-    }
+      // A bare Error would surface as an internal error; a uri we do not serve
+      // is the caller's, and reads as one.
+      if (!skill) throw new ProtocolError(INVALID_PARAMS, `no skill at "${String(uri ?? '')}"`);
+      return { ...skillsCacheHint(era), skill };
+    },
+  );
 
-    case 'tools/call': {
-      const params = (request.params ?? {}) as { name?: string; arguments?: unknown };
-      if (!params.name) throw new ToolError('tools/call requires a tool name');
-      const result = await callTool(params.name, params.arguments, env, user, origin);
-      return {
-        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-        structuredContent: result,
-      };
-    }
-
-    default:
-      throw new MethodNotFound(request.method);
-  }
+  return server;
 }
 
-// --- Validation --------------------------------------------------------------
+/**
+ * The two request headers the transport refuses on, filled in rather than
+ * enforced: it wants **both** `application/json` and `text/event-stream` in
+ * `Accept` (406 otherwise) and a `Content-Type` of `application/json` (415).
+ * The server this replaces parsed the body regardless of either, so a client
+ * that has been talking to us without them must not be dropped by a change of
+ * implementation. With `enableJsonResponse` the answer is JSON either way, so
+ * nothing about the exchange changes for a client that does send them.
+ */
+function withTransportPreconditions(request: Request): Request {
+  const accept = request.headers.get('Accept') ?? '';
+  const wantsBoth = accept.includes('application/json') && accept.includes('text/event-stream');
+  const jsonBody = (request.headers.get('Content-Type') ?? '').includes('application/json');
+  if (wantsBoth && jsonBody) return request;
 
-/** `=?base64?…?=`, which is how a header carries a name the ASCII range cannot. */
-function decodeHeader(value: string): string {
-  if (!value.startsWith('=?base64?') || !value.endsWith('?=')) return value;
+  const headers = new Headers(request.headers);
+  if (!wantsBoth) headers.set('Accept', 'application/json, text/event-stream');
+  if (!jsonBody) headers.set('Content-Type', 'application/json');
+  return new Request(request, { headers });
+}
+
+/**
+ * The handshake era, served here rather than by the SDK's own fallback.
+ *
+ * Left to itself the fallback answers this era over SSE, and holds a client to
+ * the revision's `Accept: text/event-stream` with a 406. Both are conformant,
+ * and both would break a client that has been talking to this server in plain
+ * JSON without that header — which is the failure this server has already had
+ * twice. `enableJsonResponse` keeps the bodies as they are, and going through
+ * the transport directly means nothing is turned away for the header. This is
+ * the composition the SDK documents for keeping your own legacy lane:
+ * `isLegacyRequest` in front of a `legacy: 'reject'` handler.
+ */
+async function handleHandshakeEra(env: Env, user: User, origin: string, request: Request): Promise<Response> {
+  request = withTransportPreconditions(request);
+
+  // JSON-RPC 2.0: an array request is answered with an array, even when only one
+  // member had an id to answer. The transport unwraps a single response, so
+  // whether this was a batch has to be remembered before the body is read.
+  let wasBatch = false;
   try {
-    const bytes = Uint8Array.from(atob(value.slice(9, -2)), (c) => c.charCodeAt(0));
-    return new TextDecoder().decode(bytes);
+    wasBatch = Array.isArray(await request.clone().json());
   } catch {
-    return value;
+    // Not JSON, or not readable twice: the transport will refuse it on its own.
+  }
+
+  const discover = await discoverProbe(request, env, user, origin);
+  if (discover) return discover;
+
+  const server = buildServer(env, user, origin, 'legacy');
+  const transport = new WebStandardStreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+    enableJsonResponse: true,
+  });
+  transport.onerror = (error) => void report('handshake transport', error);
+
+  try {
+    await server.connect(transport);
+    return await rebatch(await transport.handleRequest(request), wasBatch);
+  } finally {
+    await transport.close().catch(() => {});
+    await server.close().catch(() => {});
   }
 }
 
 /**
- * The headers mirror body fields so a gateway can route without parsing the body.
- * Checked rather than trusted: a proxy acting on the header while this Worker acts
- * on the body is exactly the split the rule exists to close.
+ * `server/discover` without a version header.
+ *
+ * A client probing for the modern era has nothing to put in that header yet, so
+ * the probe is classified as the handshake era and the SDK answers `-32601` —
+ * it binds an instance to one era at construction and discover is a
+ * `2026-07-28` method. The dispatcher this replaces served discover in both
+ * eras, and a `-32601` here sends the probe back to `initialize` and pins a
+ * modern client to the handshake era for good. So it is answered directly,
+ * shaped as the handshake era shapes a result: no `resultType`, no cache hints.
  */
-function headerMismatch(request: Request, declared: string, body: JsonRpcRequest): string | null {
-  if (declared !== body.params?._meta?.[META_PROTOCOL_VERSION]) {
-    return `MCP-Protocol-Version header "${declared}" does not match the body's ${META_PROTOCOL_VERSION}`;
-  }
-
-  const method = request.headers.get('Mcp-Method');
-  if (method === null) return 'Mcp-Method is required';
-  if (method !== body.method) return `Mcp-Method header "${method}" does not match the body's method`;
-
-  const field = NAMED_BY[body.method];
-  if (field === undefined) return null;
-
-  const named = request.headers.get('Mcp-Name');
-  if (named === null) return `Mcp-Name is required for ${body.method}`;
-  const inBody = (body.params ?? {})[field];
-  if (typeof inBody === 'string' && decodeHeader(named) !== inBody) {
-    return `Mcp-Name header does not match the body's params.${field}`;
-  }
-  return null;
-}
-
-/** A JSON-RPC request object, rather than a notification, an array or a bare null. */
-const isRequestObject = (body: unknown): body is JsonRpcRequest =>
-  typeof body === 'object' && body !== null && !Array.isArray(body) && typeof (body as JsonRpcRequest).method === 'string';
-
-// --- The legacy era ----------------------------------------------------------
-
-type JsonRpcResponse = {
-  jsonrpc: '2.0';
-  id: string | number | null;
-  result?: unknown;
-  error?: { code: number; message: string };
-};
-
-async function dispatch(
-  request: JsonRpcRequest,
+async function discoverProbe(
+  request: Request,
   env: Env,
   user: User,
   origin: string,
-): Promise<JsonRpcResponse | null> {
-  const id = request.id ?? null;
-  const isNotification = request.id === undefined || request.id === null;
-
+): Promise<Response | null> {
+  let body: { method?: unknown; id?: unknown } | undefined;
   try {
-    // The handshake, which this era opens with and the modern one has no method for.
-    const result =
-      request.method === 'initialize'
-        ? { protocolVersion: LEGACY_VERSION, capabilities: CAPABILITIES, serverInfo: SERVER_INFO }
-        : await handleRequest(request, env, user, origin);
-    return isNotification ? null : { jsonrpc: '2.0', id, result };
-  } catch (error) {
-    if (isNotification) return null;
-    // A tool that refused its input is a successful call carrying `isError`.
-    if (isCallerError(error) && request.method === 'tools/call') {
-      return {
-        jsonrpc: '2.0',
-        id,
-        result: { content: [{ type: 'text', text: error.message }], isError: true },
-      };
-    }
-    if (error instanceof MethodNotFound) {
-      return { jsonrpc: '2.0', id, error: { code: METHOD_NOT_FOUND, message: error.message } };
-    }
-    if (isCallerError(error)) {
-      return { jsonrpc: '2.0', id, error: { code: INVALID_PARAMS, message: error.message } };
-    }
-    console.error('mcp error', error);
-    return { jsonrpc: '2.0', id, error: { code: INTERNAL_ERROR, message: 'internal error' } };
+    body = (await request.clone().json()) as { method?: unknown; id?: unknown };
+  } catch {
+    return null;
+  }
+  if (body?.method !== 'server/discover') return null;
+
+  // A notification is accepted and answered with nothing at all, as it is on
+  // every other method in both eras.
+  if (body.id === undefined || body.id === null) return new Response(null, { status: 202 });
+
+  const server = buildServer(env, user, origin, 'legacy');
+  try {
+    return Response.json({
+      jsonrpc: '2.0',
+      id: body.id as string | number,
+      result: {
+        supportedVersions: [MODERN_VERSION],
+        capabilities: server.server.getCapabilities(),
+      },
+    });
+  } finally {
+    await server.close().catch(() => {});
   }
 }
 
-async function handleLegacy(body: unknown, env: Env, user: User, origin: string): Promise<Response> {
-  // Notifications drop out of a batched response, and an all-notification batch gets a 202.
-  const batch = Array.isArray(body) ? (body as JsonRpcRequest[]) : [body as JsonRpcRequest];
-  if (batch.some((request) => !isRequestObject(request))) {
+/** Puts a lone response back in the array its batched request is owed. */
+async function rebatch(response: Response, wasBatch: boolean): Promise<Response> {
+  if (!wasBatch || response.status !== 200) return response;
+
+  const body = await response.clone().text();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return response;
+  }
+  if (Array.isArray(parsed)) return response;
+
+  return new Response(JSON.stringify([parsed]), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+/**
+ * One server per request, either era. The factory closes over the athlete, so
+ * there is nothing to memoise and nothing that has to carry an identity between
+ * calls — which is what keeps this inside the Workers free plan.
+ */
+export async function handleMcp(request: Request, env: Env, user: User): Promise<Response> {
+  const origin = new URL(request.url).origin;
+
+  // A version this server does not serve is refused here, naming what it does.
+  // Left to the transport it comes back as a generic `-32000`, where the era
+  // table promises `-32022` — and that is the one answer such a client can act
+  // on. Absent is not unknown: `initialize` carries no version header.
+  const declared = request.headers.get('MCP-Protocol-Version');
+  if (declared !== null && declared !== MODERN_VERSION && !HANDSHAKE_VERSIONS.includes(declared)) {
     return Response.json(
-      { jsonrpc: '2.0', id: null, error: { code: INVALID_REQUEST, message: 'expected JSON-RPC requests' } },
+      {
+        jsonrpc: '2.0',
+        id: null,
+        error: {
+          code: UNSUPPORTED_PROTOCOL_VERSION,
+          message: `unsupported protocol version "${declared}"`,
+          data: { supported: [MODERN_VERSION, ...HANDSHAKE_VERSIONS], requested: declared },
+        },
+      },
       { status: 400 },
     );
   }
 
-  const responses = (await Promise.all(batch.map((r) => dispatch(r, env, user, origin)))).filter(
-    (r): r is JsonRpcResponse => r !== null,
-  );
+  if (await isLegacyRequest(request)) {
+    return await handleHandshakeEra(env, user, origin, request);
+  }
 
-  if (responses.length === 0) return new Response(null, { status: 202 });
-  return Response.json(Array.isArray(body) ? responses : responses[0]);
-}
-
-// --- The modern era ----------------------------------------------------------
-
-const fail = (id: string | number | null, code: number, message: string, data?: unknown) =>
-  Response.json(
-    { jsonrpc: '2.0', id, error: { code, message, ...(data === undefined ? {} : { data }) } },
-    { status: STATUS[code] ?? 400 },
-  );
-
-/**
- * Every result, not only the cacheable ones: the revision requires a `resultType` on
- * all of them, and an absent one is read as `complete` *only* from a server speaking
- * an earlier revision — which this is not, so a client is right to refuse it.
- *
- * `serverInfo` rides along on each one too, which the spec asks for so a stateless
- * server identifies itself without anything having to remember a handshake.
- */
-function complete(id: string | number | null, result: unknown, cacheable = false): Response {
-  return Response.json({
-    jsonrpc: '2.0',
-    id,
-    result: {
-      resultType: 'complete',
-      ...(cacheable ? CACHE_HINTS : {}),
-      ...(result as object),
-      _meta: { [META_SERVER_INFO]: SERVER_INFO },
-    },
+  const handler = createMcpHandler((ctx) => buildServer(env, user, origin, ctx.era), {
+    // This lane serves the modern era only; the handshake era went to the
+    // transport above.
+    legacy: 'reject',
+    onerror: (error: Error) => void report('modern handler', error),
+    // One JSON body per POST, never a stream. Nothing here emits a message
+    // before its result, so `auto` would never upgrade anyway — saying so makes
+    // it a rule rather than a coincidence, and means the handler can be closed
+    // as soon as `fetch` resolves without cutting a response short.
+    responseMode: 'json',
   });
-}
-
-async function handleModern(
-  request: Request,
-  declared: string,
-  body: unknown,
-  env: Env,
-  user: User,
-  origin: string,
-): Promise<Response> {
-  if (!isRequestObject(body)) {
-    return fail(null, INVALID_REQUEST, 'expected a single JSON-RPC request object');
-  }
-
-  const id = body.id ?? null;
-
-  const mismatch = headerMismatch(request, declared, body);
-  if (mismatch) return fail(id, HEADER_MISMATCH, mismatch);
-
-  // A notification is accepted and answered with nothing at all.
-  if (body.id === undefined || body.id === null) {
-    try {
-      await handleRequest(body, env, user, origin);
-    } catch (error) {
-      if (!isCallerError(error) && !(error instanceof MethodNotFound)) console.error('mcp error', error);
-    }
-    return new Response(null, { status: 202 });
-  }
 
   try {
-    const result = await handleRequest(body, env, user, origin);
-    return complete(id, result, CACHEABLE.has(body.method));
-  } catch (error) {
-    // A tool that refused its input is a successful call carrying `isError`, so the
-    // model reads the message and can retry.
-    if (isCallerError(error) && body.method === 'tools/call') {
-      return complete(id, { content: [{ type: 'text', text: error.message }], isError: true });
-    }
-    if (error instanceof MethodNotFound) return fail(id, METHOD_NOT_FOUND, error.message);
-    if (isCallerError(error)) return fail(id, INVALID_PARAMS, error.message);
-    console.error('mcp error', error);
-    return fail(id, INTERNAL_ERROR, 'internal error');
+    return await statusFromCode(await handler.fetch(withTransportPreconditions(request)));
+  } finally {
+    await handler.close().catch(() => {});
   }
 }
-
-// --- The door ----------------------------------------------------------------
 
 /**
- * The era is read off `MCP-Protocol-Version`, and not off the body.
- *
- * That header is what tells anything in the path whether the mirrored headers below
- * are contractual — the spec says an intermediary routing on them SHOULD reject a
- * request whose version does not require header-body validation. Choosing the era
- * from the body instead would let a caller skip that validation by leaving one field
- * out, while still sending headers a proxy would act on. The header decides, so
- * there is nothing to leave out.
- *
- * `initialize` carries no version header — the handshake is where the version is
- * agreed — so a request without one is the old era by definition.
+ * What a JSON-RPC code means to HTTP, on the modern era. Only our own fault is
+ * a 5xx — an internal fault answered with a 400 tells a client it sent
+ * something bad, and every retry layer in between believes it.
  */
-export async function handleMcp(request: Request, env: Env, user: User): Promise<Response> {
-  let body: unknown;
+const STATUS: Record<number, number> = {
+  [-32700]: 400,
+  [-32600]: 400,
+  [-32601]: 404,
+  [-32602]: 400,
+  [-32603]: 500,
+  [-32020]: 400,
+  [-32022]: 400,
+};
+
+/**
+ * The SDK answers an error the handler raised in-band, with a 200. The status
+ * is part of this server's contract — a 404 is how a client tells a live MCP
+ * endpoint from a URL with nothing behind it — so a code that names a status
+ * gets it. The errors the SDK refuses before dispatch already carry one.
+ */
+async function statusFromCode(response: Response): Promise<Response> {
+  if (response.status !== 200) return response;
+
+  const body = await response.clone().text();
+  let parsed: { error?: { code?: unknown } } | undefined;
   try {
-    body = await request.json();
+    parsed = JSON.parse(body) as { error?: { code?: unknown } };
   } catch {
-    return fail(null, PARSE_ERROR, 'parse error');
+    return response;
   }
 
-  const origin = new URL(request.url).origin;
-  const declared = request.headers.get('MCP-Protocol-Version');
+  const code = parsed?.error?.code;
+  const status = typeof code === 'number' ? STATUS[code] : undefined;
+  if (status === undefined) return response;
 
-  if (declared === MODERN_VERSION) {
-    return await handleModern(request, declared, body, env, user, origin);
-  }
-  if (declared === null || KNOWN_LEGACY.has(declared)) {
-    return await handleLegacy(body, env, user, origin);
-  }
-
-  // Neither era: name what we do serve, which is the only thing it can act on.
-  const id = isRequestObject(body) ? (body.id ?? null) : null;
-  return fail(id, UNSUPPORTED_PROTOCOL_VERSION, `unsupported protocol version "${declared}"`, {
-    supported: SUPPORTED_VERSIONS,
-    requested: declared,
-  });
+  return new Response(body, { status, statusText: response.statusText, headers: response.headers });
 }

@@ -5,6 +5,17 @@ revisions before it. It is stateless — one JSON-RPC request per POST, no sessi
 no SSE — which is both what the modern revision assumes and what keeps this inside
 the Workers free plan. A notification gets a bare 202.
 
+The wire itself is the official SDK's. `createMcpHandler` from
+[`@modelcontextprotocol/server`](https://github.com/modelcontextprotocol) routes
+both eras off one factory, validates the envelope and the mirrored headers, and
+stamps `resultType`, `serverInfo` and the cache hints; `src/mcp.ts` is this
+server's surface and the two places that surface does not fit. It was hand-rolled
+until three conformance bugs had been found by clients rather than by tests, the
+last of them by reading the SDK. Cloudflare's `agents` package wraps the same
+function, and is not used: it costs 192 further packages and a `nodejs_compat`
+flag to add route matching, CORS and an `AsyncLocalStorage` this server does not
+need, since `OAuthProvider` already hands the athlete's identity to the handler.
+
 ## With OAuth
 
 Which is what a client that can open a browser will do on its own: point it at
@@ -185,8 +196,19 @@ the same endpoint.
 | a handshake revision, or absent | legacy | `initialize` and what it negotiates |
 | anything else | — | `400` and `-32022`, naming what is served |
 
+The handshake revisions are `2025-11-25`, `2025-06-18` and `2025-03-26`, and
+`initialize` counter-offers the newest of those a client can take. That list is
+set rather than left to the SDK, whose own reaches back to `2024-11-05` —
+revisions nothing here has been written against, which it would otherwise agree
+to serve.
+
 Absent means legacy because `initialize` carries no version header: the handshake
-is where the version is agreed, so there is nothing to put in one yet.
+is where the version is agreed, so there is nothing to put in one yet. The SDK
+classifies each request the same way, and `initialize` is answered **at the
+revision the client asked for** — `2025-03-26`, `2025-06-18` and `2025-11-25` each
+come back as themselves, and one nobody here knows comes back as the newest we do
+speak. This server used to answer every handshake client `2025-06-18` whatever it
+had asked for.
 
 That header is also what tells anything in the path whether the mirrored headers
 are contractual — the transport spec says an intermediary routing on them SHOULD
@@ -219,7 +241,20 @@ is left.
 
 `server/discover` replaces `initialize` and every modern server **MUST**
 implement it. It returns the version served, the capabilities, and `serverInfo`
-under `_meta` — no handshake, nothing remembered.
+under `_meta` — no handshake, nothing remembered. `supportedVersions` names the
+modern revisions only: the handshake era is reached through `initialize`, not
+advertised here.
+
+It is also answered **without** a version header, where the routing table above
+would otherwise send it to the handshake era. A client probing for the modern
+era has nothing to put in that header yet, and the SDK binds an instance to one
+era at construction, so left alone the probe gets `-32601`, falls back to
+`initialize`, and pins a modern client to the handshake era for good. Answered
+that way it is shaped as the handshake era shapes a result: no `resultType`, no
+cache hints.
+
+`ping` is not among them. The revision removed it (SEP-2577), so it is `404`
+with `-32601` on `2026-07-28` and still answered on the handshake era.
 
 The headers mirror body fields so a gateway can route without parsing the body,
 and the server checks them rather than trusting either alone. A proxy acting on
@@ -231,6 +266,15 @@ exists to close.
 | `MCP-Protocol-Version` | `_meta` protocol version | every request |
 | `Mcp-Method` | `method` | every request |
 | `Mcp-Name` | `params.name`, or `params.uri` | `tools/call`, `prompts/get`, `resources/read` |
+
+The `_meta` envelope those headers mirror is three fields, not one:
+`io.modelcontextprotocol/protocolVersion`,
+`io.modelcontextprotocol/clientInfo` and
+`io.modelcontextprotocol/clientCapabilities`. All three are required on every
+modern request, and one carrying only the version is `400` with `-32602` naming
+what is missing. This server took a version-only envelope for as long as it was
+hand-rolled — no conformant client would have sent one, so nothing broke, but
+nothing would have caught it either.
 
 These apply to a request that claims `2026-07-28`; the handshake era defines none
 of them. A missing or mismatched header is `400` with `-32020`
@@ -244,6 +288,15 @@ A modern body is a single request object; an array, a `null` or an object with n
 would have done with it. Batching stays a handshake-era affordance, where
 notifications drop out of the response and an all-notification batch gets a bare
 202.
+
+The handshake era is served through the transport directly rather than through
+the SDK's own fallback for it, which is the composition the SDK documents for
+keeping your own legacy lane. Left to itself that fallback answers the old era
+over SSE and holds a client to the revision's `Accept: text/event-stream` with a
+`406`. Both are conformant and both would drop a client that has been talking to
+this server in plain JSON without that header — the failure this server has
+already had twice. So `enableJsonResponse` keeps the bodies as they were and the
+header is filled in when absent rather than enforced.
 
 ### Every result says what it is
 
@@ -274,9 +327,39 @@ a `400` tells a client it sent something bad, and every retry layer in between
 believes it — so a transient database failure would read as a permanent client
 error and never be retried.
 
+Those statuses hold on the modern era. The handshake era answers a JSON-RPC
+error with a `200`, as it always has — the transport succeeded, and the error is
+in the body.
+
 A tool that *refuses its input* is none of these. It stays a `200` carrying
 `isError`, so the model reads the message and can try again; only protocol-level
-problems become JSON-RPC errors.
+problems become JSON-RPC errors. A tool *name* that is not in `tools/list` is one
+of those: it never reached a tool, so it is `-32602` rather than a refused call.
+
+A tool that *breaks* is the one case the SDK will not let out as an error: it
+turns every throw from a tool into an `isError` result, which is what the spec
+asks of a tool execution error. **This is the one place the code-to-status table
+does not reach**, and the reason a broken tool no longer shows up as a `5xx`.
+
+What comes back instead carries no detail at all — a fault message may hold a
+table name, a query or a token, none of which is a caller's to read, and a model
+handed one will try to act on it:
+
+```
+internal error. Quote 9f230b3c-bf3e-4a4b-8965-1cdc20bffed6 when reporting this.
+```
+
+The same id is logged beside the real error, so an athlete can quote it and it
+leads straight to the line. Everything else of ours reports through `onerror` —
+the protocol layer, the handshake transport and the modern handler each log the
+same way, because a fault nobody sees is worse than one nobody can read.
+
+Those refusal messages are written in `src/tools.ts` and are what the model acts
+on — "steps[0]: unknown field target_zone; allowed: goal_km, goal_meters, …". The
+SDK would validate arguments against the advertised JSON Schema first and answer
+in schema prose instead, so the schema is registered as advertise-only: it is
+still what `tools/list` publishes, and the parser in `src/tools.ts` — which
+refuses everything the schema does — is still what says what went wrong.
 
 ### Cacheable results
 
