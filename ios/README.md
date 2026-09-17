@@ -60,6 +60,15 @@ On first launch it asks you to sign in, then for Health and for permission to sc
 workouts. Both permission sheets are the system's, and
 declining either leaves the app running with that half switched off rather than broken.
 
+## The app icon
+
+`WorkoutsMCP/Assets.xcassets/AppIcon.appiconset/icon-1024.png` is generated rather than
+drawn: it is `public/logo-square.svg` — the same mark as the site's favicon, a warm-up, three
+intervals with their recoveries and a cool-down — rasterised by `scripts/build-icons.py`.
+Edit the SVG, `pip install cairosvg`, run `python3 scripts/build-icons.py` and commit what
+it writes. One 1024 image is the whole set; iOS renders every other size from it, and the
+file is flattened to RGB because App Store submission rejects an icon with an alpha channel.
+
 ## Dependencies
 
 One, and it is the one worth having:

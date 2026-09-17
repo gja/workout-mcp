@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="WorkoutsMCP">
+  <title>WorkoutsMCP</title>
+  <defs>
+    <linearGradient id="wm-favicon" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2a5fe0"/>
+      <stop offset="1" stop-color="#07225e"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#wm-favicon)"/>
+  <g>
+    <rect x="8.00" y="36.00" width="7.50" height="14.00" rx="2.40" fill="#6aa6ff"/>
+    <rect x="17.00" y="15.00" width="7.50" height="35.00" rx="2.40" fill="#5fe0a0"/>
+    <rect x="26.00" y="34.00" width="6.00" height="16.00" rx="2.40" fill="#ffffff" opacity="0.9"/>
+    <rect x="33.50" y="15.00" width="7.50" height="35.00" rx="2.40" fill="#5fe0a0"/>
+    <rect x="42.50" y="36.00" width="6.00" height="14.00" rx="2.40" fill="#6aa6ff"/>
+  </g>
+  <path d="M8.00 54.5h40.50" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" opacity="0.35" fill="none"/>
+</svg>
