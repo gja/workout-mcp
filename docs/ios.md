@@ -32,11 +32,11 @@ The two models line up better than they have any right to:
 | `intensity: rest` or `recovery` | `IntervalStep(.recovery, …)` |
 | `goal_s`, `goal_meters`, no goal | `.time`, `.distance`, `.open` |
 
-The app asks for the plan already resolved — `GET /api/workouts/:date/:id/plan`, one
-duration and up to two targets a step, repeats kept — rather than the steps as they were
-written. There is one resolver, in `src/resolve.ts`, and re-implementing it in Swift
-would be a second set of rules for what a workout may say. That route exists for this
-app and for anything else that wants to schedule a plan rather than render it.
+The app asks for the plan already resolved — `GET /api/workout-plans`, one duration and
+up to two targets a step, repeats kept — rather than the steps as they were written. There
+is one resolver, in `src/resolve.ts`, and re-implementing it in Swift would be a second set
+of rules for what a workout may say. That route exists for this app and for anything else
+that wants to schedule a plan rather than render it.
 
 **A half-open target is filled at the open end.** `slower than 7:45/km` is a ceiling on
 speed with no floor, and WorkoutKit's one-sided alerts cannot carry it: `SpeedThresholdAlert`,
@@ -195,10 +195,10 @@ worse than none. It sits above the plan rather than in Settings because it is a
 fact about the plan underneath it — "is this on my watch" is read in the same glance as
 "what is on Saturday", not on a screen the athlete goes looking for.
 
-Under it, what is coming, and a tap gets the steps: the plan as
-`GET /api/workouts/:date/:id/plan` resolves it, one duration and up to two targets a step,
-repeats kept. It is the same route the sync schedules from, so the screen and the watch are
-reading the same answer rather than two renderings of the same steps.
+Under it, what is coming, and a tap gets the steps: the plan as `GET /api/workout-plans`
+resolves it, one duration and up to two targets a step, repeats kept. It is the same route
+the sync schedules from — asked for one workout instead of a week — so the screen and the
+watch are reading the same answer rather than two renderings of the same steps.
 
 It is grouped the way the athlete already thinks about it — **Missed**, **This week**,
 **Next week** — rather than as one list fourteen days long. A fortnight in date order asks
@@ -300,18 +300,25 @@ is a plan still being edited, and putting it on the watch is a list to scroll pa
 **And most of a sync sends nothing at all.** Everything a scheduled workout is built from
 comes off the server, and the listing says when the server last wrote each workout — so a
 workout whose `updated_at` has not moved, scheduled for the minute it is already scheduled
-for, would land on the watch exactly as it already stands. Those are skipped: no
-`GET .../plan` for them, and nothing written to the scheduler. The app remembers what it
+for, would land on the watch exactly as it already stands. Those are skipped: their ids are
+left out of the ask, and nothing is written to the scheduler for them. The app remembers what it
 placed, and checks that against what `WorkoutScheduler` is actually holding rather than
 trusting its own record — a plan the athlete deleted in the Workout app is gone, and putting
 it back is the point of looking. A sync with nothing to do is then the listing and one read
 of the scheduler; the prune is skipped on the same evidence, since a plan that is what was
 last placed has nothing left over to take off.
 
-The plans that *are* needed are fetched together rather than one after another. They are
-separate rows on the server with nothing to order them, and a first sync — or the morning
-after a week was written — otherwise spends nearly all of its time waiting out a round trip
-per workout. The scheduler is still written to one workout at a time.
+The plans that *are* needed are fetched in **one request** — `GET /api/workout-plans`, the
+ids of the stale ones comma-separated — rather than one after another. The server reads
+them in a single query, so a first sync, or the morning after a week was written, costs one
+round trip and one authentication instead of a dozen. It used to open them all at once and
+wait for the slowest, which hid the round trips behind each other but still paid for every
+one of them at the server. The scheduler is still written to one workout at a time.
+
+A workout the server no longer has comes back in `missing` rather than as a 404, and the
+sync simply does not place it: a workout deleted between the listing and the plans is the
+reason the prune below exists, not a reason to fail the sync and leave the rest of the week
+off the watch.
 
 ### And with the app shut
 

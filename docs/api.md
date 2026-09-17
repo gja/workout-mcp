@@ -20,10 +20,10 @@ session cookie set at login.
 | `GET /api/connections` | List OAuth grants (connected MCP clients) |
 | `DELETE /api/connections/:id` | Disconnect one |
 | `GET /api/workouts.json?from=&to=` | List within the retention window; a wider range is narrowed to it |
+| `GET /api/workout-plans?plan-ids=` | Those plans resolved — one duration and its targets a step, repeats kept — for a client that schedules them |
 | `POST /api/workouts` | Create; returns the id and URLs |
 | `GET /api/workouts/:date/:id.json` | Read one |
 | `GET /api/workouts/:date/:id/stats` | What was actually recorded against it, laps and all; 404 until a session comes back |
-| `GET /api/workouts/:date/:id/plan` | The plan resolved — one duration and its targets a step, repeats kept — for a client that schedules it |
 | `POST /api/workouts/:date/:id/recording` | The recorded FIT file itself as the body; read for its stats, marks the session done, keeps nothing |
 | `PUT /api/workouts/:date/:id.json` | Replace one; change `date` to move it |
 | `DELETE /api/workouts/:date/:id.json` | Delete one |
@@ -72,6 +72,20 @@ dashboard's "Sync now" and "Copy now" buttons, for when waiting for the next
 pass is not what you want.
 
 A date may hold several workouts; each gets its own short id.
+
+`/api/workout-plans` is asked for every plan at once rather than one at a time,
+because the client that wants them wants a week of them: a route per workout was
+a request, an authentication and a read for each, and a watch app syncing a
+fortnight spent nearly all of its time waiting out round trips. `plan-ids` is a
+comma-separated list of `YYYY-MM-DD-<id>` — the same spelling as `/export`, and
+the pair rather than the short id alone, because an id is only unique within its
+date. At most fifty, which is every workout an account can hold. Duplicates are
+answered once.
+
+A plan that is not there is named in `missing` rather than failing the request.
+Between the listing a client scheduled from and the plans it asks for, a workout
+may have been deleted or moved to another day, and that is the answer to the
+question — one workout gone should not cost the caller the rest of the week.
 
 `:kind` is one of `workout-library`, `current-plan`, `scheduling-instructions`
 and `workout-zones`. Three of the four are also writable over MCP; the library

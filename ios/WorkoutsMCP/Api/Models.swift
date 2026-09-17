@@ -1,6 +1,6 @@
 // What the server sends back. The plan arrives already resolved — one duration and up
-// to two targets a step — from `GET /api/workouts/:date/:id/plan`, so nothing here has
-// to re-implement the resolver in docs/workouts.md.
+// to two targets a step — from `GET /api/workout-plans`, so nothing here has to
+// re-implement the resolver in docs/workouts.md.
 
 import Foundation
 
@@ -29,6 +29,9 @@ struct PlannedWorkout: Decodable, Identifiable, Hashable {
 
     /// How this workout is addressed, everywhere: in a URL, in a FIT file, in a scheduled plan.
     var key: String { "\(date)/\(id)" }
+    /// The same pair as `plan-ids` and `/export` spell it, with no slash to encode.
+    /// Not `PlanLink.planID`, which is what Apple's scheduler holds this workout under.
+    var slug: String { "\(date)-\(id)" }
     var isDone: Bool { completedAt != nil }
 
     var day: Date? { WorkoutDate.parse(date) }
@@ -50,6 +53,16 @@ struct ResolvedPlan: Decodable {
     let sport: String
     let subSport: String?
     let steps: [ResolvedStep]
+
+    var key: String { "\(date)/\(id)" }
+}
+
+/// `GET /api/workout-plans`: what was found, and what the server no longer has. A plan in
+/// `missing` is a workout deleted or moved since the listing, which is an answer rather
+/// than a failure — see docs/api.md.
+struct PlanBatch: Decodable {
+    let plans: [ResolvedPlan]
+    let missing: [String]
 }
 
 /// A step, or a block of them run several times. The server's `resolveSteps` shape.

@@ -11,8 +11,8 @@ struct ApiError: LocalizedError {
     var isUnauthorized: Bool { status == 401 }
 }
 
-/// `Sendable` because a sync reads several plans at once: the client itself is a URL and a
-/// closure over a stored token, and nothing here is mutated by a call.
+/// `Sendable` because a background sync holds one across tasks: the client itself is a URL
+/// and a closure over a stored token, and nothing here is mutated by a call.
 struct WorkoutsClient: Sendable {
     let server: URL
     /// Handed a fresh access token per call, because the stored one may have just been refreshed.
@@ -30,8 +30,27 @@ struct WorkoutsClient: Sendable {
         return listing.workouts
     }
 
+    /// Every plan a sync is about to schedule, in one request, keyed by `<date>/<id>`.
+    ///
+    /// One call rather than one a workout: the server reads them in a single query, and a
+    /// first sync — or the morning after a week was written — used to spend nearly all of
+    /// its time waiting out a round trip, an authentication and a read per workout. The
+    /// server caps the ask at the most workouts an account can hold, which is more than a
+    /// window of the plan can contain, so nothing here has to send them in batches.
+    func plans(for workouts: [PlannedWorkout]) async throws -> [String: ResolvedPlan] {
+        guard !workouts.isEmpty else { return [:] }
+
+        let ids = workouts.map(\.slug).joined(separator: ",")
+        let batch: PlanBatch = try await get("/api/workout-plans?plan-ids=\(ids)")
+        return Dictionary(batch.plans.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// One plan, for the screen that renders a single workout. The same route, asked for one.
     func plan(for workout: PlannedWorkout) async throws -> ResolvedPlan {
-        try await get("/api/workouts/\(workout.key)/plan")
+        guard let plan = try await plans(for: [workout])[workout.key] else {
+            throw ApiError(status: 404, message: "the server no longer has a plan for \(workout.name)")
+        }
+        return plan
     }
 
     /// The recorded session in full: the totals a listing already carries, and the laps it

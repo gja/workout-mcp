@@ -79,6 +79,22 @@ every entry must be within the limit. CI runs it alongside the typecheck, so a
 doc added without an entry, or an entry that has quietly grown, fails the
 build.
 
+### No N+1 — not in SQL, and not over HTTP
+
+A loop that issues one query, or one request, per item is a bug to fix rather
+than a shape to live with. Look for it whenever you touch code that handles a
+collection: a `for` over rows with an `await` inside it, a task group that opens
+one request a workout, a route addressed by a single id that a client is only
+ever going to call in a batch. Read the whole set in one statement, and give a
+client a route that takes the whole set — `/api/workout-plans?plan-ids=` is
+exactly that, and what it replaced was a round trip, an authentication and a
+read for every workout a sync had to place. Fanning the calls out in parallel is
+not a fix: it hides the latency and still pays for every one of them.
+
+Fix it where you find it. A batched read is not a refactor to schedule for
+later; it is what the code should have said, and the N is a plan that gets
+longer the more the athlete trains.
+
 ### Other conventions
 
 - **One door for writes.** Every change to a workout goes through
@@ -128,8 +144,9 @@ The full REST surface as one table: sign-in, account and token management,
 workout CRUD, completion, training platforms, FIT export, and the MCP tools
 over plain HTTP. Explains the `.json` suffix, why `/api/me` hands back the
 retention window rather than letting a client compute it, why 401 is answered
-before 404 under the API prefixes, and the trade-off in accepting a token as a
-query parameter on FIT downloads.
+before 404 under the API prefixes, why `/api/workout-plans` is asked for a week
+of plans at once and names what it could not find, and the trade-off in
+accepting a token as a query parameter on FIT downloads.
 
 ### [docs/prompts.md](docs/prompts.md)
 

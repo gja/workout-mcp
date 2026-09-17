@@ -161,6 +161,40 @@ export async function getWorkout(env: Env, userId: string, date: string, id: str
   return row ? parseRow(row) : null;
 }
 
+/**
+ * Several workouts by their `(date, id)` keys, in one read.
+ *
+ * One statement rather than one a key: a client scheduling a week of the plan wants
+ * every row at once, and a round trip a workout is what `/api/workout-plans` exists to
+ * stop being. A key outside the read window is simply absent, exactly as `getWorkout`
+ * answers null for one.
+ *
+ * Asked by date and narrowed to the ids here rather than as a bound pair per key: D1
+ * takes at most 100 bound parameters, and two a key runs out before the fifty workouts
+ * an account may hold. The window is two dozen days wide, so the dates cannot, and this
+ * stays one query at any size. What it over-reads is a day's other workouts.
+ */
+export async function getWorkouts(
+  env: Env,
+  userId: string,
+  keys: readonly { date: string; id: string }[],
+): Promise<Workout[]> {
+  const window = readWindow();
+  const wanted = keys.filter((key) => key.date >= window.from && key.date <= window.to);
+  if (wanted.length === 0) return [];
+
+  const dates = [...new Set(wanted.map((key) => key.date))];
+  const { results } = await env.DB.prepare(
+    `SELECT ${WORKOUT_COLUMNS} FROM workouts
+     WHERE user_id = ? AND date IN (${dates.map(() => '?').join(', ')}) ORDER BY date, created_at`,
+  )
+    .bind(userId, ...dates)
+    .all<WorkoutRow>();
+
+  const asked = new Set(wanted.map((key) => `${key.date}/${key.id}`));
+  return (results ?? []).filter((row) => asked.has(`${row.date}/${row.id}`)).map(parseRow);
+}
+
 // Not narrowed to the read window: the key's unique index is not either.
 export async function findByExternalId(
   env: Env,
