@@ -155,17 +155,8 @@ that fails on a machine whose newest installed runtime is older than the newest 
 exists. `xcodebuild -showdestinations -project ios/WorkoutsMCP.xcodeproj -scheme WorkoutsMCP`
 lists what this machine actually has.
 
-Then run it on a real iPhone, which is the only place HealthKit has data and
-`WorkoutScheduler` does anything — ⌘R with the phone selected, or:
-
-```bash
-ios/run.sh Dust                 # the name the phone calls itself, or its UDID
-IOS_DEVICE=Dust ios/run.sh      # or set it once
-```
-
-which compiles, installs and launches, and prints the connected devices if you do not
-name one. It reads the bundle id out of the build settings rather than having it written
-down, so it still works for a fork that signs as itself.
+Then run it on a real iPhone (⌘R with the phone selected), which is the only place
+HealthKit has data and `WorkoutScheduler` does anything.
 
 ### Every build
 
