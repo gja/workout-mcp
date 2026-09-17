@@ -156,8 +156,9 @@ is signed in.
 
 At the top, the one line the sync exists to make true: *Synced to Apple Fitness · 8 planned
 workouts · 2 min ago*, and tapping it syncs again. Opening the app syncs on its own when the
-last one was over half an hour ago, because a status line that is merely the last thing that
-happened is worse than none. It sits above the plan rather than in Settings because it is a
+last one was over four hours ago, or when the plan it has just read is not the one that
+reached the watch — because a status line that is merely the last thing that happened is
+worse than none. It sits above the plan rather than in Settings because it is a
 fact about the plan underneath it — "is this on my watch" is read in the same glance as
 "what is on Saturday", not on a screen the athlete goes looking for.
 
@@ -260,6 +261,22 @@ resyncing ten minutes later lands on the same time and does not rewrite the watc
 nothing. Seven ahead rather than the fourteen the server holds: the far end of a fortnight
 is a plan still being edited, and putting it on the watch is a list to scroll past.
 
+**And most of a sync sends nothing at all.** Everything a scheduled workout is built from
+comes off the server, and the listing says when the server last wrote each workout — so a
+workout whose `updated_at` has not moved, scheduled for the minute it is already scheduled
+for, would land on the watch exactly as it already stands. Those are skipped: no
+`GET .../plan` for them, and nothing written to the scheduler. The app remembers what it
+placed, and checks that against what `WorkoutScheduler` is actually holding rather than
+trusting its own record — a plan the athlete deleted in the Workout app is gone, and putting
+it back is the point of looking. A sync with nothing to do is then the listing and one read
+of the scheduler; the prune is skipped on the same evidence, since a plan that is what was
+last placed has nothing left over to take off.
+
+The plans that *are* needed are fetched together rather than one after another. They are
+separate rows on the server with nothing to order them, and a first sync — or the morning
+after a week was written — otherwise spends nearly all of its time waiting out a round trip
+per workout. The scheduler is still written to one workout at a time.
+
 ### And with the app shut
 
 HealthKit launches the app in the background when a workout is saved, which is the only way
@@ -283,7 +300,10 @@ without anybody opening anything, and none of it is urgent to the minute.
 
 A turn asks for the next one before it does any work, since iOS holds one request per
 identifier and never repeats one on its own — a turn that is cut short and did not re-arm
-would be the last there ever was. Signed out, or a server that cannot be reached, is not
+would be the last there ever was. A turn granted within four hours of the last sync — iOS
+decides, and it can be sooner than what was asked for, or twice in a morning the app was
+opened in — stands down before reading anything, since reading the plan is the round trip it
+would be saving. Signed out, or a server that cannot be reached, is not
 recorded anywhere: there is nobody to tell, and the next turn tries again.
 
 What that turn runs is `Plan/PlanSync.swift`, which is what the athlete's own tap runs too.
@@ -321,10 +341,12 @@ URL type and nothing else on the phone can be handed the authorization code.
 
 The FIT file is written to the temporary directory so it can be shared, and posted from
 there. Nothing else about a session is stored on the phone: no copy of the recording, no
-cache of the plan, no credential outside the keychain. The only thing that persists is the
-index from a WorkoutKit plan id to a workout key, which is a few hundred short strings in
-`UserDefaults` and is what lets a session recorded a fortnight later still name the plan
-it was for.
+cache of the plan, no credential outside the keychain. What persists is two indexes, both a
+few hundred short strings in `UserDefaults`: from a WorkoutKit plan id to a workout key,
+which is what lets a session recorded a fortnight later still name the plan it was for; and
+from a workout key to the revision of it that was scheduled, which is what lets a sync leave
+a workout alone. Neither is a copy of the plan — the second holds a timestamp and a minute,
+and is forgotten for the same workouts a prune takes off the watch.
 
 ## Open source, no secrets
 

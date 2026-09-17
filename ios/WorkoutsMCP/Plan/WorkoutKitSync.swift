@@ -22,20 +22,35 @@ enum PlanSyncError: LocalizedError {
 }
 
 enum WorkoutKitSync {
-    /// Asked once; the answer is remembered by the system, not here.
-    @discardableResult
-    static func authorize() async -> WorkoutScheduler.AuthorizationState {
-        await WorkoutScheduler.shared.requestAuthorization()
+    /// Asked for if it has not been given, and then insisted on. Once a sync rather than
+    /// once a workout: every call into the scheduler crosses to a system service, and the
+    /// answer cannot change in the middle of one. The asking itself is remembered by the
+    /// system and not here, so a second sync does not ask again.
+    static func requireAuthorization() async throws {
+        guard await WorkoutScheduler.shared.requestAuthorization() == .authorized else {
+            throw PlanSyncError.notAuthorized
+        }
     }
 
-    static func isAuthorized() async -> Bool {
-        await WorkoutScheduler.shared.authorizationState == .authorized
+    /// What the scheduler is holding, read once. Nothing outside this file is given
+    /// WorkoutKit's own type for it, so a caller can carry the reading around and still not
+    /// know what a scheduled workout is; `ids` is all one needs to ask whether a plan it
+    /// placed is still there.
+    struct Schedule {
+        fileprivate let workouts: [ScheduledWorkoutPlan]
+        let ids: Set<UUID>
+    }
+
+    /// Read once a sync and handed to everything below. Asked per workout, this was the same
+    /// question to the same system service as many times as there were workouts, and a sync
+    /// that changes nothing should ask it once.
+    static func scheduled() async -> Schedule {
+        let workouts = await WorkoutScheduler.shared.scheduledWorkouts
+        return Schedule(workouts: workouts, ids: Set(workouts.map(\.plan.id)))
     }
 
     /// Puts one planned workout on the athlete's watch, at `time` on the day it is planned for.
-    static func schedule(_ plan: ResolvedPlan, at time: Date) async throws {
-        guard await isAuthorized() else { throw PlanSyncError.notAuthorized }
-
+    static func schedule(_ plan: ResolvedPlan, at time: Date, replacing existing: Schedule) async throws {
         let custom = try build(plan)
         let key = "\(plan.date)/\(plan.id)"
         let planID = PlanLink.planID(for: key)
@@ -43,7 +58,9 @@ enum WorkoutKitSync {
 
         // Replaced rather than added to: the id is derived from the key, so an edit upstream
         // that is re-sent lands on the same plan instead of leaving the old one on the watch.
-        await remove(planID: planID)
+        for scheduled in existing.workouts where scheduled.plan.id == planID {
+            await WorkoutScheduler.shared.remove(scheduled.plan, at: scheduled.date)
+        }
         await WorkoutScheduler.shared.schedule(WorkoutPlan(.custom(custom), id: planID), at: when)
         PlanLink.remember(planID: planID, for: key)
     }
@@ -51,15 +68,9 @@ enum WorkoutKitSync {
     /// Takes off the watch anything this app put there that the plan no longer has — a
     /// workout deleted or moved upstream, which would otherwise sit there being wrong.
     /// Only plans this app scheduled are touched; anything else the athlete follows is not ours.
-    static func pruneTo(keys: Set<String>) async {
-        for scheduled in await WorkoutScheduler.shared.scheduledWorkouts {
+    static func pruneTo(keys: Set<String>, among existing: Schedule) async {
+        for scheduled in existing.workouts {
             guard let key = PlanLink.workoutKey(forPlan: scheduled.plan.id), !keys.contains(key) else { continue }
-            await WorkoutScheduler.shared.remove(scheduled.plan, at: scheduled.date)
-        }
-    }
-
-    private static func remove(planID: UUID) async {
-        for scheduled in await WorkoutScheduler.shared.scheduledWorkouts where scheduled.plan.id == planID {
             await WorkoutScheduler.shared.remove(scheduled.plan, at: scheduled.date)
         }
     }

@@ -68,9 +68,6 @@ final class AppModel: ObservableObject {
     private let recentDays = 7
     private let plannedDays = 14
 
-    /// How stale a sync has to be before opening the app does one on its own.
-    private let resyncAfter: TimeInterval = 30 * 60
-
     init() {
         // Whatever last reached the watch, including a turn iOS granted `PlanRefresh` in the
         // night: the status line is about the watch, not about this run of the app.
@@ -163,16 +160,18 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Opening the app syncs, unless it already did recently: the status line claims the plan
-    /// is on the watch, so it has to have put it there.
+    /// Opening the app syncs, unless the watch already holds this plan: the status line
+    /// claims it is there, so it has to have put it there.
+    ///
+    /// Both halves of that are `PlanSync`'s to answer — four hours since the last sync, or a
+    /// plan that is not the one that was placed — and the second is why an edit made ten
+    /// minutes ago still reaches the watch on opening the app.
     func refreshAndSyncIfStale(using client: WorkoutsClient?) async {
         await refresh(using: client)
 
-        switch sync {
-        case .synced(let at, _) where Date().timeIntervalSince(at) < resyncAfter: return
-        case .syncing: return
-        default: await syncToAppleFitness(using: client)
-        }
+        if case .syncing = sync { return }
+        guard PlanSync.isStale || PlanSync.hasChanged(PlanSync.due(in: workouts)) else { return }
+        await syncToAppleFitness(using: client)
     }
 
     // --- Out to Apple -------------------------------------------------------------------------
