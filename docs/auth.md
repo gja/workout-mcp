@@ -183,6 +183,18 @@ and it answers with a freshly minted `wk_` token. An app does the ordinary
 authorization-code round trip with PKCE, trades the grant once, throws the grant
 away, and holds the same credential every other REST caller holds.
 
+**Behind a scope of its own**, `app-token`, because the credential it hands back
+outlives the grant it came from: disconnecting the app on the dashboard would no
+longer take its access away. That is a real escalation for a client that only
+asked to read a plan, and exactly the kind that arrives by accident — so a client
+that wants it asks for it by name, the consent page shows what was asked for, and
+a grant carrying only `workouts` is refused with a 403. Which is what every MCP
+client got before this route existed.
+
+The granted scopes travel on the grant's props, which is the only reason the
+route can tell. Nothing else reads them: `/mcp` is reached by both scopes and by
+a `wk_` token, and neither is more privileged there.
+
 Which is the point of doing it this way rather than the two alternatives. Asking
 the athlete to paste a token is a sign-in flow nobody enjoys, and inventing a
 second browser handshake that redirects a token back to the app means writing an

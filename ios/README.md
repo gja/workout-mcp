@@ -56,8 +56,8 @@ Xcode resolves the one package dependency on first open. Then, once:
    it. The phone needs **Developer Mode** on — *Settings › Privacy & Security › Developer
    Mode*, which asks for a restart — and iOS 18 or newer.
 
-On first launch it asks for the server (`workouts-mcp.com` is filled in), then for Health
-and for permission to schedule workouts. Both permission sheets are the system's, and
+On first launch it asks you to sign in, then for Health and for permission to schedule
+workouts. Both permission sheets are the system's, and
 declining either leaves the app running with that half switched off rather than broken.
 
 ## Dependencies
@@ -76,20 +76,22 @@ shorter than this table.
 
 ## Signing in
 
-The app asks for the address of the deployment and nothing else. It discovers the
-authorization server from `/.well-known/oauth-authorization-server`, registers itself
-(RFC 7591), and runs an authorization code flow with PKCE in an
-`ASWebAuthenticationSession` — so the Google or Apple sign-in happens on the server's own
-consent page and this app never sees a password.
+One button. The deployment is a constant in `Auth/AppSession.swift` —
+`workouts-mcp.com` — rather than a field to fill in: asking an athlete for a hostname
+before they can sign in is a question almost none of them can answer, and the one who can
+is reading this and can change the line.
+
+The app discovers the authorization server from
+`/.well-known/oauth-authorization-server`, registers itself (RFC 7591), and runs an
+authorization code flow with PKCE in an `ASWebAuthenticationSession` — so the Google or
+Apple sign-in happens on the server's own consent page and this app never sees a password.
 
 It then trades the grant at `POST /api/app-token` for an ordinary `wk_` token and keeps
-that in the keychain, because an OAuth access token reaches `/mcp` and not `/api/`. The
-token shows up on the dashboard under *API tokens* as **WorkoutsMCP for iOS**; revoking
-it there signs the app out. See
+that in the keychain, because an OAuth access token reaches `/mcp` and not `/api/`. That
+trade is behind its own `app-token` scope, which this app asks for and an MCP client does
+not. The token shows up on the dashboard under *API tokens* as **WorkoutsMCP for iOS**;
+revoking it there signs the app out. See
 [docs/auth.md](../docs/auth.md#a-native-app-signs-in-through-the-browser-and-ends-up-with-a-token).
-
-A `wk_` token minted on the dashboard and pasted in works too, under *Use an API token
-instead*, for a deployment where the browser round trip is not wanted.
 
 ## What it does
 

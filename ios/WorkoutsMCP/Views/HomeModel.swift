@@ -18,6 +18,9 @@ enum SyncPhase: Equatable {
 @MainActor
 final class HomeModel: ObservableObject {
     @Published private(set) var workouts: [PlannedWorkout] = []
+    /// Whether `workouts` is the plan or just the last thing that loaded. A failed listing
+    /// looks exactly like an empty one, and the two mean opposite things to a prune.
+    private var planIsKnown = false
     @Published private(set) var activities: [HKWorkout] = []
     @Published private(set) var sync: SyncPhase = .never
     @Published var loading = false
@@ -55,6 +58,7 @@ final class HomeModel: ObservableObject {
             let from = Calendar.current.date(byAdding: .day, value: -recentDays, to: Date()) ?? Date()
             let to = Calendar.current.date(byAdding: .day, value: plannedDays, to: Date()) ?? Date()
             workouts = try await client.workouts(from: from, to: to).sorted { $0.date < $1.date }
+            planIsKnown = true
             problem = nil
         } catch {
             problem = error.localizedDescription
@@ -92,6 +96,10 @@ final class HomeModel: ObservableObject {
     }
 
     private func performSync(using client: WorkoutsClient) async {
+        guard planIsKnown else {
+            sync = .failed("could not read your plan")
+            return
+        }
         let today = WorkoutDate.string(Date())
         let due = workouts.filter { $0.date >= today && !$0.isDone }
 
@@ -120,9 +128,13 @@ final class HomeModel: ObservableObject {
         sync = .synced(at: at, count: placed)
     }
 
+    /// Early on the day it is planned for — but never in the past, which is where the small
+    /// hours of this morning are by the time anybody opens the app, and where the scheduler
+    /// would have nothing to show for it.
     private func scheduledTime(for workout: PlannedWorkout) -> Date {
         let day = workout.day ?? Date()
-        return Calendar.current.date(bySettingHour: scheduledHour, minute: 0, second: 0, of: day) ?? day
+        let early = Calendar.current.date(bySettingHour: scheduledHour, minute: 0, second: 0, of: day) ?? day
+        return max(early, Date().addingTimeInterval(60))
     }
 
     // --- Back from Apple -------------------------------------------------------------------

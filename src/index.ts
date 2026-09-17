@@ -10,12 +10,12 @@ import * as identity from './identity';
 import type { Env, User } from './db';
 import { handleMcp } from './mcp';
 import * as platforms from './platforms';
-import { SCOPE } from './routes/oauth';
+import { APP_TOKEN_SCOPE, SCOPE } from './routes/oauth';
 import { ToolError } from './tools';
 import { WorkoutError } from './workout';
 
 /** What `completeAuthorization` stores on the grant, and hands back here. */
-type AuthProps = { userId: string; email: string | null };
+type AuthProps = { userId: string; email: string | null; scope?: string[] };
 
 /** Spelled as `wrangler.jsonc` spells them. The third is the hourly completion pass. */
 const NIGHTLY = '0 3 * * *';
@@ -31,6 +31,11 @@ const DRIVE = '40 * * * *';
  * is the third: one route, owned by the provider so the grant is checked by the library
  * that issued it, handing back a `wk_` token that the athlete can see and revoke on the
  * dashboard like any other.
+ *
+ * Behind its own scope, because the token outlives the grant: disconnecting the app would
+ * not take back a credential minted from it. A client that wants that has to ask for it by
+ * name, and the athlete approves it by name. An MCP client asking only for `workouts` is
+ * refused here, which is what it was before this route existed.
  */
 const appTokenHandler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -38,6 +43,9 @@ const appTokenHandler = {
 
     const props = (ctx as ExecutionContext & { props?: AuthProps }).props;
     if (!props?.userId) return Response.json({ error: 'no authenticated user' }, { status: 401 });
+    if (!props.scope?.includes(APP_TOKEN_SCOPE)) {
+      return Response.json({ error: `this grant did not ask for the ${APP_TOKEN_SCOPE} scope` }, { status: 403 });
+    }
 
     const body = (await request.json().catch(() => ({}))) as { name?: unknown };
     const name = typeof body.name === 'string' ? body.name.trim().slice(0, 60) : '';
@@ -70,7 +78,7 @@ const provider = new OAuthProvider<Env>({
   clientRegistrationEndpoint: '/oauth/register',
   authorizeEndpoint: '/oauth/authorize',
 
-  scopesSupported: [SCOPE],
+  scopesSupported: [SCOPE, APP_TOKEN_SCOPE],
 
   // `resourceMetadata` is left unset on purpose, so the provider derives it per request.
 

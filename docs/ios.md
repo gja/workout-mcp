@@ -145,9 +145,14 @@ OAuth access token reaches `/mcp` and nothing else, and this app wants the REST 
 exchange and why it is one route rather than a second handshake are in
 [auth.md](auth.md#a-native-app-signs-in-through-the-browser-and-ends-up-with-a-token).
 What the app keeps is an ordinary `wk_` token, in the keychain — listed on the dashboard
-under *API tokens* as "WorkoutsMCP for iOS", and revoking it there signs the app out. A
-token pasted in by hand works just as well, for a deployment where the browser round trip
-is not wanted.
+under *API tokens* as "WorkoutsMCP for iOS", and revoking it there signs the app out. The
+trade is behind its own `app-token` scope, which this app asks for and an MCP client does
+not; [auth.md](auth.md#a-native-app-signs-in-through-the-browser-and-ends-up-with-a-token)
+says why.
+
+There is no second door. Pasting a `wk_` token was offered at first and taken out: it is a
+worse sign-in for everybody who has a browser, and the athlete who genuinely needs one is
+using the dashboard or an MCP client rather than this.
 
 `ASWebAuthenticationSession` claims its callback scheme itself, so the app registers no
 URL type and nothing else on the phone can be handed the authorization code.

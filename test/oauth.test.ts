@@ -45,6 +45,8 @@ async function pkce(): Promise<{ verifier: string; challenge: string }> {
   return { verifier, challenge: base64url(digest) };
 }
 
+const APP_SCOPE = 'workouts app-token';
+
 const authorizeQuery = (clientId: string, challenge: string, extra: Record<string, string> = {}) =>
   new URLSearchParams({
     response_type: 'code',
@@ -57,11 +59,11 @@ const authorizeQuery = (clientId: string, challenge: string, extra: Record<strin
   }).toString();
 
 /** Register, sign in, approve — and hand back the authorization code. */
-async function authorizeUpToCode() {
+async function authorizeUpToCode(scope?: string) {
   const client = await registerClient();
   const cookie = await sessionCookieFor();
   const { verifier, challenge } = await pkce();
-  const query = authorizeQuery(client.client_id, challenge);
+  const query = authorizeQuery(client.client_id, challenge, scope ? { scope } : {});
 
   const granted = await SELF.fetch(`${BASE}/oauth/authorize?${query}`, {
     method: 'POST',
@@ -90,7 +92,7 @@ const listTools = (token: string) => mcpFetch(token, 'tools/list');
 
 describe('trading a grant for an API token', () => {
   const exchangeFor = async (): Promise<string> => {
-    const { client, verifier, code } = await authorizeUpToCode();
+    const { client, verifier, code } = await authorizeUpToCode(APP_SCOPE);
     const { access_token: accessToken } = (await (await exchange(client.client_id, code, verifier)).json()) as {
       access_token: string;
     };
@@ -122,6 +124,19 @@ describe('trading a grant for an API token', () => {
   it('is not reachable without a grant', async () => {
     expect((await postJson('/api/app-token', {})).status).toBe(401);
   });
+
+  // The token outlives the grant, so a client that only asked to read the plan does not
+  // get to mint one: disconnecting it on the dashboard has to be the end of its access.
+  it('refuses a grant that did not ask for the scope', async () => {
+    const { client, verifier, code } = await authorizeUpToCode();
+    const { access_token: accessToken } = (await (await exchange(client.client_id, code, verifier)).json()) as {
+      access_token: string;
+    };
+
+    const response = await postJson('/api/app-token', {}, { Authorization: `Bearer ${accessToken}` });
+    expect(response.status).toBe(403);
+    expect(((await response.json()) as { error: string }).error).toMatch(/app-token scope/);
+  });
 });
 
 describe('discovery', () => {
@@ -143,7 +158,7 @@ describe('discovery', () => {
       token_endpoint: `${BASE}/oauth/token`,
       registration_endpoint: `${BASE}/oauth/register`,
       code_challenge_methods_supported: ['S256'],
-      scopes_supported: ['workouts'],
+      scopes_supported: ['workouts', 'app-token'],
     });
   });
 });

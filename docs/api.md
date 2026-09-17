@@ -15,7 +15,7 @@ session cookie set at login.
 | `GET /api/me` | Who you are, and the retention window |
 | `GET /api/tokens` | List API tokens |
 | `POST /api/tokens` | `{name}` — mint an API token, returned once |
-| `POST /api/app-token` | `{name}` — the same, for a native app holding an OAuth grant rather than a cookie |
+| `POST /api/app-token` | `{name}` — the same, for a native app holding an OAuth grant rather than a cookie; needs the `app-token` scope |
 | `DELETE /api/tokens/:prefix` | Revoke one |
 | `GET /api/connections` | List OAuth grants (connected MCP clients) |
 | `DELETE /api/connections/:id` | Disconnect one |

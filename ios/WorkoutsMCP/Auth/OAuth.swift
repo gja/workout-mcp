@@ -74,7 +74,9 @@ final class OAuth: NSObject {
     /// session that opened it, so the app registers no URL type for it.
     static let callbackScheme = "workoutsmcp"
     private static let redirectURI = "\(callbackScheme)://oauth"
-    private static let scope = "workouts"
+    /// `app-token` is what lets the grant be traded for the credential the REST API takes,
+    /// and it is a scope of its own so the athlete approves it by name. See docs/auth.md.
+    private static let scope = "workouts app-token"
     private static let appName = "WorkoutsMCP for iOS"
 
     private var session: ASWebAuthenticationSession?

@@ -17,6 +17,9 @@ enum PlanAlerts {
             return nil
 
         case .zone(let metric, let zone):
+            // The plan allows seven zones and the watch has five. Clamping would put the
+            // athlete in zone 5 for a zone 7 rep and say nothing; no alert says no alert.
+            guard (1 ... 5).contains(zone) else { return nil }
             switch metric {
             case "heart_rate": return HeartRateZoneAlert(zone: zone)
             case "power": return PowerZoneAlert(zone: zone)
@@ -57,11 +60,11 @@ enum PlanAlerts {
 
     /// Lowest end first, whatever order the two arrived in: `a ... b` traps when `a > b`, and
     /// a band written backwards is a crash rather than a rejected workout.
-    private static func band<Unit>(
+    private static func band<Scale: Dimension>(
         _ first: Double,
         _ second: Double,
-        _ measure: (Double) -> Measurement<Unit>
-    ) -> ClosedRange<Measurement<Unit>> {
+        _ measure: (Double) -> Measurement<Scale>
+    ) -> ClosedRange<Measurement<Scale>> {
         measure(min(first, second)) ... measure(max(first, second))
     }
 }

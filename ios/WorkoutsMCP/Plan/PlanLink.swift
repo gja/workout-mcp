@@ -22,14 +22,30 @@ enum PlanLink {
 
     private static let defaultsKey = "plan-links"
 
+    /// How long a link is worth keeping. The server holds three weeks; a month covers that
+    /// and the session recorded at the far end of it.
+    private static let keepDays = 31
+
     /// Remembered when a workout is scheduled, so a session recorded weeks later still names
     /// the plan it was for — the id is derivable, but only from a workout still in the listing.
     static func remember(planID: UUID, for key: String) {
         var links = all()
         links[planID.uuidString] = key
-        // Keeping the last few hundred is plenty: the server only holds three weeks anyway.
-        if links.count > 500 { links = Dictionary(uniqueKeysWithValues: Array(links.suffix(400))) }
-        UserDefaults.standard.set(links, forKey: defaultsKey)
+        UserDefaults.standard.set(pruned(links), forKey: defaultsKey)
+    }
+
+    /// Dropped by the date in the key rather than by count. A dictionary has no order, so
+    /// trimming one by position throws away an arbitrary set — including, often enough, the
+    /// link just written, which is the one thing here that must survive.
+    private static func pruned(_ links: [String: String]) -> [String: String] {
+        guard let oldest = Calendar.current.date(byAdding: .day, value: -keepDays, to: Date()) else { return links }
+        let cutoff = WorkoutDate.string(oldest)
+
+        return links.filter { _, key in
+            // `<date>/<id>`; anything that is not is left alone rather than guessed about.
+            guard let date = key.split(separator: "/").first, date.count == 10 else { return true }
+            return String(date) >= cutoff
+        }
     }
 
     static func workoutKey(forPlan planID: UUID) -> String? {

@@ -96,6 +96,16 @@ enum SessionReader {
             let index = Int(time.timeIntervalSince(start).rounded())
             return (0 ..< count).contains(index) ? index : nil
         }
+
+        /// The seconds a sample covers, clipped to the session. A watch routinely writes a
+        /// reading that starts a moment before the workout did or ends after it stopped, and
+        /// dropping those loses the first heart rate of every run.
+        func span(from: Date, to: Date) -> ClosedRange<Int>? {
+            let first = Int(from.timeIntervalSince(start).rounded())
+            let last = Int(to.timeIntervalSince(start).rounded())
+            guard last >= 0, first < count else { return nil }
+            return max(0, first) ... min(count - 1, max(0, last))
+        }
     }
 
     /// Each sample held across the seconds it covers, which is how a watch writes them: one
@@ -116,10 +126,8 @@ enum SessionReader {
                 guard seconds > 0 else { continue }
                 value /= seconds
             }
-            guard value > 0, let from = timeline.slot(sample.startDate) else { continue }
-
-            let to = timeline.slot(sample.endDate) ?? from
-            for index in from ... max(from, to) { assign(&filled[index], value) }
+            guard value > 0, let span = timeline.span(from: sample.startDate, to: sample.endDate) else { continue }
+            for index in span { assign(&filled[index], value) }
         }
     }
 
@@ -137,8 +145,9 @@ enum SessionReader {
 
         for sample in samples {
             total += sample.quantity.doubleValue(for: unit)
-            guard let index = timeline.slot(sample.endDate) ?? timeline.slot(sample.startDate) else { continue }
-            marks[index] = total
+            guard let span = timeline.span(from: sample.startDate, to: sample.endDate) else { continue }
+            // The total stands from the moment the sample it came from ended.
+            marks[span.upperBound] = total
         }
         guard total > 0 else { return }
 
