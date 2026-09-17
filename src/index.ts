@@ -21,6 +21,32 @@ type AuthProps = { userId: string; email: string | null };
 const NIGHTLY = '0 3 * * *';
 const DRIVE = '40 * * * *';
 
+/**
+ * A grant, traded once for the credential the REST API takes. See docs/auth.md.
+ *
+ * The provider validates OAuth tokens on the routes it owns and nowhere else, so an
+ * access token reaches `/mcp` and would 401 against `/api/`. A native app that has just
+ * signed a browser round trip therefore holds the wrong kind of credential, and its only
+ * ways out were pasting a token by hand or a second auth surface invented for it. This
+ * is the third: one route, owned by the provider so the grant is checked by the library
+ * that issued it, handing back a `wk_` token that the athlete can see and revoke on the
+ * dashboard like any other.
+ */
+const appTokenHandler = {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    if (request.method !== 'POST') return Response.json({ error: 'POST an app token request' }, { status: 405 });
+
+    const props = (ctx as ExecutionContext & { props?: AuthProps }).props;
+    if (!props?.userId) return Response.json({ error: 'no authenticated user' }, { status: 401 });
+
+    const body = (await request.json().catch(() => ({}))) as { name?: unknown };
+    const name = typeof body.name === 'string' ? body.name.trim().slice(0, 60) : '';
+    const issued = await auth.issueToken(env, props.userId, name || 'A native app');
+
+    return Response.json(issued, { headers: { 'Access-Control-Allow-Origin': '*' } });
+  },
+} satisfies ExportedHandler<Env>;
+
 const mcpHandler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (request.method !== 'POST') return Response.json({ error: 'MCP requires POST' }, { status: 405 });
@@ -36,8 +62,7 @@ const mcpHandler = {
 } satisfies ExportedHandler<Env>;
 
 const provider = new OAuthProvider<Env>({
-  apiRoute: '/mcp',
-  apiHandler: mcpHandler,
+  apiHandlers: { '/mcp': mcpHandler, '/api/app-token': appTokenHandler },
   defaultHandler: app,
 
   // The authorize endpoint is ours: only we know how to sign someone in.

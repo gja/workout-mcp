@@ -168,3 +168,29 @@ because it has to be replayed on every push. See
 An MCP client gets its own grant rather than a pasted token. That half is
 [`@cloudflare/workers-oauth-provider`](https://github.com/cloudflare/workers-oauth-provider),
 which owns everything except the consent page — see [mcp.md](mcp.md).
+
+## A native app signs in through the browser, and ends up with a token
+
+The provider validates OAuth tokens on the routes it owns and nowhere else, so
+an access token reaches `/mcp` and would be a 401 against `/api/`. `withUser`
+resolves a session cookie or a `wk_` token, and an access token is neither.
+That is fine for an MCP client, which only ever calls `/mcp`, and no use at all
+to an app that wants the REST API — which is what the [iOS app](ios.md) is.
+
+`POST /api/app-token` closes that gap in one route. It is registered as an API
+route on the provider, so the grant is checked by the library that issued it,
+and it answers with a freshly minted `wk_` token. An app does the ordinary
+authorization-code round trip with PKCE, trades the grant once, throws the grant
+away, and holds the same credential every other REST caller holds.
+
+Which is the point of doing it this way rather than the two alternatives. Asking
+the athlete to paste a token is a sign-in flow nobody enjoys, and inventing a
+second browser handshake that redirects a token back to the app means writing an
+auth protocol. This writes none: the round trip is the one MCP clients already
+do, and the credential is the one the dashboard already lists and revokes. A
+token issued this way appears under *API tokens* with the app's name, and
+revoking it there signs the app out.
+
+It is the only route under `/api/` that a session cookie does **not** reach, for
+the same reason: the provider owns it, and the provider only understands bearer
+tokens.

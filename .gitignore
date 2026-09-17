@@ -4,3 +4,9 @@ worker-configuration.d.ts
 .dev.vars
 .DS_Store
 dist/
+
+# Xcode
+ios/**/xcuserdata/
+ios/**/*.xcuserstate
+ios/build/
+DerivedData/

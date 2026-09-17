@@ -8,6 +8,9 @@ as stats against the workout they were for, your note on how each one went
 travels between the two, and the files themselves are downloadable as a zip to
 analyse wherever you like.
 
+There is an iPhone app in [`ios/`](ios/) too: it sends the plan to Apple Fitness
+through WorkoutKit, and sends the recorded session back as a FIT file.
+
 New here? Start with [docs/deployment.md](docs/deployment.md) to get it
 running, then [docs/workouts.md](docs/workouts.md) to write one.
 
@@ -203,6 +206,15 @@ stores steps flat, so nested repeats are flattened with the repeat emitted
 after its children. An open range end is an absent field, not a zero. And the
 encoder's 500 MB buffer request has to be clamped or production workerd refuses
 it outright.
+
+### [docs/ios.md](docs/ios.md)
+
+The iPhone app in `ios/`, and why it has no watch app: the plan is scheduled through
+WorkoutKit, so Apple's own Workout app runs it. Covers how a resolved plan becomes a
+`CustomWorkout`, which two kinds of target are dropped rather than guessed at, how
+HealthKit's disagreeing series become a second-by-second recording, and the developer
+field that carries the workout id inside the FIT file the phone writes. Signing in is
+the same OAuth door an MCP client comes through.
 
 ### [docs/testing.md](docs/testing.md)
 

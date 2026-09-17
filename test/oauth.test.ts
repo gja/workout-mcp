@@ -88,6 +88,42 @@ const exchange = (clientId: string, code: string, verifier: string) =>
 
 const listTools = (token: string) => mcpFetch(token, 'tools/list');
 
+describe('trading a grant for an API token', () => {
+  const exchangeFor = async (): Promise<string> => {
+    const { client, verifier, code } = await authorizeUpToCode();
+    const { access_token: accessToken } = (await (await exchange(client.client_id, code, verifier)).json()) as {
+      access_token: string;
+    };
+
+    const response = await postJson('/api/app-token', { name: 'WorkoutsMCP for iOS' }, {
+      Authorization: `Bearer ${accessToken}`,
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+    return ((await response.json()) as { token: string }).token;
+  };
+
+  it('hands back a wk_ token that reaches the REST API', async () => {
+    const token = await exchangeFor();
+    expect(token.startsWith('wk_')).toBe(true);
+
+    const me = await SELF.fetch(`${BASE}/api/me`, { headers: { Authorization: `Bearer ${token}` } });
+    expect(me.status).toBe(200);
+  });
+
+  it('shows up on the dashboard, to be revoked like any other', async () => {
+    await exchangeFor();
+    const cookie = await sessionCookieFor();
+    const listed = (await (await SELF.fetch(`${BASE}/api/tokens`, { headers: { Cookie: cookie } })).json()) as {
+      tokens: Array<{ name: string }>;
+    };
+    expect(listed.tokens.map((entry) => entry.name)).toContain('WorkoutsMCP for iOS');
+  });
+
+  it('is not reachable without a grant', async () => {
+    expect((await postJson('/api/app-token', {})).status).toBe(401);
+  });
+});
+
 describe('discovery', () => {
   it('publishes protected-resource metadata for /mcp', async () => {
     const response = await SELF.fetch(`${BASE}/.well-known/oauth-protected-resource/mcp`);
