@@ -2,13 +2,14 @@
 
 # workout-mcp
 
-Plan structured workouts over MCP or a plain REST API, then export them as
-Garmin **FIT** workout files. One Cloudflare Worker, a D1 database, and a
-static dashboard, all on the free tier. Sign in with Google or Apple; connect
-intervals.icu and the plan syncs both ways: the sessions you record come back
-as stats against the workout they were for, your note on how each one went
-travels between the two, and the files themselves are downloadable as a zip to
-analyse wherever you like.
+**Plan, execute and analyze your workouts with AI.** Over MCP or a plain REST
+API: the plan goes out to a watch as a Garmin **FIT** workout file, and the
+session recorded against it comes back as numbers. One Cloudflare Worker, a D1
+database, and a static dashboard, all on the free tier. Sign in with Google or
+Apple; connect intervals.icu and the plan syncs both ways: the sessions you
+record come back as stats against the workout they were for, your note on how
+each one went travels between the two, and the files themselves are
+downloadable as a zip to analyse wherever you like.
 
 Running at **[workouts-mcp.com](https://workouts-mcp.com)**, and there is an iPhone app in
 [`ios/`](ios/) too: it sends the plan to Apple Fitness through WorkoutKit, and sends the

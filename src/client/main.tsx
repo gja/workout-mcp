@@ -108,10 +108,7 @@ function App() {
       <header className="masthead">
         <div>
           <h1>WorkoutsMCP</h1>
-          <p className="sub">
-            Plan structured workouts with an assistant, sync them to your training platform, and export any of them as
-            a Garmin FIT file.
-          </p>
+          <p className="sub">Plan, execute and analyze your workouts with AI</p>
         </div>
         {me && (
           <div className="whoami">

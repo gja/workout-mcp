@@ -108,12 +108,35 @@ revoking it there signs the app out. See
 
 ## What it does
 
-The home screen is three things.
+Three tabs.
 
-**Where the plan stands.** One line — *Synced to Apple Fitness · 8 planned workouts · 2
-minutes ago* — and tapping it syncs again. The time is coarse on purpose: *just now*, then
-minutes, then hours. A sync five seconds ago and one twenty seconds ago are the same fact. Opening the app syncs on its own if the last one was
+**Planned.** At the top, where the plan stands with Apple Fitness — one line, *Synced to
+Apple Fitness · 8 planned workouts · 2 minutes ago*, and tapping it syncs again. The time is
+coarse on purpose: *just now*, then minutes, then hours. A sync five seconds ago and one
+twenty seconds ago are the same fact. Opening the app syncs on its own if the last one was
 over half an hour ago, so the line is true rather than merely reassuring.
+
+Under it, what is coming, in the order it will be run, and a tap gets the steps — the plan
+as the server resolves it, repeats kept, each step with its duration and the band it is
+aimed at. A **Missed** section lists anything planned, past and still not done, because
+those are exactly the sessions that are still on the watch.
+
+**Executed.** Every session there is evidence of, newest first: what Health recorded on
+this phone, and what the server has already read a file for. A tick means the server has
+it. A tap opens the session as the **server** read it — the totals, a row a lap with what
+it was planned to be beside what it did, and how much of the lap was inside the band. A tap
+on a lap opens that lap in full: heart rate average, max and min, pace, power, cadence, the
+ground under it, the target with the time spent above and below, and the quarters. None of
+it is computed on the phone; it is `GET /api/workouts/:date/:id/stats`, the same document
+the dashboard reads. Under all of it, where Health has the session: *Generate .fit*, which
+builds the file on the phone, and *Upload to WorkoutsMCP*, which posts it.
+
+Which planned workout a session was is shown as a fact with a link to the plan, and is not
+a field to edit. It comes from the plan id the watch recorded, or from the one workout of
+that sport planned for that day — and where it is neither, the session says so rather than
+offering a menu to guess from.
+
+**Settings.** Who is signed in, which deployment this build talks to, and **Log out**.
 
 What goes to the watch is **two days back to seven days ahead**, minus anything already
 done. Back as well as forward because a day missed is a session still worth doing, and a
@@ -121,12 +144,6 @@ past-dated one is scheduled for the next whole hour so it is reachable today. Se
 rather than the fourteen the server holds, because the far end of a fortnight has not
 settled yet. Anything this app put on the watch that is no longer in that window — done,
 older than two days, or deleted upstream — comes off.
-
-**The last 7 days**, from Health: every run and ride, with the planned workout it matches
-and a tick where the server already has it. Tap one for *Generate .fit*, which builds the
-file on the phone, and *Upload to WorkoutsMCP*, which posts it.
-
-**Log out.**
 
 It also works with the app shut. HealthKit launches it when a session is saved, and a
 session the **watch itself** matched to a plan is built and uploaded there and then. Only
@@ -236,7 +253,7 @@ Auth/         discovery, registration, PKCE, and the keychain
 Fit/          a recorded session, its summary figures, and the SDK call that writes it
 Health/       permission, the listing, the read that turns one into samples, the background wake
 Plan/         a resolved plan as a WorkoutKit CustomWorkout, and the id that ties them
-Views/        the home screen, a session, and signing in
+Views/        the three tabs, a workout, a session, a lap, and signing in
 ```
 
 ### What goes in the file
@@ -277,13 +294,17 @@ else still says what it was for.
 
 ### Matching a session back to its plan
 
-Three things are tried, in order:
+Two things are tried, in order:
 
 1. The **plan id** the watch recorded, looked up in the index the app wrote when it
    scheduled the workout. WorkoutKit plan ids are derived from `<date>/<id>` rather than
    allocated, so scheduling the same workout twice replaces it rather than doubling it.
 2. The **one workout of that sport planned for that day**, where there is exactly one.
-3. The athlete, from a picker, which is always there and always wins.
+
+There is no third. A picker used to be, and what it produced when the athlete picked wrong
+was a completion to undo and a page of stats about a workout that never ran. A session the
+app cannot place is shown as unplaced and is not uploaded — see
+[docs/ios.md](../docs/ios.md#the-id-in-the-file).
 
 ## What to check first if it does not compile
 
@@ -295,4 +316,4 @@ parameter, those are the two files to fix, and nothing else refers to WorkoutKit
 
 `Health/HealthAccess.swift` reads the plan id out of `HKWorkout.metadata` by key name,
 because the constant is not in the public headers. A miss there is not a failure — the
-match falls through to the day and the sport, and then to the picker.
+match falls through to the day and the sport.

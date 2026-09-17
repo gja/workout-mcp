@@ -12,13 +12,31 @@ struct PlannedWorkout: Decodable, Identifiable, Hashable {
     let subSport: String?
     let notes: String?
     let summary: String?
+    /// The athlete's own note on how it went, written after the session. Not `notes`.
+    let comment: String?
+    let tags: [String]?
     let completedAt: String?
+    /// What the plan adds up to. The server computes it on every listing, so nothing here
+    /// walks the steps to say "1 h 15 · 12 km".
+    let planned: PlannedTotals?
+    /// The recorded session's totals. The laps behind them are their own read — see
+    /// `WorkoutsClient.stats(for:)` and docs/stats.md.
+    let stats: StatsSummary?
 
     /// How this workout is addressed, everywhere: in a URL, in a FIT file, in a scheduled plan.
     var key: String { "\(date)/\(id)" }
     var isDone: Bool { completedAt != nil }
 
     var day: Date? { WorkoutDate.parse(date) }
+    var doneAt: Date? { Timestamps.parse(completedAt) }
+}
+
+/// A floor, not an estimate: `openSteps` counts the steps that run until a lap press.
+struct PlannedTotals: Decodable, Hashable {
+    let seconds: Double
+    let meters: Double
+    let steps: Int
+    let openSteps: Int
 }
 
 struct ResolvedPlan: Decodable {
@@ -92,12 +110,13 @@ enum PlanTarget: Decodable {
     case open
     case zone(metric: String, zone: Int)
     case heartRate(low: PlanBound?, high: PlanBound?)
-    /// Metres a second, both ends, however the athlete wrote the pace.
-    case speed(low: Double?, high: Double?)
+    /// Metres a second, both ends, with the unit the athlete wrote the pace in so it can be
+    /// shown back the same way round.
+    case speed(low: Double?, high: Double?, unit: String)
     case power(low: PlanBound?, high: PlanBound?)
     case cadence(low: Double?, high: Double?)
 
-    private enum CodingKeys: String, CodingKey { case type, metric, zone, low, high }
+    private enum CodingKeys: String, CodingKey { case type, metric, zone, low, high, unit }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -115,7 +134,8 @@ enum PlanTarget: Decodable {
         case "speed":
             self = .speed(
                 low: try container.decodeIfPresent(Double.self, forKey: .low),
-                high: try container.decodeIfPresent(Double.self, forKey: .high)
+                high: try container.decodeIfPresent(Double.self, forKey: .high),
+                unit: try container.decodeIfPresent(String.self, forKey: .unit) ?? "km"
             )
         case "power":
             self = .power(
@@ -138,26 +158,7 @@ struct RecordingReceipt: Decodable {
     let date: String
     let id: String
     let completedAt: String?
-    let stats: RecordedStats?
-}
-
-struct RecordedStats: Decodable {
-    let platform: String
-    let activityId: String
-    let session: SessionTotals?
-    let flags: [String]
-}
-
-struct SessionTotals: Decodable {
-    let sport: String?
-    let elapsedS: Double?
-    let movingS: Double?
-    let distanceM: Double?
-    let avgHr: Double?
-    let avgPaceSKm: Double?
-    let avgPowerW: Double?
-    let avgCadence: Double?
-    let calories: Double?
+    let stats: StatsSummary?
 }
 
 /// The server keeps a fortnight ahead and a week behind; dates are plain `YYYY-MM-DD`.
@@ -179,5 +180,22 @@ enum WorkoutDate {
     static func string(_ date: Date) -> String {
         formatter.timeZone = TimeZone.current
         return formatter.string(from: date)
+    }
+}
+
+/// Timestamps the server writes: RFC 3339, and with milliseconds on the ones it generates
+/// itself, which the plain parser rejects outright rather than ignoring.
+enum Timestamps {
+    private static let fractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let whole = ISO8601DateFormatter()
+
+    static func parse(_ text: String?) -> Date? {
+        guard let text else { return nil }
+        return fractional.date(from: text) ?? whole.date(from: text)
     }
 }

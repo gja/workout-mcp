@@ -32,6 +32,13 @@ struct WorkoutsClient {
         try await get("/api/workouts/\(workout.key)/plan")
     }
 
+    /// The recorded session in full: the totals a listing already carries, and the laps it
+    /// does not. Its own read for the reason docs/stats.md gives — a week of workouts is
+    /// mostly laps, and a listing pays for them to throw them away.
+    func stats(for workout: PlannedWorkout) async throws -> WorkoutStats {
+        try await get("/api/workouts/\(workout.key)/stats")
+    }
+
     /// The FIT file as the body. Comes back with the workout marked done. See docs/stats.md.
     @discardableResult
     func upload(_ fit: Data, to workout: PlannedWorkout, activityID: String) async throws -> RecordingReceipt {
