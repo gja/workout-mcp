@@ -121,8 +121,13 @@ The file is named `yyyy-mm-dd-<id>-<name>.fit`, which is what `src/recordings/` 
 same session when it comes back out of an archive and what `src/drive/` calls it in a
 connected drive. One session reaching an athlete by three routes should be recognisable as
 one file without opening any of them, so the app runs the server's own `safe()` rules on the
-name rather than nearly running them. The id is HealthKit's, which is also what the upload
-travels under as `activity_id`, so both ends mean the same id by it.
+name rather than nearly running them.
+
+The id is the **planned workout's** — this server's own, the same one in the URL and inside
+the file as `workout_mcp_id`. HealthKit's own identifier for the session is not used: it
+means nothing to anything the file will reach. A session with no workout to name is
+`unmatched`, which is the honest reading of an empty slot and better than filling it with an
+id of a different kind.
 
 Matching a recorded session to the plan it was for is tried two ways, in order: the plan
 id the watch recorded, looked up in an index the app wrote when it scheduled the workout;

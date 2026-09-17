@@ -283,12 +283,16 @@ final class AppModel: ObservableObject {
     /// `yyyy-mm-dd-<id>-<name>.fit`, which is what `src/recordings/` calls the same session
     /// when it comes back out of an archive or lands in a connected drive. One session is one
     /// file by three routes, and an athlete holding two of them should be able to tell that
-    /// without opening either. The id is HealthKit's own, which is also what the upload
-    /// travels under as `activity_id`, so the server and the phone agree on which id it is.
+    /// without opening either.
+    ///
+    /// The id is the planned workout's — this server's own, the one in the URL and in the
+    /// file as `workout_mcp_id` — and not HealthKit's, which means nothing anywhere else. A
+    /// session with no workout to name is `unmatched` rather than an id of some other kind:
+    /// the slot holds one sort of thing, and a file that has nothing for it should say so.
     private func filename(for activity: HKWorkout, as workout: PlannedWorkout?) -> String {
         let day = WorkoutDate.string(activity.startDate)
         let name = workout?.name ?? (HealthAccess.isRide(activity) ? "Ride" : "Run")
-        return "\(day)-\(slug(activity.uuid.uuidString, 40))-\(slug(name, 80)).fit"
+        return "\(day)-\(slug(workout?.id ?? "unmatched", 40))-\(slug(name, 80)).fit"
     }
 
     /// `safe()` in `src/recordings/index.ts`, in Swift, because the two have to agree on what
