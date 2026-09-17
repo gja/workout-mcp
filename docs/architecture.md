@@ -120,8 +120,10 @@ own slice, so opening one does not wait on the others. The accordion is
 `<details>` elements sharing a `name`, which is what makes a browser close the
 siblings: there is no open-panel state in React, and the panels still work with
 JavaScript half-loaded. The FAQ
-uses the same pair and renders signed out as well, which is the only part of the
-page a first-time visitor sees. Under it, one link: the privacy policy.
+uses the same pair, and is behind the session like everything else: a
+first-time visitor gets the masthead, the sign-in buttons and nothing more,
+because answers about syncing and exporting read as clutter before there is an
+account to apply them to. Under it, one link: the privacy policy.
 
 The Context panel is the one with editors in it, and it nests a second accordion
 of its own — one section per document, sharing their own `name` so the four

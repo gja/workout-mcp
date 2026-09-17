@@ -121,12 +121,13 @@ function App() {
       </header>
 
       {me ? (
-        <Dashboard me={me} />
+        <>
+          <Dashboard me={me} />
+          <Faq />
+        </>
       ) : (
         <SignIn intro="Sign in to see your planned workouts." returnTo={location.pathname} />
       )}
-
-      <Faq />
 
       <footer className="colophon">
         <a href="/privacy-policy">Privacy policy</a>
