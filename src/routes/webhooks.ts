@@ -75,10 +75,7 @@ const intervalsWebhook: Route = async ({ request, env }) => {
   // An athlete nobody here has connected is a permanent condition — a retry would
   // never do better — so it answers 2xx having done nothing.
   //
-  // `ignored` counts the sessions that came back paired with an event this app did not
-  // push — the athlete's own calendar entry, most often. No workout is created for one;
-  // it is logged and stepped over, and the count is here so a delivery that marked
-  // nothing can be told apart from one that found nothing at all.
+  // `ignored`: paired with an event this app never pushed, so logged and stepped over.
   return json({ ok: true, athletes: athletes.size, matched, marked, ignored });
 };
 

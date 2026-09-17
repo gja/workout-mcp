@@ -10,6 +10,13 @@ a request. Do not warn about an unapplied migration, and do not treat an
 additive column as something to sequence across two deploys. `npm run db:remote`
 is for a first-time setup or a local database, not for shipping a change.
 
+## Comments are one-liners
+
+One line, and only where the name and the code do not already say it. No
+multi-paragraph block comments on new code — if the reasoning needs a paragraph
+it belongs in `docs/`, which the comment can point at. Existing long comments
+stay as they are; do not add more.
+
 ## Checks to run before pushing
 
 ```bash

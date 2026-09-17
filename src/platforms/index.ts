@@ -487,16 +487,10 @@ async function syncComment(
   await remember();
 }
 
-/**
- * Sessions to name in one "ignored" line before it is cut short.
- *
- * The count is always exact; the ids are there to make one of them findable
- * upstream, and an athlete whose whole calendar is their own would otherwise put
- * a week of event ids in every hourly log line.
- */
+/** Event ids named in one "ignored" line; the count itself is always exact. */
 const IGNORED_IN_LOG = 5;
 
-/** What one pass over an athlete's completions came to. `ignored` is the nudges dropped. */
+/** What one pass over an athlete's completions came to. */
 type Applied = { marked: number; ignored: number };
 
 // Straight to the db, and once each: see "Completion is polled" in docs/integrations.md.
@@ -512,16 +506,10 @@ async function applyCompletions(
   const completions: Completion[] = await platform.completions(token, window.from, window.to);
 
   let marked = 0;
-  /** The event ids of the sessions passed over, for the one line at the end. */
+  /** Event ids passed over, for the one line at the end. */
   const ignored: string[] = [];
   for (const completion of completions) {
-    // Nothing is ever created from a completion: a session paired with an event this
-    // app did not push — the athlete's own calendar entry, or one whose workout has
-    // since gone from the window — is not a plan of ours, and inventing a workout to
-    // hang it on would put a session in the plan that nobody here ever planned. So it
-    // is dropped, and said out loud rather than dropped in silence: "their upload
-    // never showed up here" and "it showed up paired with something else" look
-    // identical from the outside, and only the log tells them apart.
+    // Nothing is ever created from a completion: no plan of ours, nothing to apply it to.
     const link = await store.findLinkByRemoteId(env, userId, platformId, completion.remote_id);
     const workout = link ? await db.getWorkout(env, userId, link.date, link.workout_id) : null;
     if (!link || !workout) {
