@@ -20,9 +20,12 @@ Worker, the dashboard and this app.
 no client secret and no signing identity in this project. The app registers itself with
 whatever deployment you point it at ([RFC 7591](https://datatracker.ietf.org/doc/html/rfc7591),
 public client, no secret to hold), and the credential it gets back lives in the keychain
-on the phone. The only thing you supply to build it is your own Apple signing team, which
-Xcode keeps in your account rather than in the project file. The server's secrets are
-Wrangler secrets — see [docs/deployment.md](../docs/deployment.md).
+on the phone. The server's secrets are Wrangler secrets — see
+[docs/deployment.md](../docs/deployment.md).
+
+The Team ID in the project file is not an exception. It is a public identifier, carried in
+the code signature of every app on the store and readable out of any of them; it signs
+nothing on its own. The certificate and private key that do are not here.
 
 ## Building it
 
@@ -36,8 +39,14 @@ open ios/WorkoutsMCP.xcodeproj
 
 Xcode resolves the one package dependency on first open. Then, once:
 
-1. Select the **WorkoutsMCP** target › *Signing & Capabilities*, and set your team. The
-   bundle id is `com.workouts-mcp.ios`; change it if you are not signing as us.
+1. Nothing, if you are signing as us: the team and the bundle id are in the project.
+   Otherwise set your own under the **WorkoutsMCP** target › *Signing & Capabilities*, and
+   change `PRODUCT_BUNDLE_IDENTIFIER` from `com.workouts-mcp.ios` to a prefix you own.
+   `DEVELOPMENT_TEAM` is committed on purpose — a Team ID is a public identifier, embedded
+   in the signature of every app on the store, and committing it is what lets
+   `xcodebuild archive` run with no arguments. The things that *are* secret — the `.p8`
+   key, certificates, provisioning profiles — are in `.gitignore` and named under
+   [Shipping it to TestFlight](#shipping-it-to-testflight).
 2. Check that **HealthKit** is listed under *Signing & Capabilities*, with **Background
    Delivery** ticked under it. Both come from `WorkoutsMCP.entitlements`, which is
    deliberately outside the source folder so it is not copied into the bundle as a
