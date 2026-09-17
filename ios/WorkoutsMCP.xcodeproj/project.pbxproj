@@ -104,10 +104,10 @@
 			);
 			mainGroup = AA0000000000000000000030;
 			minimizedProjectReferenceProxies = 1;
-			preferredProjectObjectVersion = 77;
 			packageReferences = (
 				AA0000000000000000000080 /* XCRemoteSwiftPackageReference "fit-swift-sdk" */,
 			);
+			preferredProjectObjectVersion = 77;
 			productRefGroup = AA0000000000000000000031 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -198,7 +198,7 @@
 				CODE_SIGN_ENTITLEMENTS = WorkoutsMCP.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = JM23328UQQ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = WorkoutsMCP;
@@ -226,7 +226,7 @@
 				CODE_SIGN_ENTITLEMENTS = WorkoutsMCP.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = JM23328UQQ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = WorkoutsMCP;
