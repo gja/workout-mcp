@@ -51,6 +51,10 @@ Xcode resolves the one package dependency on first open. Then, once:
    Delivery** ticked under it. Both come from `WorkoutsMCP.entitlements`, which is
    deliberately outside the source folder so it is not copied into the bundle as a
    resource. Background delivery also has to be on the App ID; automatic signing adds it.
+
+   The target carries **both** HealthKit purpose strings, share and update, even though
+   this app only ever reads: App Store validation asks for the update string because the
+   entitlement permits writing, not because the code does any. The string says so.
 3. Run it **on a real iPhone**. The simulator has no Health data worth reading and
    `WorkoutScheduler` does nothing there, so almost none of this app can be exercised in
    it. The phone needs **Developer Mode** on — *Settings › Privacy & Security › Developer
