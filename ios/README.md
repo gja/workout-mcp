@@ -37,9 +37,10 @@ Xcode resolves the one package dependency on first open. Then, once:
 
 1. Select the **WorkoutsMCP** target › *Signing & Capabilities*, and set your team. The
    bundle id is `com.workouts-mcp.ios`; change it if you are not signing as us.
-2. Check that **HealthKit** is listed under *Signing & Capabilities*. It comes from
-   `WorkoutsMCP.entitlements`, which is deliberately outside the source folder so it is
-   not copied into the bundle as a resource.
+2. Check that **HealthKit** is listed under *Signing & Capabilities*, with **Background
+   Delivery** ticked under it. Both come from `WorkoutsMCP.entitlements`, which is
+   deliberately outside the source folder so it is not copied into the bundle as a
+   resource. Background delivery also has to be on the App ID; automatic signing adds it.
 3. Run it **on a real iPhone**. The simulator has no Health data worth reading and
    `WorkoutScheduler` does nothing there, so almost none of this app can be exercised in
    it.
@@ -90,6 +91,12 @@ and a tick where the server already has it. Tap one for *Generate .fit*, which b
 file on the phone, and *Upload to WorkoutsMCP*, which posts it.
 
 **Log out.**
+
+It also works with the app shut. HealthKit launches it when a session is saved, and a
+session the **watch itself** matched to a plan is built and uploaded there and then. Only
+that match: the day-and-sport fallback the list uses is a guess, which is fine when the
+athlete is looking at it and wrong when it files a session against a workout nobody chose.
+`Health/BackgroundSync.swift`.
 
 Uploading ingests the file server-side: the stats are worked out and stored, the session
 is marked done, and **the file itself is not kept**. See
@@ -191,7 +198,7 @@ declaration and it should be the shipper who makes it.
 Api/          the REST client and the shapes it decodes
 Auth/         discovery, registration, PKCE, and the keychain
 Fit/          a recorded session, its summary figures, and the SDK call that writes it
-Health/       permission, the workout listing, and the read that turns one into samples
+Health/       permission, the listing, the read that turns one into samples, the background wake
 Plan/         a resolved plan as a WorkoutKit CustomWorkout, and the id that ties them
 Views/        the home screen, a session, and signing in
 ```

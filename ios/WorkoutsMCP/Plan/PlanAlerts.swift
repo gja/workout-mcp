@@ -26,25 +26,42 @@ enum PlanAlerts {
 
         case .heartRate(let low, let high):
             guard let low, let high, low.isAbsolute, high.isAbsolute else { return nil }
-            return HeartRateRangeAlert(target: Int(low.value) ... Int(high.value))
+            return HeartRateRangeAlert(target: band(low.value, high.value, perMinute))
 
         case .power(let low, let high):
             guard let low, let high, low.isAbsolute, high.isAbsolute else { return nil }
-            return PowerRangeAlert(
-                target: Measurement(value: low.value, unit: UnitPower.watts)
-                    ... Measurement(value: high.value, unit: UnitPower.watts)
-            )
+            return PowerRangeAlert(target: band(low.value, high.value) {
+                Measurement(value: $0, unit: UnitPower.watts)
+            })
 
         case .speed(let low, let high):
             guard let low, let high, low > 0, high > 0 else { return nil }
             return SpeedRangeAlert(
-                target: Measurement(value: min(low, high), unit: UnitSpeed.metersPerSecond)
-                    ... Measurement(value: max(low, high), unit: UnitSpeed.metersPerSecond)
+                target: band(low, high) { Measurement(value: $0, unit: UnitSpeed.metersPerSecond) },
+                // The band is a pace to hold now, not an average to finish the step on.
+                metric: .current
             )
 
         case .cadence(let low, let high):
             guard let low, let high else { return nil }
-            return CadenceRangeAlert(target: Int(low) ... Int(high))
+            return CadenceRangeAlert(target: band(low, high, perMinute))
         }
+    }
+
+    /// Foundation's `UnitFrequency` is hertz all the way down and has no beats-a-minute, so a
+    /// rate the plan wrote per minute is converted on the way in. `Measurement` compares by
+    /// dimension rather than by number, so the watch gets the band that was written.
+    private static func perMinute(_ rate: Double) -> Measurement<UnitFrequency> {
+        Measurement(value: rate / 60, unit: .hertz)
+    }
+
+    /// Lowest end first, whatever order the two arrived in: `a ... b` traps when `a > b`, and
+    /// a band written backwards is a crash rather than a rejected workout.
+    private static func band<Unit>(
+        _ first: Double,
+        _ second: Double,
+        _ measure: (Double) -> Measurement<Unit>
+    ) -> ClosedRange<Measurement<Unit>> {
+        measure(min(first, second)) ... measure(max(first, second))
     }
 }

@@ -119,6 +119,18 @@ left alone — only ids in this app's own index are removed.
 Below it is the last seven days of runs and rides out of Health, each with the planned
 workout it matches and a tick where the server already has it, and below that the way out.
 
+### And with the app shut
+
+HealthKit launches the app in the background when a workout is saved, which is the only way
+a recording reaches this server without the athlete opening anything. What happens then is
+narrower than what happens on the screen: a session is built and uploaded **only** where the
+watch itself named the plan it was run against.
+
+The day-and-sport fallback is deliberately not used there. It is a good guess, and a good
+guess is the right thing to offer somebody who is looking at it and the wrong thing to act
+on unattended — a session filed against a workout nobody chose is a completion to undo and a
+page of stats to distrust. Those wait in the list.
+
 ## Signing in
 
 The app asks for the address of the deployment — [workouts-mcp.com](https://workouts-mcp.com)

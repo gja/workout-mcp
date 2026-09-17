@@ -16,6 +16,30 @@ struct StoredSession: Codable, Equatable {
     var token: String
 }
 
+extension StoredSession {
+    /// Read straight from the keychain rather than from whatever the UI is holding, because
+    /// a background launch has no UI: see `Health/BackgroundSync.swift`. The keychain item is
+    /// `afterFirstUnlockThisDeviceOnly`, so it is there for a wake and not before a first unlock.
+    private static let account = "session"
+
+    static func load() -> StoredSession? {
+        guard let data = Keychain.read(account) else { return nil }
+        return try? JSONDecoder().decode(StoredSession.self, from: data)
+    }
+
+    func save() {
+        guard let data = try? JSONEncoder().encode(self) else { return }
+        Keychain.save(data, as: Self.account)
+    }
+
+    static func forget() { Keychain.delete(account) }
+
+    var client: WorkoutsClient {
+        // Never expires and is never renewed: it is a `wk_` token, revoked from the dashboard.
+        WorkoutsClient(server: server) { token }
+    }
+}
+
 struct AuthMetadata: Decodable {
     let authorizationEndpoint: URL
     let tokenEndpoint: URL

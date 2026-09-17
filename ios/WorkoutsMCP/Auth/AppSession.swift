@@ -9,23 +9,15 @@ final class AppSession: ObservableObject {
     @Published var busy = false
     @Published var problem: String?
 
-    private static let keychainAccount = "session"
     private let oauth = OAuth()
 
     init() {
-        if let data = Keychain.read(Self.keychainAccount) {
-            stored = try? JSONDecoder().decode(StoredSession.self, from: data)
-        }
+        stored = StoredSession.load()
     }
 
     var isSignedIn: Bool { stored != nil }
 
-    var client: WorkoutsClient? {
-        guard let stored else { return nil }
-        // The credential never expires and is never renewed: it is a `wk_` token, revoked
-        // from the dashboard rather than rotated here.
-        return WorkoutsClient(server: stored.server) { stored.token }
-    }
+    var client: WorkoutsClient? { stored?.client }
 
     /// The browser round trip, ending in an app token. See `OAuth.signIn`.
     func signIn(to address: String) async {
@@ -40,7 +32,7 @@ final class AppSession: ObservableObject {
     }
 
     func signOut() {
-        Keychain.delete(Self.keychainAccount)
+        StoredSession.forget()
         stored = nil
         account = nil
         problem = nil
@@ -67,13 +59,10 @@ final class AppSession: ObservableObject {
 
     /// Kept only once it has been proved: a credential that cannot read `/api/me` is not a sign-in.
     private func keep(_ session: StoredSession) async throws {
-        account = try await WorkoutsClient(server: session.server, token: { session.token }).me()
+        account = try await session.client.me()
         stored = session
         problem = nil
-
-        if let data = try? JSONEncoder().encode(session) {
-            Keychain.save(data, as: Self.keychainAccount)
-        }
+        session.save()
     }
 
     /// `workouts.example.com`, `https://workouts.example.com/`, either way round.
