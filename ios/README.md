@@ -174,41 +174,33 @@ HealthKit has data and `WorkoutScheduler` does anything.
 
 ### Every build
 
-1. **Bump the build number.** App Store Connect refuses a build number it has already seen
-   for a version. `CURRENT_PROJECT_VERSION` is the build, `MARKETING_VERSION` the version:
+```bash
+export ASC_KEY_ID=XXXXXXXXXX
+export ASC_ISSUER_ID=00000000-0000-0000-0000-000000000000
+export ASC_KEY_PATH=~/private_keys/AuthKey_XXXXXXXXXX.p8
 
-   ```bash
-   cd ios && agvtool next-version -all
-   ```
+ios/deploy
+```
 
-2. **Archive.** In Xcode, choose *Any iOS Device (arm64)* and *Product › Archive*. Or:
+Archives and uploads. Processing takes five to thirty minutes, then the build shows up
+under *TestFlight*.
 
-   ```bash
-   xcodebuild -project ios/WorkoutsMCP.xcodeproj -scheme WorkoutsMCP \
-     -destination 'generic/platform=iOS' \
-     -archivePath build/WorkoutsMCP.xcarchive \
-     -allowProvisioningUpdates archive
-   ```
+Those three are an [App Store Connect API
+key](https://appstoreconnect.apple.com/access/integrations/api) and they are the one
+secret any of this takes. **The `.p8` is a private key that uploads builds as you** — keep
+it outside this repository, in your shell profile or your password manager. `.gitignore`
+refuses a stray one, but that is a net rather than a plan. Everything else the upload
+needs — the team, the bundle id, the signing style — the script reads out of the project,
+where it is public and belongs.
 
-3. **Upload.** *Window › Organizer*, select the archive, *Distribute App › TestFlight &
-   App Store › Upload*. From the command line it is two steps and an
-   [App Store Connect API key](https://appstoreconnect.apple.com/access/integrations/api):
+The **build number is a UTC timestamp**, `20260917.0412`, passed on the command line
+rather than committed. App Store Connect refuses a number it has already seen for a
+version, and a timestamp is monotonic without a version-bump commit in the history for
+every upload. `MARKETING_VERSION` in the project is still the version a human reads, and
+is still yours to bump. `BUILD_NUMBER=… ios/deploy` overrides it.
 
-   ```bash
-   xcodebuild -exportArchive \
-     -archivePath build/WorkoutsMCP.xcarchive \
-     -exportOptionsPlist ios/ExportOptions.plist \
-     -exportPath build/export \
-     -allowProvisioningUpdates \
-     -authenticationKeyPath "$PWD/AuthKey_XXXXXXXXXX.p8" \
-     -authenticationKeyID XXXXXXXXXX \
-     -authenticationKeyIssuerID 00000000-0000-0000-0000-000000000000
-   ```
-
-   with an `ExportOptions.plist` of `method` = `app-store-connect`, `destination` = `upload`
-   and your `teamID`. **That `.p8` key is a secret: keep it outside this repository.**
-
-Processing takes five to thirty minutes, then the build shows up under *TestFlight*.
+Or do it by hand: *Any iOS Device (arm64)* and *Product › Archive*, then *Window ›
+Organizer › Distribute App › TestFlight & App Store*.
 
 ### Testers
 

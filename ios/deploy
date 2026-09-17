@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+#
+# Archive and upload to App Store Connect.
+#
+#   export ASC_KEY_ID=XXXXXXXXXX
+#   export ASC_ISSUER_ID=00000000-0000-0000-0000-000000000000
+#   export ASC_KEY_PATH=~/private_keys/AuthKey_XXXXXXXXXX.p8
+#   ios/deploy
+#
+# Those three are an App Store Connect API key, from
+# appstoreconnect.apple.com/access/integrations/api. They are the one secret this
+# takes and they are **not** in this repository and must never be: the `.p8` is a
+# private key that uploads builds as you. It belongs in your shell profile or your
+# password manager, and `.gitignore` already refuses a stray one.
+#
+# Everything else the upload needs — the team, the bundle id, the signing style — is
+# read out of the project, where it is public and belongs.
+
+set -euo pipefail
+
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+	# The header above, to the first line that is not part of it.
+	awk 'NR > 1 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "${BASH_SOURCE[0]}"
+	exit 0
+fi
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+project="$here/WorkoutsMCP.xcodeproj"
+scheme="WorkoutsMCP"
+output="$here/build"
+
+# --- The key, which is yours and is not here ----------------------------------------
+
+missing=()
+[ -n "${ASC_KEY_ID:-}" ] || missing+=("ASC_KEY_ID")
+[ -n "${ASC_ISSUER_ID:-}" ] || missing+=("ASC_ISSUER_ID")
+[ -n "${ASC_KEY_PATH:-}" ] || missing+=("ASC_KEY_PATH")
+
+if [ ${#missing[@]} -gt 0 ]; then
+	echo "${BASH_SOURCE[0]}: not set: ${missing[*]}" >&2
+	echo >&2
+	echo "An App Store Connect API key, from:" >&2
+	echo "  https://appstoreconnect.apple.com/access/integrations/api" >&2
+	echo >&2
+	echo "Keep the .p8 outside this repository. Run with --help for the shape of it." >&2
+	exit 1
+fi
+
+# `-authenticationKeyPath` will not take a relative path or a `~`.
+key="${ASC_KEY_PATH/#\~/$HOME}"
+if [ ! -f "$key" ]; then
+	echo "${BASH_SOURCE[0]}: no key file at $key" >&2
+	exit 1
+fi
+key="$(cd "$(dirname "$key")" && pwd)/$(basename "$key")"
+
+# --- What is being shipped -----------------------------------------------------------
+
+# App Store Connect refuses a build number it has already seen for a version, and a
+# timestamp is monotonic without a commit to bump it — so the history stays free of
+# version-bump noise and two uploads a minute apart are still two builds. Two
+# components because CFBundleVersion takes at most three, each at most eight digits.
+build="${BUILD_NUMBER:-$(date -u +%Y%m%d.%H%M)}"
+
+# Read rather than written down, so a fork that signs as itself gets its own.
+settings="$(xcodebuild -project "$project" -scheme "$scheme" -configuration Release -showBuildSettings 2>/dev/null)"
+setting() { printf '%s\n' "$settings" | awk -F' = ' -v key="$1" '$1 ~ "[ \t]"key"$" { print $2; exit }'; }
+
+team="$(setting DEVELOPMENT_TEAM)"
+bundle="$(setting PRODUCT_BUNDLE_IDENTIFIER)"
+version="$(setting MARKETING_VERSION)"
+
+if [ -z "$team" ]; then
+	echo "${BASH_SOURCE[0]}: the project has no DEVELOPMENT_TEAM; set one in Xcode first" >&2
+	exit 1
+fi
+
+revision="$(git -C "$here" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+git -C "$here" diff --quiet HEAD 2>/dev/null || revision="$revision (with uncommitted changes)"
+
+echo "$bundle $version ($build)"
+echo "team $team · $revision"
+echo
+
+# --- Archive, then upload -------------------------------------------------------------
+
+archive="$output/$scheme.xcarchive"
+options="$output/ExportOptions.plist"
+rm -rf "$archive"
+mkdir -p "$output"
+
+xcodebuild \
+	-project "$project" \
+	-scheme "$scheme" \
+	-configuration Release \
+	-destination 'generic/platform=iOS' \
+	-archivePath "$archive" \
+	-allowProvisioningUpdates \
+	CURRENT_PROJECT_VERSION="$build" \
+	archive
+
+# Generated rather than committed: it holds nothing worth keeping, and one that is
+# checked in is one that disagrees with the project the day the team changes.
+# `app-store-connect` is what Xcode 15.3 renamed `app-store` to.
+cat >"$options" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>destination</key>
+	<string>upload</string>
+	<key>teamID</key>
+	<string>$team</string>
+	<key>uploadSymbols</key>
+	<true/>
+</dict>
+</plist>
+PLIST
+
+xcodebuild -exportArchive \
+	-archivePath "$archive" \
+	-exportOptionsPlist "$options" \
+	-exportPath "$output/export" \
+	-allowProvisioningUpdates \
+	-authenticationKeyPath "$key" \
+	-authenticationKeyID "$ASC_KEY_ID" \
+	-authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+echo
+echo "Uploaded $version ($build)."
+echo "Processing takes five to thirty minutes, then it appears under TestFlight."
