@@ -38,12 +38,27 @@ written. There is one resolver, in `src/resolve.ts`, and re-implementing it in S
 would be a second set of rules for what a workout may say. That route exists for this
 app and for anything else that wants to schedule a plan rather than render it.
 
-**Two kinds of target are dropped rather than guessed at.** A bound written as a
-percentage — `85%` of max heart rate, `95%` of FTP — is a number only the athlete's own
-profile holds, and the app does not hold it. And a half-open target, `4:15/km or faster`,
-has no range to alert against. In both cases the step goes to the watch with its duration
-and no alert, which is the honest reading: the step still runs, the watch simply does not
-beep at it. Inventing the missing end would put a band on the watch that nobody chose.
+**A half-open target is filled at the open end.** `slower than 7:45/km` is a ceiling on
+speed with no floor, and WorkoutKit's one-sided alerts cannot carry it: `SpeedThresholdAlert`,
+`PowerThresholdAlert` and `CadenceThresholdAlert` each hold a single `target` and no side,
+and Apple does not say which side the watch reads it as, so that bound and `faster than
+7:45/km` would go out as the same alert. The app sends a range instead, and stands in for
+the end the plan left open — 60:00/km and 1:00/km for pace, 30 and 240 bpm, 0 and 2000 W,
+0 and 250 rpm. Each stand-in is past what a session reaches, so the band the athlete is
+actually held to is the one they wrote.
+
+**A percentage bound still gets no alert.** `85%` of max heart rate, `95%` of FTP: there the
+number itself is missing rather than an end, and it is one only the athlete's own profile
+holds. A stand-in cannot rescue that, so the step goes to the watch with its duration and no
+alert.
+
+**What cannot be alerted on is named instead.** A step carries one alert and one line of
+text, and `WorkoutStep.displayName` is the line the Workout app and the Fitness app already
+show. So a target that did not become an alert — a percentage, a zone past the watch's five,
+or the second of two targets, which WorkoutKit has nowhere to put — is appended to the
+step's name in the same words the workout reads in on the phone: `Spin @ 85-95 rpm`. The
+step still runs and the watch still does not beep at it, but the athlete can see what it was
+for.
 
 A repeat inside a repeat is flattened, because `IntervalBlock` does not nest and the plan
 format allows two levels. The reps are all there; only the grouping is lost.
