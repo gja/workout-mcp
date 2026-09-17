@@ -15,8 +15,11 @@ struct SessionView: View {
     @EnvironmentObject private var model: AppModel
 
     @State private var stats: WorkoutStats?
-    @State private var fit: URL?
     @State private var building = false
+    /// The file, for as long as the sheet sharing it is up. It is not kept once that closes:
+    /// the bytes are a second's work to write again, and the plan they name can change
+    /// underneath them. See `BuiltFit`.
+    @State private var sharing: BuiltFit?
     @State private var failure: String?
 
     /// The listing's copy of the planned workout, so an upload a moment ago is reflected here.
@@ -38,6 +41,9 @@ struct SessionView: View {
         .navigationTitle(done.sport)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: workout?.stats?.computedAt) { await loadStats() }
+        .sheet(item: $sharing) { built in
+            ShareSheet(item: built.url, activities: [uploadActivity(for: built.url)].compactMap { $0 })
+        }
     }
 
     // --- What the phone has -----------------------------------------------------------
@@ -78,7 +84,7 @@ struct SessionView: View {
             Text("This was")
         } footer: {
             if workout == nil {
-                Text("The watch did not name a plan, and more than one workout — or none — was planned for that day. There is nothing to upload it against.")
+                Text("The watch did not name a plan, and more than one workout — or none — was planned for that day. There is nothing to export it against.")
             }
         }
     }
@@ -144,22 +150,12 @@ struct SessionView: View {
     @ViewBuilder private var upload: some View {
         if let activity = done.activity {
             Section {
-                Button(building ? "Building…" : "Generate .fit") {
-                    Task { await build(activity) }
+                Button {
+                    Task { await share(activity) }
+                } label: {
+                    Label(building ? "Building…" : "Share .fit", systemImage: "square.and.arrow.up")
                 }
                 .disabled(building)
-
-                if let fit {
-                    ShareLink(item: fit) { Label("Share \(fit.lastPathComponent)", systemImage: "square.and.arrow.up") }
-
-                    Button(workout?.isDone == true ? "Upload again" : "Upload to WorkoutsMCP") {
-                        guard let workout else { return }
-                        Task { await model.upload(fit, from: activity, to: workout, using: session.client) }
-                    }
-                    .disabled(workout == nil || model.loading)
-                }
-            } footer: {
-                Text("The server ingests the file, works out the stats and marks the session done; it does not keep the file.")
             }
         }
     }
@@ -171,16 +167,32 @@ struct SessionView: View {
         stats = try? await client.stats(for: workout)
     }
 
-    private func build(_ activity: HKWorkout) async {
+    /// The upload, as a share target — absent where there is no workout to file the session
+    /// against, because an action that cannot say where it is sending this does not belong
+    /// in a list of places to send it.
+    private func uploadActivity(for fit: URL) -> UploadActivity? {
+        guard let activity = done.activity, let workout else { return nil }
+
+        return UploadActivity(title: workout.isDone ? "Export again to WorkoutsMCP" : "Export to WorkoutsMCP") {
+            Task { @MainActor in
+                await model.upload(fit, from: activity, to: workout, using: session.client)
+            }
+        }
+    }
+
+    /// One button rather than two. Writing the file was never a step anybody wanted — it is
+    /// what had to happen before the thing they asked for — so it happens under the tap that
+    /// asks for it, and the sheet opens on the far side.
+    private func share(_ activity: HKWorkout) async {
         building = true
         defer { building = false }
 
         do {
-            fit = try await model.buildFit(for: activity, matching: workout)
+            sharing = BuiltFit(url: try await model.buildFit(for: activity, matching: workout))
             failure = nil
         } catch {
             failure = error.localizedDescription
-            fit = nil
+            sharing = nil
         }
     }
 }

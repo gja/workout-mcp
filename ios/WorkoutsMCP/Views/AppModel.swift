@@ -43,6 +43,15 @@ struct ExecutedSession: Identifiable, Hashable {
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
+/// One heading on the Planned tab and the workouts under it. A group with nothing in it is
+/// never built, so a title here is always a promise that there is something to show.
+struct PlannedWeek: Identifiable {
+    let title: String
+    let workouts: [PlannedWorkout]
+
+    var id: String { title }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var workouts: [PlannedWorkout] = []
@@ -59,29 +68,13 @@ final class AppModel: ObservableObject {
     private let recentDays = 7
     private let plannedDays = 14
 
-    /// How much of that goes to the watch.
-    ///
-    /// Two days back as well as forward, because a day missed is a session still worth doing
-    /// and it should not need the app to get it back. Seven ahead rather than the fourteen
-    /// the server holds, because the far end of a fortnight is a plan that has not settled
-    /// yet, and a watch full of it is a list to scroll past.
-    private let scheduleFrom = -2
-    private let scheduleTo = 7
-
-    /// When a scheduled workout lands on the watch. Early enough to be there before a dawn run.
-    private let scheduledHour = 5
-
     /// How stale a sync has to be before opening the app does one on its own.
     private let resyncAfter: TimeInterval = 30 * 60
 
-    private let syncedAtKey = "last-synced-at"
-    private let syncedCountKey = "last-synced-count"
-
     init() {
-        let defaults = UserDefaults.standard
-        if let at = defaults.object(forKey: syncedAtKey) as? Date {
-            sync = .synced(at: at, count: defaults.integer(forKey: syncedCountKey))
-        }
+        // Whatever last reached the watch, including a turn iOS granted `PlanRefresh` in the
+        // night: the status line is about the watch, not about this run of the app.
+        if let last = PlanSync.lastSynced { sync = .synced(at: last.at, count: last.count) }
     }
 
     // --- What the tabs show ------------------------------------------------------------
@@ -90,6 +83,34 @@ final class AppModel: ObservableObject {
     var upcoming: [PlannedWorkout] {
         let today = WorkoutDate.string(Date())
         return workouts.filter { !$0.isDone && $0.date >= today }
+    }
+
+    /// The same workouts under the headings the Planned tab reads them in: the rest of this
+    /// week, next week, and whatever the fortnight reaches past that.
+    ///
+    /// A week is the athlete's own — `Calendar.current` decides whether one starts on a Monday
+    /// or a Sunday — because "next week" is something they say rather than a count of seven
+    /// days from today. The far group has no name of its own for the same reason: it is
+    /// whatever the server happens to hold beyond the two weeks anybody is thinking in.
+    ///
+    /// An empty group is left out rather than shown empty. `missed` is its own list above
+    /// these, because a session behind is a decision to make and not part of the week ahead.
+    var plannedWeeks: [PlannedWeek] {
+        let calendar = Calendar.current
+        let now = Date()
+        let weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? now
+        let boundary = { (weeks: Int) -> String in
+            WorkoutDate.string(calendar.date(byAdding: .weekOfYear, value: weeks, to: weekStart) ?? now)
+        }
+        let nextWeek = boundary(1)
+        let after = boundary(2)
+
+        let groups: [(String, [PlannedWorkout])] = [
+            ("This week", upcoming.filter { $0.date < nextWeek }),
+            ("Next week", upcoming.filter { $0.date >= nextWeek && $0.date < after }),
+            ("Later", upcoming.filter { $0.date >= after }),
+        ]
+        return groups.filter { !$0.1.isEmpty }.map { PlannedWeek(title: $0.0, workouts: $0.1) }
     }
 
     /// Behind, and not done. Listed rather than hidden: these are the ones still on the
@@ -165,60 +186,26 @@ final class AppModel: ObservableObject {
         await performSync(using: client)
     }
 
+    /// The rules are `PlanSync`'s, because a turn iOS grants in the background runs the same
+    /// ones. What is left here is the counting-out the status line does.
     private func performSync(using client: WorkoutsClient) async {
         guard planIsKnown else {
             sync = .failed("could not read your plan")
             return
         }
-        let due = workouts.filter { $0.date >= day(scheduleFrom) && $0.date <= day(scheduleTo) && !$0.isDone }
-
+        let due = PlanSync.due(in: workouts)
         sync = .syncing(done: 0, of: due.count)
-        await WorkoutKitSync.authorize()
 
-        var placed = 0
-        for (slot, workout) in due.enumerated() {
-            do {
-                let plan = try await client.plan(for: workout)
-                try await WorkoutKitSync.schedule(plan, at: scheduledTime(for: workout, slot: slot))
-                placed += 1
-                sync = .syncing(done: placed, of: due.count)
-            } catch {
-                sync = .failed(error.localizedDescription)
-                return
+        do {
+            let placed = try await PlanSync.place(due, using: client) { done in
+                Task { @MainActor in
+                    if case .syncing = self.sync { self.sync = .syncing(done: done, of: due.count) }
+                }
             }
+            sync = .synced(at: PlanSync.lastSynced?.at ?? Date(), count: placed)
+        } catch {
+            sync = .failed(error.localizedDescription)
         }
-
-        // Anything the plan no longer has is taken off the watch, so the two really do agree.
-        await WorkoutKitSync.pruneTo(keys: Set(due.map(\.key)))
-
-        let at = Date()
-        UserDefaults.standard.set(at, forKey: syncedAtKey)
-        UserDefaults.standard.set(placed, forKey: syncedCountKey)
-        sync = .synced(at: at, count: placed)
-    }
-
-    private func day(_ offset: Int) -> String {
-        WorkoutDate.string(Calendar.current.date(byAdding: .day, value: offset, to: Date()) ?? Date())
-    }
-
-    /// Early on the day it is planned for, and never in the past — which is where this
-    /// morning is by the time anybody opens the app, and where the scheduler has nothing to
-    /// show for it. A day already gone is scheduled for the next whole hour instead, which is
-    /// what makes a session missed on Sunday reachable on Tuesday.
-    ///
-    /// The next *whole* hour rather than a minute from now, so a resync ten minutes later
-    /// lands on the same time and the watch is not rewritten for nothing. And a minute apart
-    /// per workout, so two missed days are two entries rather than one time carrying both.
-    private func scheduledTime(for workout: PlannedWorkout, slot: Int) -> Date {
-        let calendar = Calendar.current
-        let planned = workout.day ?? Date()
-        let early = calendar.date(bySettingHour: scheduledHour, minute: 0, second: 0, of: planned) ?? planned
-
-        var hour = calendar.dateComponents([.year, .month, .day, .hour], from: Date())
-        hour.hour = (hour.hour ?? 0) + 1
-        let soon = calendar.date(from: hour) ?? Date()
-
-        return max(early, soon).addingTimeInterval(Double(60 * slot))
     }
 
     // --- Back from Apple -------------------------------------------------------------------
@@ -241,12 +228,21 @@ final class AppModel: ObservableObject {
     }
 
     /// The FIT file, written to a temporary file so it can be shared as well as uploaded.
+    ///
+    /// Encoding runs on a task of its own rather than here. This model is on the main actor
+    /// and `ActivityFit.encode` is ordinary synchronous work — a setter per field per second
+    /// of the recording, which on a long ride is a second or more of arithmetic. Called
+    /// straight from the button it holds the only thread that draws, and the screen stops
+    /// answering until the file is finished. Writing it out is the same story, in an API
+    /// that blocks rather than one that computes.
     func buildFit(for activity: HKWorkout, matching workout: PlannedWorkout?) async throws -> URL {
         let recorded = try await SessionReader.read(activity, as: workout?.key)
-        let bytes = try ActivityFit.encode(recorded)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename(for: activity, as: workout))
 
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename(for: activity))
-        try bytes.write(to: url, options: .atomic)
+        try await Task.detached(priority: .userInitiated) {
+            try ActivityFit.encode(recorded).write(to: url, options: .atomic)
+        }.value
+
         return url
     }
 
@@ -258,8 +254,11 @@ final class AppModel: ObservableObject {
         defer { loading = false }
 
         do {
+            // Off the main actor for the same reason the file was written there: reading a
+            // recording back is blocking I/O, and this model is the one that draws.
+            let bytes = try await Task.detached(priority: .userInitiated) { try Data(contentsOf: fit) }.value
             let receipt = try await client.upload(
-                try Data(contentsOf: fit),
+                bytes,
                 to: workout,
                 activityID: activity.uuid.uuidString
             )
@@ -281,11 +280,40 @@ final class AppModel: ObservableObject {
         return workout.isDone
     }
 
-    private func filename(for activity: HKWorkout) -> String {
-        let stamp = DateFormatter()
-        stamp.locale = Locale(identifier: "en_US_POSIX")
-        stamp.dateFormat = "yyyy-MM-dd-HHmm"
-        let sport = HealthAccess.isRide(activity) ? "ride" : "run"
-        return "\(stamp.string(from: activity.startDate))-\(sport).fit"
+    /// `yyyy-mm-dd-<id>-<name>.fit`, which is what `src/recordings/` calls the same session
+    /// when it comes back out of an archive or lands in a connected drive. One session is one
+    /// file by three routes, and an athlete holding two of them should be able to tell that
+    /// without opening either.
+    ///
+    /// The id is the planned workout's — this server's own, the one in the URL and in the
+    /// file as `workout_mcp_id` — and not HealthKit's, which means nothing anywhere else. A
+    /// session with no workout to name is `unmatched` rather than an id of some other kind:
+    /// the slot holds one sort of thing, and a file that has nothing for it should say so.
+    private func filename(for activity: HKWorkout, as workout: PlannedWorkout?) -> String {
+        let day = WorkoutDate.string(activity.startDate)
+        let name = workout?.name ?? (HealthAccess.isRide(activity) ? "Ride" : "Run")
+        return "\(day)-\(slug(workout?.id ?? "unmatched", 40))-\(slug(name, 80)).fit"
+    }
+
+    /// `safe()` in `src/recordings/index.ts`, in Swift, because the two have to agree on what
+    /// a name is rather than nearly agree. Separators and control characters become spaces, a
+    /// run of whitespace becomes one dash, and what survives is letters, digits, dot, dash and
+    /// underscore — so a workout called `4 x 10' Tempo` is a filename on both sides.
+    private func slug(_ value: String, _ limit: Int) -> String {
+        let allowed = CharacterSet.letters.union(.decimalDigits).union(CharacterSet(charactersIn: "._-"))
+        let separated = String(value.unicodeScalars.map { scalar -> Character in
+            let separator = scalar == "/" || scalar == "\\" || CharacterSet.controlCharacters.contains(scalar)
+            return separator ? Character(" ") : Character(scalar)
+        })
+
+        var out = ""
+        for character in separated.split(whereSeparator: \.isWhitespace).joined(separator: "-") {
+            guard character.unicodeScalars.allSatisfy(allowed.contains) else { continue }
+            if character == "-" && out.hasSuffix("-") { continue }
+            out.append(character)
+        }
+
+        let name = String(out.trimmingCharacters(in: CharacterSet(charactersIn: "-.")).prefix(limit))
+        return name.isEmpty ? "workout" : name
     }
 }
