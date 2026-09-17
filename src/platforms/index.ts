@@ -306,7 +306,7 @@ export async function syncNow(env: Env, user: User, platformId: PlatformId): Pro
     // No stats budget: a person is waiting on this one — it is the connect redirect and
     // the dashboard's own button — and a recording is a download and a FIT decode. The
     // webhook reads them as they arrive, and the hourly pass catches up on the rest.
-    report.completed = await applyCompletions(env, user.id, platformId, token, { left: 0 });
+    report.completed = (await applyCompletions(env, user.id, platformId, token, { left: 0 })).marked;
     // The only place a standing error is cleared, and only with nothing left queued.
     await store.recordSyncError(env, user.id, platformId, report.remaining > 0 ? `${report.remaining} left to sync` : null);
   } catch (err) {
@@ -487,6 +487,18 @@ async function syncComment(
   await remember();
 }
 
+/**
+ * Sessions to name in one "ignored" line before it is cut short.
+ *
+ * The count is always exact; the ids are there to make one of them findable
+ * upstream, and an athlete whose whole calendar is their own would otherwise put
+ * a week of event ids in every hourly log line.
+ */
+const IGNORED_IN_LOG = 5;
+
+/** What one pass over an athlete's completions came to. `ignored` is the nudges dropped. */
+type Applied = { marked: number; ignored: number };
+
 // Straight to the db, and once each: see "Completion is polled" in docs/integrations.md.
 async function applyCompletions(
   env: Env,
@@ -494,17 +506,28 @@ async function applyCompletions(
   platformId: PlatformId,
   token: string,
   budget: Budget = { left: STATS_LIMIT },
-): Promise<number> {
+): Promise<Applied> {
   const window = db.readWindow();
   const platform = PLATFORMS[platformId];
   const completions: Completion[] = await platform.completions(token, window.from, window.to);
 
   let marked = 0;
+  /** The event ids of the sessions passed over, for the one line at the end. */
+  const ignored: string[] = [];
   for (const completion of completions) {
+    // Nothing is ever created from a completion: a session paired with an event this
+    // app did not push — the athlete's own calendar entry, or one whose workout has
+    // since gone from the window — is not a plan of ours, and inventing a workout to
+    // hang it on would put a session in the plan that nobody here ever planned. So it
+    // is dropped, and said out loud rather than dropped in silence: "their upload
+    // never showed up here" and "it showed up paired with something else" look
+    // identical from the outside, and only the log tells them apart.
     const link = await store.findLinkByRemoteId(env, userId, platformId, completion.remote_id);
-    if (!link) continue;
-    const workout = await db.getWorkout(env, userId, link.date, link.workout_id);
-    if (!workout) continue;
+    const workout = link ? await db.getWorkout(env, userId, link.date, link.workout_id) : null;
+    if (!link || !workout) {
+      ignored.push(completion.remote_id);
+      continue;
+    }
 
     if (link.applied_completion !== completion.completed_at) {
       await db.setCompleted(env, userId, link.date, link.workout_id, completion.completed_at);
@@ -540,7 +563,16 @@ async function applyCompletions(
       syncComment(env, userId, platform, token, link, workout, completion),
     );
   }
-  return marked;
+
+  if (ignored.length > 0) {
+    const named = ignored.slice(0, IGNORED_IN_LOG).join(', ');
+    console.log(
+      `${platformId}: ignoring ${ignored.length} completed ` +
+        `${ignored.length === 1 ? 'session' : 'sessions'} with no planned workout here ` +
+        `(event ${named}${ignored.length > IGNORED_IN_LOG ? ', …' : ''})`,
+    );
+  }
+  return { marked, ignored: ignored.length };
 }
 
 /**
@@ -555,10 +587,11 @@ export async function onAccountActivity(
   env: Env,
   platformId: PlatformId,
   accountId: string,
-): Promise<{ matched: number; marked: number }> {
+): Promise<{ matched: number; marked: number; ignored: number }> {
   const connections = await store.connectionsForAccount(env, platformId, accountId);
   const budget: Budget = { left: STATS_LIMIT };
   let marked = 0;
+  let ignored = 0;
   let failure: unknown;
 
   for (const connection of connections) {
@@ -574,7 +607,9 @@ export async function onAccountActivity(
       continue;
     }
     try {
-      marked += await applyCompletions(env, connection.user_id, platformId, connection.token, budget);
+      const applied = await applyCompletions(env, connection.user_id, platformId, connection.token, budget);
+      marked += applied.marked;
+      ignored += applied.ignored;
     } catch (err) {
       // Recorded per athlete and kept, not thrown: one athlete's revoked token must
       // not cost the others their completions. Re-raised once they have all had a go.
@@ -584,7 +619,7 @@ export async function onAccountActivity(
   }
 
   if (failure) throw failure;
-  return { matched: connections.length, marked };
+  return { matched: connections.length, marked, ignored };
 }
 
 /** Athletes per scheduled pass; the next one carries on. See `store.connectionBatch`. */
@@ -606,7 +641,7 @@ export async function pullEveryCompletion(env: Env): Promise<number> {
         continue;
       }
       try {
-        marked += await applyCompletions(env, connection.user_id, platformId, connection.token, budget);
+        marked += (await applyCompletions(env, connection.user_id, platformId, connection.token, budget)).marked;
       } catch (err) {
         await store.recordSyncError(env, connection.user_id, platformId, message(err));
       }

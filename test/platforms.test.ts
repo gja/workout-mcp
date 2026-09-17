@@ -528,6 +528,23 @@ describe('the intervals.icu webhook', () => {
     expect(await (await post(analysed())).json()).toMatchObject({ matched: 1, marked: 0 });
   });
 
+  // Their own calendar entry, paired with their upload: a completion that names no
+  // plan of ours. Nothing is invented to hang it on — it is counted and logged.
+  it('creates nothing for a session paired with an event this app never pushed', async () => {
+    await connect();
+    const planned = await createWorkout();
+    await pairAnActivity(987_654);
+
+    expect(await (await post(analysed())).json()).toMatchObject({ matched: 1, marked: 0, ignored: 1 });
+
+    // Still the one workout that was planned here, and it is not marked done.
+    const workouts = (await (await call('/api/workouts')).json()) as {
+      workouts: Array<{ id: string; completed_at?: string | null }>;
+    };
+    expect(workouts.workouts.map((workout) => workout.id)).toEqual([planned.id]);
+    expect(workouts.workouts[0]?.completed_at ?? null).toBeNull();
+  });
+
   it('refuses a body whose secret is not the one they were given', async () => {
     await connect();
     const response = await post({ ...analysed(), secret: 'not-the-secret' });

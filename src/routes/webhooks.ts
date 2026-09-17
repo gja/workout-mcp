@@ -57,11 +57,13 @@ const intervalsWebhook: Route = async ({ request, env }) => {
 
   let matched = 0;
   let marked = 0;
+  let ignored = 0;
   try {
     for (const athlete of athletes) {
       const result = await platforms.onAccountActivity(env, 'intervals', athlete);
       matched += result.matched;
       marked += result.marked;
+      ignored += result.ignored;
     }
   } catch (err) {
     // Anything but a 2xx is retried with exponential backoff, which is exactly what
@@ -72,7 +74,12 @@ const intervalsWebhook: Route = async ({ request, env }) => {
 
   // An athlete nobody here has connected is a permanent condition — a retry would
   // never do better — so it answers 2xx having done nothing.
-  return json({ ok: true, athletes: athletes.size, matched, marked });
+  //
+  // `ignored` counts the sessions that came back paired with an event this app did not
+  // push — the athlete's own calendar entry, most often. No workout is created for one;
+  // it is logged and stepped over, and the count is here so a delivery that marked
+  // nothing can be told apart from one that found nothing at all.
+  return json({ ok: true, athletes: athletes.size, matched, marked, ignored });
 };
 
 export const routes = (app: Router<Context>): void => {

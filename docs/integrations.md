@@ -187,6 +187,31 @@ Worker was mid-deploy, would otherwise be lost for good. It is also the only
 path for an activity that came from Strava: intervals.icu does not send activity
 webhooks for those at all.
 
+### A completion that names no plan of ours
+
+Not every paired session is one this app pushed. An athlete who also keeps their
+own entries on the intervals.icu calendar has uploads paired with *those*, and
+they come back in the same listing as everything else.
+
+Nothing is created for one. There is no "log the session I found" path: a
+completion is only ever applied to a workout already planned here, and a session
+paired with an event this app did not push — or with one whose workout has since
+left the retention window — is counted as ignored and stepped over. Inventing a
+workout to hang it on would put a session in the plan that nobody planned, and
+the plan is the one thing an assistant reads as the athlete's intent.
+
+It is logged rather than dropped in silence, one line per pass naming the count
+and the first few event ids:
+
+```
+intervals: ignoring 2 completed sessions with no planned workout here (event 112233, 112240)
+```
+
+That line is the only thing that tells "their upload never reached us" apart
+from "it reached us paired with something else", which look identical from the
+outside. The webhook's own response carries the same count as `ignored`
+alongside `matched` and `marked`.
+
 ### And the recording behind it
 
 Applying a completion is also where the session's stats are read. The activity
