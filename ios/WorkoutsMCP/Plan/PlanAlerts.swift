@@ -37,7 +37,7 @@ enum PlanAlerts {
                 Measurement(value: $0, unit: UnitPower.watts)
             })
 
-        case .speed(let low, let high):
+        case .speed(let low, let high, _):
             guard let low, let high, low > 0, high > 0 else { return nil }
             return SpeedRangeAlert(
                 target: band(low, high) { Measurement(value: $0, unit: UnitSpeed.metersPerSecond) },

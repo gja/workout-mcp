@@ -95,21 +95,82 @@ The upload does not need it — `POST /api/workouts/:date/:id/recording` names t
 in its path — and that is the point: the file is self-describing wherever else it ends up,
 without the server having to trust something inside it over the route it arrived on.
 
-Matching a recorded session to the plan it was for is tried three ways, in order: the plan
+Matching a recorded session to the plan it was for is tried two ways, in order: the plan
 id the watch recorded, looked up in an index the app wrote when it scheduled the workout;
-the one workout of that sport planned for that day, where there is exactly one; and then
-the athlete, from a picker that is always there. WorkoutKit plan ids are **derived** from
-the workout key rather than allocated, so scheduling a workout again replaces the plan on
-the watch instead of leaving two.
+and the one workout of that sport planned for that day, where there is exactly one.
+WorkoutKit plan ids are **derived** from the workout key rather than allocated, so
+scheduling a workout again replaces the plan on the watch instead of leaving two.
 
-## The home screen is one sentence
+**And then nothing.** There was a third way — a picker, always there, the athlete's own
+choice winning over both — and it is gone. A session the watch named is certain and a day
+with one workout of that sport on it is as good as certain; everything left over is a
+question the app is in the worst position to answer, and asking it puts a menu of every
+workout in the fortnight in front of somebody whose only evidence is the same day and
+sport the app already read. What that menu produced when it was wrong was a completion to
+undo and a page of stats to distrust — see ["A plan is frozen once a session has been
+recorded against it"](stats.md#where-it-sits). So a session the app cannot place says so,
+and is not uploaded; the workout it belongs to is named where the plan, the dashboard or
+an assistant can settle it. Which workout a session was is shown as a fact and a link to
+the plan, not as a field.
 
-The plan lives in Apple Fitness once it has been sent there, so showing it again in this
-app would be a second copy to keep honest. What the athlete actually needs to know is
-whether the sending worked, so the top of the screen is one line — *Synced to Apple
-Fitness · 8 planned workouts · 2 min ago* — and tapping it syncs again. Opening the app
-syncs on its own when the last one was over half an hour ago, because a status line that
-is merely the last thing that happened is worse than none.
+## Three tabs
+
+**Planned**, **Executed**, and **Settings** — the plan ahead, the sessions behind, and the
+one line that says whether the first of those actually reached the watch.
+
+### Planned
+
+What is coming, in the order it will be run, and a tap gets the steps: the plan as
+`GET /api/workouts/:date/:id/plan` resolves it, one duration and up to two targets a step,
+repeats kept. It is the same route the sync schedules from, so the screen and the watch are
+reading the same answer rather than two renderings of the same steps.
+
+Ahead of it, where there is one, is a **Missed** section: planned, in the past, still not
+done. Not a scolding — those are exactly the sessions a sync reaches two days back for, so
+they are on the watch and can still be done.
+
+Completed workouts are not here. They are a session now, and sessions are the next tab.
+
+### Executed
+
+Every session there is evidence of, newest first, from two places at once: what Health
+recorded on this phone, which is what can still be uploaded, and what the server has
+already read a file for, which is where the numbers come from. Most sessions are both, and
+the athlete should not have to know which — a tick says the server has the file.
+
+A tap opens the session, and the session is **the server's reading of it**. The totals, the
+laps, each lap's quarters, and the band each lap was aimed at are all
+[`GET /api/workouts/:date/:id/stats`](stats.md), which is the document the dashboard and
+`get_workout_stats` read too. Nothing on that screen is computed on the phone. The app
+already has HealthKit's own series in hand and could average them itself, and that is
+exactly the reason not to: two sets of numbers for one session, disagreeing at the edges —
+where a pause ends, what counts as moving — is worse than one set that is sometimes not
+there yet.
+
+The laps are the point of the screen. One row a lap, what it was planned to be beside what
+it did on that same metric, and how much of it was spent inside the band. A tap opens one
+lap in full: heart rate average, maximum and **minimum**, pace, power, cadence, the ground
+underneath, the target with time above and below it, and the **quarters** — four equal
+segments of the lap, each metric averaged within its own. Those are as close to a trace as
+this gets, deliberately: the server keeps a page of numbers and not the recording, so there
+is no second-by-second heart rate anywhere to draw. What the quarters give instead is the
+thing an average hides — a rep that started at 6:00/km and finished at 6:40 reads as a
+clean hit until you see its four.
+
+Below all of it, where Health has the session, are the two buttons this app started as:
+*Generate .fit*, which writes the file on the phone, and *Upload*, which posts it.
+
+### Settings
+
+Where the plan stands with Apple Fitness — one line, *Synced to Apple Fitness · 8 planned
+workouts · 2 min ago*, and tapping it syncs again. Opening the app syncs on its own when
+the last one was over half an hour ago, because a status line that is merely the last thing
+that happened is worse than none. Under it, who is signed in, and the way out.
+
+It is in Settings rather than on the plan, which is where it used to be, because it is a
+fact about this app and not about this week's training: it is read once, when the athlete
+wonders whether their watch is up to date, and it is noise on every other opening of the
+app.
 
 A sync sends **two days back to seven days ahead**, minus anything already done, and then
 **prunes**: whatever this app put on the watch outside that window comes off, so the two
@@ -124,9 +185,6 @@ resyncing ten minutes later lands on the same time and does not rewrite the watc
 nothing. Seven ahead rather than the fourteen the server holds: the far end of a fortnight
 is a plan still being edited, and putting it on the watch is a list to scroll past.
 
-Below it is the last seven days of runs and rides out of Health, each with the planned
-workout it matches and a tick where the server already has it, and below that the way out.
-
 ### And with the app shut
 
 HealthKit launches the app in the background when a workout is saved, which is the only way
@@ -137,7 +195,7 @@ watch itself named the plan it was run against.
 The day-and-sport fallback is deliberately not used there. It is a good guess, and a good
 guess is the right thing to offer somebody who is looking at it and the wrong thing to act
 on unattended — a session filed against a workout nobody chose is a completion to undo and a
-page of stats to distrust. Those wait in the list.
+page of stats to distrust. Those wait in the Executed tab.
 
 ## Signing in
 

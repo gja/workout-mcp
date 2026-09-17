@@ -42,6 +42,14 @@ final class AppSession: ObservableObject {
         }
     }
 
+    /// Who the stored credential belongs to, for the line in Settings. A relaunch loads the
+    /// token without asking, so this is the one thing that has to be fetched; a failure is
+    /// not worth saying, because the tabs behind it will say it louder.
+    func loadAccount() async {
+        guard account == nil, let client else { return }
+        account = try? await client.me()
+    }
+
     func signOut() {
         StoredSession.forget()
         stored = nil

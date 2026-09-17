@@ -14,7 +14,7 @@ struct WorkoutsMCPApp: App {
         WindowGroup {
             Group {
                 if session.isSignedIn {
-                    HomeView()
+                    RootView()
                 } else {
                     SignInView()
                 }
