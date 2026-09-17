@@ -9,6 +9,7 @@ dist/
 ios/**/xcuserdata/
 ios/**/*.xcuserstate
 ios/build/
+build/
 DerivedData/
 
 # Signing and distribution: never ours to commit. See ios/README.md.

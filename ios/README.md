@@ -113,8 +113,9 @@ Three tabs.
 **Planned.** At the top, where the plan stands with Apple Fitness — one line, *Synced to
 Apple Fitness · 8 planned workouts · 2 minutes ago*, and tapping it syncs again. The time is
 coarse on purpose: *just now*, then minutes, then hours. A sync five seconds ago and one
-twenty seconds ago are the same fact. Opening the app syncs on its own if the last one was
-over half an hour ago, so the line is true rather than merely reassuring.
+twenty seconds ago are the same fact. Opening the app syncs on its own when the last one was
+over four hours ago, or when the plan it just read is not the one that reached the watch, so
+the line is true rather than merely reassuring.
 
 Under it, what is coming, in the order it will be run, and a tap gets the steps — the plan
 as the server resolves it, repeats kept, each step with its duration and the band it is
@@ -128,8 +129,9 @@ it was planned to be beside what it did, and how much of the lap was inside the 
 on a lap opens that lap in full: heart rate average, max and min, pace, power, cadence, the
 ground under it, the target with the time spent above and below, and the quarters. None of
 it is computed on the phone; it is `GET /api/workouts/:date/:id/stats`, the same document
-the dashboard reads. Under all of it, where Health has the session: *Generate .fit*, which
-builds the file on the phone, and *Upload to WorkoutsMCP*, which posts it.
+the dashboard reads. Under all of it, where Health has the session, one button: *Share .fit*,
+which writes the file on the phone and opens the share sheet — with *Export to WorkoutsMCP*
+in it beside AirDrop, Files and Mail.
 
 Which planned workout a session was is shown as a fact with a link to the plan, and is not
 a field to edit. It comes from the plan id the watch recorded, or from the one workout of
@@ -189,6 +191,30 @@ lists what this machine actually has.
 Then run it on a real iPhone (⌘R with the phone selected), which is the only place
 HealthKit has data and `WorkoutScheduler` does anything.
 
+### Onto the phone without Xcode
+
+The identity comes out of the login keychain and the profile is fetched for you, which is
+all `CODE_SIGN_STYLE = Automatic`, a committed `DEVELOPMENT_TEAM` and
+`-allowProvisioningUpdates` between them mean. Nothing is passed on the command line.
+
+```bash
+xcrun devicectl list devices                     # once: the phone's identifier
+DEVICE=00008120-XXXXXXXXXXXXXXXX
+
+xcodebuild -project ios/WorkoutsMCP.xcodeproj -scheme WorkoutsMCP \
+  -configuration Debug -destination "id=$DEVICE" \
+  -derivedDataPath build/ios -allowProvisioningUpdates build
+
+xcrun devicectl device install app --device "$DEVICE" \
+  build/ios/Build/Products/Debug-iphoneos/WorkoutsMCP.app
+xcrun devicectl device process launch --device "$DEVICE" com.workouts-mcp.ios
+```
+
+The phone needs Developer Mode on and this Mac trusted; a wireless-paired phone works the
+same way. Over SSH, unlock the keychain first — `security unlock-keychain
+~/Library/Keychains/login.keychain-db` — or codesign fails with `errSecInternalComponent`
+rather than saying what is wrong.
+
 ### Every build
 
 1. **Bump the build number.** App Store Connect refuses a build number it has already seen
@@ -208,8 +234,21 @@ HealthKit has data and `WorkoutScheduler` does anything.
    ```
 
 3. **Upload.** *Window › Organizer*, select the archive, *Distribute App › TestFlight &
-   App Store › Upload*. From the command line it is two steps and an
-   [App Store Connect API key](https://appstoreconnect.apple.com/access/integrations/api):
+   App Store › Upload*. From the command line, one more step and an
+   [App Store Connect API key](https://appstoreconnect.apple.com/access/integrations/api).
+   Write `ios/ExportOptions.plist` once — it is gitignored, and `destination` is what makes
+   the export upload rather than leave an `.ipa` behind:
+
+   ```xml
+   <?xml version="1.0" encoding="UTF-8"?>
+   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+   <plist version="1.0"><dict>
+     <key>method</key><string>app-store-connect</string>
+     <key>destination</key><string>upload</string>
+     <key>teamID</key><string>JM23328UQQ</string>
+     <key>signingStyle</key><string>automatic</string>
+   </dict></plist>
+   ```
 
    ```bash
    xcodebuild -exportArchive \
@@ -217,13 +256,24 @@ HealthKit has data and `WorkoutScheduler` does anything.
      -exportOptionsPlist ios/ExportOptions.plist \
      -exportPath build/export \
      -allowProvisioningUpdates \
-     -authenticationKeyPath "$PWD/AuthKey_XXXXXXXXXX.p8" \
+     -authenticationKeyPath ~/private_keys/AuthKey_XXXXXXXXXX.p8 \
      -authenticationKeyID XXXXXXXXXX \
      -authenticationKeyIssuerID 00000000-0000-0000-0000-000000000000
    ```
 
-   with an `ExportOptions.plist` of `method` = `app-store-connect`, `destination` = `upload`
-   and your `teamID`. **That `.p8` key is a secret: keep it outside this repository.**
+   **That `.p8` key is a secret: keep it outside this repository** — `*.p8` is gitignored,
+   but a home directory is the better place. The signing itself takes nothing from the
+   command line: the *Apple Distribution* identity comes out of the login keychain, and the
+   key above authenticates to App Store Connect, not to the certificate.
+
+   To upload with no `.p8` at all, set `destination` to `export` and post the `.ipa` with an
+   app-specific password kept in the keychain
+   (`security add-generic-password -s AC_PASSWORD -a you@example.com -w`):
+
+   ```bash
+   xcrun altool --upload-app -t ios -f build/export/WorkoutsMCP.ipa \
+     -u you@example.com -p "@keychain:AC_PASSWORD"
+   ```
 
 Processing takes five to thirty minutes, then the build shows up under *TestFlight*.
 
