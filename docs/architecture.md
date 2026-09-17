@@ -27,17 +27,22 @@ src/routes/             one module per group of routes, each declaring its own p
   recordings.ts         /api/recordings, and the signed ZIP download outside the door
   workouts.ts           /api/workouts, /api/tools and /export
 src/app.ts              the OAuth provider's defaultHandler: the table the rest mount onto
-src/index.ts            the provider itself, and the protected /mcp handler
+src/index.ts            the provider itself, and the two handlers it protects
 src/client/             the React dashboard
 ```
 
 ## The request path
 
 `src/index.ts` constructs the `OAuthProvider`, which wraps everything: it
-claims the OAuth endpoints and `/mcp`, and passes every other request to
-`src/app.ts`. Two kinds of credential reach `/mcp` — an OAuth access token the
-provider issued, and one of our own `wk_` tokens resolved by
+claims the OAuth endpoints, `/mcp` and `/api/app-token`, and passes every other
+request to `src/app.ts`. Two kinds of credential reach `/mcp` — an OAuth access
+token the provider issued, and one of our own `wk_` tokens resolved by
 `resolveExternalToken` — and both arrive at the handler as the same props.
+
+`/api/app-token` is the one path under `/api/` that `src/app.ts` never sees, and
+so the one place a credential becomes an athlete outside `withUser`. It is there
+so a native app can trade a grant for the token the rest of the API takes; see
+[auth.md](auth.md#a-native-app-signs-in-through-the-browser-and-ends-up-with-a-token).
 
 `src/app.ts` is only the routing table: it builds the router and mounts each
 group from `src/routes/`, which keeps every path next to the handler that

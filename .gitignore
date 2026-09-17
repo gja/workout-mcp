@@ -4,3 +4,15 @@ worker-configuration.d.ts
 .dev.vars
 .DS_Store
 dist/
+
+# Xcode
+ios/**/xcuserdata/
+ios/**/*.xcuserstate
+ios/build/
+DerivedData/
+
+# Signing and distribution: never ours to commit. See ios/README.md.
+*.p8
+*.p12
+*.mobileprovision
+ios/ExportOptions.plist

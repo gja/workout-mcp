@@ -5,9 +5,11 @@ import { encodeWorkoutFit, fitFilename } from '../fit';
 import type { AuthedRoute, Context } from '../http';
 import { CORS_HEADERS, error, json, withUser } from '../http';
 import * as plan from '../plan';
+import { resolveSteps } from '../resolve';
 import type { Router } from '../router';
+import { MAX_RECORDING_BYTES, StatsError } from '../stats';
 import { callTool, present, presentBrief } from '../tools';
-import { parseDate, parseTimestamp } from '../units';
+import { fail, parseDate, parseTimestamp } from '../units';
 import { parseComment, parseWorkout } from '../workout';
 
 /** The `:date`/`:id` pair every single-workout route is addressed by. */
@@ -15,6 +17,8 @@ type WorkoutRoute = '/api/workouts/:date(\\d{4}-\\d{2}-\\d{2})/:id([0-9a-z]+)';
 type CompletionRoute = `${WorkoutRoute}/complete`;
 type CommentRoute = `${WorkoutRoute}/comment`;
 type StatsRoute = `${WorkoutRoute}/stats`;
+type PlanRoute = `${WorkoutRoute}/plan`;
+type RecordingRoute = `${WorkoutRoute}/recording`;
 
 const WORKOUT: WorkoutRoute = '/api/workouts/:date(\\d{4}-\\d{2}-\\d{2})/:id([0-9a-z]+)';
 
@@ -57,6 +61,65 @@ const getWorkoutStats: AuthedRoute<StatsRoute> = async ({ env, user, params }) =
       : `no workout ${params.id} on ${date}`,
     404,
   );
+};
+
+/** The plan resolved: one duration and up to two targets a step, for a client that schedules it. */
+const getWorkoutPlan: AuthedRoute<PlanRoute> = async ({ env, user, params }) => {
+  const date = parseDate(params.date, 'date');
+  const workout = await db.getWorkout(env, user.id, date, params.id);
+  if (!workout) return error(`no workout ${params.id} on ${date}`, 404);
+
+  return json({
+    date: workout.date,
+    id: workout.id,
+    name: workout.name,
+    sport: workout.sport,
+    sub_sport: workout.sub_sport ?? null,
+    steps: resolveSteps(workout.steps),
+  });
+};
+
+/** The caller's own name for the file, so a session uploaded twice is recognisable as one. */
+const activityId = (raw: string | null): string => {
+  const id = (raw ?? '').trim();
+  if (id.length > 100) fail('activity_id', 'must be at most 100 characters');
+  return id || 'upload';
+};
+
+/**
+ * A recording posted as itself: the bytes are read for their numbers and dropped.
+ *
+ * The body is the FIT file, not JSON, because an app holding one has the bytes and
+ * base64 would cost a third of the Worker's budget for the privilege of wrapping them.
+ */
+const recordWorkout: AuthedRoute<RecordingRoute> = async ({ request, url, env, user, params }) => {
+  const date = parseDate(params.date, 'date');
+  const tooBig = `a recording may be at most ${MAX_RECORDING_BYTES} bytes`;
+
+  // Checked before the body is read as well as after: a client that declares its size
+  // is refused without buffering a file the Worker was never going to decode.
+  const declared = Number(request.headers.get('Content-Length'));
+  if (Number.isFinite(declared) && declared > MAX_RECORDING_BYTES) return error(tooBig, 413);
+
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (bytes.byteLength > MAX_RECORDING_BYTES) return error(tooBig, 413);
+  if (bytes.byteLength === 0) return error('the body is empty; post the FIT file itself', 400);
+
+  const source = { platform: 'upload', activity_id: activityId(url.searchParams.get('activity_id')) };
+
+  let recorded;
+  try {
+    recorded = await plan.recordSession(env, user, date, params.id, bytes, source);
+  } catch (err) {
+    // Unreadable is the caller's file, not our failure — and unlike the platform sync
+    // there is nobody to retry, so it is answered rather than stored as a bad read.
+    if (err instanceof StatsError) return error(err.message, 400);
+    return error(`the recording could not be read: ${err instanceof Error ? err.message : String(err)}`, 400);
+  }
+
+  return recorded
+    ? json(presentBrief(recorded.workout, url.origin))
+    : error(`no workout ${params.id} on ${date}`, 404);
 };
 
 const replaceWorkout: AuthedRoute<WorkoutRoute> = async ({ request, url, env, user, params }) => {
@@ -149,6 +212,8 @@ export const routes = (app: Router<Context>): void => {
     .post('/api/workouts', withUser(createWorkout))
     .get(WORKOUT, withUser(getWorkout))
     .get(`${WORKOUT}/stats`, withUser(getWorkoutStats))
+    .get(`${WORKOUT}/plan`, withUser(getWorkoutPlan))
+    .post(`${WORKOUT}/recording`, withUser(recordWorkout))
     .put(WORKOUT, withUser(replaceWorkout))
     .delete(WORKOUT, withUser(deleteWorkout))
     .post(`${WORKOUT}/complete`, withUser(completeWorkout))

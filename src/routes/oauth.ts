@@ -7,6 +7,16 @@ import type { Router } from '../router';
 
 export const SCOPE = 'workouts';
 
+/**
+ * Asked for by a native app, and by nothing else.
+ *
+ * `/api/app-token` mints a `wk_` token, which outlives the grant it was minted from —
+ * disconnecting the app on the dashboard would no longer take its access away. That is
+ * exactly the power an MCP client should not get by accident, so it is a scope of its own:
+ * a client that wants it has to say so, and the consent page shows what was asked for.
+ */
+export const APP_TOKEN_SCOPE = 'app-token';
+
 /** A bad client_id or redirect_uri is reported, never redirected to. */
 const showConsent: Route = async ({ request, url, env }) => {
   try {
@@ -43,7 +53,12 @@ const grantConsent: AuthedRoute = async ({ request, env, user }) => {
     userId: user.id,
     metadata: { clientName: client?.clientName ?? 'An MCP client' },
     scope: authRequest.scope.length > 0 ? authRequest.scope : [SCOPE],
-    props: { userId: user.id, email: user.email },
+    // Carried onto the grant, because `/api/app-token` is the one route that asks what it was for.
+    props: {
+      userId: user.id,
+      email: user.email,
+      scope: authRequest.scope.length > 0 ? authRequest.scope : [SCOPE],
+    },
   });
 
   return json({ redirect: redirectTo });

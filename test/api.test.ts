@@ -5,6 +5,7 @@ import { plannedTotals } from '../src/describe';
 import { MAX_WORKOUTS_PER_USER, getWorkout, listWorkouts, putWorkout, readWindow } from '../src/db';
 import { shiftDate, today } from '../src/units';
 import { parseWorkout } from '../src/workout';
+import { encodeActivityFit } from './activity-fit';
 import { resetDatabase, seedUser } from './helpers';
 
 const BASE = 'https://workouts.example';
@@ -470,6 +471,133 @@ describe('completing a workout', () => {
     const created = await createIntervals();
     const response = await call(`/api/workouts/${created.date}/${created.id}/complete`, { method: 'PUT' });
     expect(response.status).toBe(405);
+  });
+});
+
+describe('the resolved plan', () => {
+  it('hands back one duration and its targets a step, with the repeats kept', async () => {
+    const created = await createIntervals();
+
+    const response = await call(`/api/workouts/${created.date}/${created.id}/plan`);
+    expect(response.status).toBe(200);
+
+    const plan = (await response.json()) as { sport: string; steps: Array<Record<string, any>> };
+    expect(plan.sport).toBe('running');
+    expect(plan.steps).toHaveLength(3);
+    expect(plan.steps[0]).toMatchObject({
+      kind: 'step',
+      name: 'Warmup',
+      intensity: 'warmup',
+      duration: { type: 'time', seconds: 600 },
+      target: { type: 'heart_rate', low: { unit: 'bpm', value: 146 } },
+    });
+    expect(plan.steps[1]).toMatchObject({ kind: 'repeat', times: 8 });
+    expect(plan.steps[1].steps[0]).toMatchObject({
+      duration: { type: 'distance', meters: 400 },
+      target: { type: 'speed', unit: 'km' },
+    });
+  });
+
+  it('404s a workout that is not there', async () => {
+    const response = await call(`/api/workouts/${DAY}/nosuchid/plan`);
+    expect(response.status).toBe(404);
+  });
+});
+
+describe('uploading a recording', () => {
+  const RECORDED_ON = shiftDate(today(), -1);
+
+  const RIDE = encodeActivityFit({
+    sport: 'cycling',
+    startTime: new Date(`${RECORDED_ON}T06:00:00Z`),
+    laps: [{ seconds: 600, speed: 8, hr: [120, 150], power: 210, cadence: 88 }],
+  });
+
+  const createRide = async (): Promise<{ date: string; id: string }> => {
+    const response = await call('/api/workouts', {
+      method: 'POST',
+      body: JSON.stringify({
+        date: RECORDED_ON,
+        name: 'Steady ten',
+        sport: 'cycling',
+        steps: [{ name: 'Steady', goal_s: 600, target_watts: [200, 230] }],
+      }),
+    });
+    expect(response.status).toBe(201);
+    return (await response.json()) as { date: string; id: string };
+  };
+
+  const upload = (workout: { date: string; id: string }, body: BodyInit, query = '') =>
+    call(`/api/workouts/${workout.date}/${workout.id}/recording${query}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/vnd.ant.fit' },
+      body,
+    });
+
+  it('reads the file, marks the session done, and keeps no bytes', async () => {
+    const created = await createRide();
+
+    const response = await upload(created, RIDE, '?activity_id=HK-4C1F');
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as {
+      completed_at: string;
+      stats: { platform: string; activity_id: string; session: { avg_power_w: number } };
+    };
+    // The moment the recording ended, not the moment it was uploaded.
+    expect(body.completed_at).toBe(`${RECORDED_ON}T06:10:00.000Z`);
+    expect(body.stats).toMatchObject({ platform: 'upload', activity_id: 'HK-4C1F' });
+    expect(body.stats.session.avg_power_w).toBe(210);
+
+    const stats = (await (await call(`/api/workouts/${created.date}/${created.id}/stats`)).json()) as {
+      laps: Array<{ planned_step_name: string; match_confidence: string }>;
+    };
+    expect(stats.laps).toHaveLength(1);
+    expect(stats.laps[0]).toMatchObject({ planned_step_name: 'Steady', match_confidence: 'high' });
+  });
+
+  it('leaves a completion that was already recorded where it was', async () => {
+    const created = await createRide();
+    await call(`/api/workouts/${created.date}/${created.id}/complete`, {
+      method: 'POST',
+      body: JSON.stringify({ completed_at: `${RECORDED_ON}T05:00:00Z` }),
+    });
+
+    const body = (await (await upload(created, RIDE)).json()) as { completed_at: string };
+    expect(body.completed_at).toBe(`${RECORDED_ON}T05:00:00.000Z`);
+  });
+
+  it('names the file as what could not be read, rather than storing the failure', async () => {
+    const created = await createRide();
+
+    const response = await upload(created, new Uint8Array([1, 2, 3, 4]));
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { error: string }).error).toMatch(/not a FIT file/);
+
+    // Nothing stored, so the next upload is a first attempt rather than a retry.
+    expect((await call(`/api/workouts/${created.date}/${created.id}/stats`)).status).toBe(404);
+  });
+
+  it('refuses an empty body', async () => {
+    const created = await createRide();
+    const response = await upload(created, new Uint8Array());
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { error: string }).error).toMatch(/body is empty/);
+  });
+
+  it('refuses a file larger than a Worker can decode, before reading it', async () => {
+    const created = await createRide();
+    const response = await call(`/api/workouts/${created.date}/${created.id}/recording`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/vnd.ant.fit', 'Content-Length': String(9 * 1024 * 1024) },
+      body: RIDE,
+    });
+    expect(response.status).toBe(413);
+  });
+
+  it('404s a workout that is not there', async () => {
+    const response = await upload({ date: DAY, id: 'nosuchid' }, RIDE);
+    expect(response.status).toBe(404);
   });
 });
 

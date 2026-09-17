@@ -3,6 +3,8 @@
 import * as db from './db';
 import type { Env, User } from './db';
 import * as platforms from './platforms';
+import { statsFrom } from './stats';
+import type { Source, WorkoutStats } from './stats';
 import type { Workout, WorkoutInput } from './workout';
 
 export async function createWorkout(env: Env, user: User, input: WorkoutInput): Promise<Workout> {
@@ -66,4 +68,37 @@ export async function setComment(
   const workout = await db.setComment(env, user.id, date, id, comment);
   if (workout) await platforms.onCommentSaved(env, user, workout);
   return workout;
+}
+
+/**
+ * A recording handed straight to us rather than fetched off a platform.
+ *
+ * Read once into the same numbers the platform sync stores, and the bytes dropped:
+ * nothing here ever holds the file, the record stream or the track. The session is
+ * marked done at the moment the recording ended, unless it already was — an upload
+ * is evidence that it happened, not a correction of when. See docs/stats.md.
+ */
+export async function recordSession(
+  env: Env,
+  user: User,
+  date: string,
+  id: string,
+  bytes: Uint8Array,
+  source: Source,
+): Promise<{ workout: Workout; stats: WorkoutStats } | null> {
+  const existing = await db.getWorkout(env, user.id, date, id);
+  if (!existing) return null;
+
+  const stats = statsFrom(bytes, existing, source);
+  await db.setStats(env, user.id, date, id, stats);
+
+  const workout = await setCompleted(env, user, date, id, existing.completed_at ?? endedAt(stats));
+  return workout ? { workout, stats } : null;
+}
+
+/** When the recording ended, which is when the session was done. Now, where the file did not say. */
+function endedAt(stats: WorkoutStats): string {
+  const start = Date.parse(stats.session?.start_time ?? '');
+  if (Number.isNaN(start)) return new Date().toISOString();
+  return new Date(start + (stats.session?.elapsed_s ?? 0) * 1000).toISOString();
 }

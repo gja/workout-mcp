@@ -1,0 +1,183 @@
+// What the server sends back. The plan arrives already resolved — one duration and up
+// to two targets a step — from `GET /api/workouts/:date/:id/plan`, so nothing here has
+// to re-implement the resolver in docs/workouts.md.
+
+import Foundation
+
+struct PlannedWorkout: Decodable, Identifiable, Hashable {
+    let id: String
+    let date: String
+    let name: String
+    let sport: String
+    let subSport: String?
+    let notes: String?
+    let summary: String?
+    let completedAt: String?
+
+    /// How this workout is addressed, everywhere: in a URL, in a FIT file, in a scheduled plan.
+    var key: String { "\(date)/\(id)" }
+    var isDone: Bool { completedAt != nil }
+
+    var day: Date? { WorkoutDate.parse(date) }
+}
+
+struct ResolvedPlan: Decodable {
+    let date: String
+    let id: String
+    let name: String
+    let sport: String
+    let subSport: String?
+    let steps: [ResolvedStep]
+}
+
+/// A step, or a block of them run several times. The server's `resolveSteps` shape.
+indirect enum ResolvedStep: Decodable {
+    case effort(PlanEffort)
+    case block(times: Int, steps: [ResolvedStep])
+
+    private enum CodingKeys: String, CodingKey { case kind, times, steps }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if try container.decode(String.self, forKey: .kind) == "repeat" {
+            self = .block(
+                times: try container.decode(Int.self, forKey: .times),
+                steps: try container.decode([ResolvedStep].self, forKey: .steps)
+            )
+        } else {
+            self = .effort(try PlanEffort(from: decoder))
+        }
+    }
+}
+
+struct PlanEffort: Decodable {
+    let name: String?
+    let notes: String?
+    let intensity: String
+    let duration: PlanDuration
+    let target: PlanTarget
+    let secondaryTarget: PlanTarget?
+
+    /// Which of the six intensities the plan gave this step, as Apple's scheduler sees it.
+    var isRecovery: Bool { intensity == "rest" || intensity == "recovery" }
+}
+
+enum PlanDuration: Decodable {
+    case open
+    case time(seconds: Double)
+    case distance(meters: Double)
+
+    private enum CodingKeys: String, CodingKey { case type, seconds, meters }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(String.self, forKey: .type) {
+        case "time": self = .time(seconds: try container.decode(Double.self, forKey: .seconds))
+        case "distance": self = .distance(meters: try container.decode(Double.self, forKey: .meters))
+        default: self = .open
+        }
+    }
+}
+
+/// A bound the plan wrote as an absolute number or as a percentage of something only the
+/// athlete's own profile knows. The percentage forms are carried, not converted.
+struct PlanBound: Decodable {
+    let unit: String
+    let value: Double
+
+    var isAbsolute: Bool { unit == "bpm" || unit == "watts" }
+}
+
+enum PlanTarget: Decodable {
+    case open
+    case zone(metric: String, zone: Int)
+    case heartRate(low: PlanBound?, high: PlanBound?)
+    /// Metres a second, both ends, however the athlete wrote the pace.
+    case speed(low: Double?, high: Double?)
+    case power(low: PlanBound?, high: PlanBound?)
+    case cadence(low: Double?, high: Double?)
+
+    private enum CodingKeys: String, CodingKey { case type, metric, zone, low, high }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(String.self, forKey: .type) {
+        case "zone":
+            self = .zone(
+                metric: try container.decode(String.self, forKey: .metric),
+                zone: try container.decode(Int.self, forKey: .zone)
+            )
+        case "heart_rate":
+            self = .heartRate(
+                low: try container.decodeIfPresent(PlanBound.self, forKey: .low),
+                high: try container.decodeIfPresent(PlanBound.self, forKey: .high)
+            )
+        case "speed":
+            self = .speed(
+                low: try container.decodeIfPresent(Double.self, forKey: .low),
+                high: try container.decodeIfPresent(Double.self, forKey: .high)
+            )
+        case "power":
+            self = .power(
+                low: try container.decodeIfPresent(PlanBound.self, forKey: .low),
+                high: try container.decodeIfPresent(PlanBound.self, forKey: .high)
+            )
+        case "cadence":
+            self = .cadence(
+                low: try container.decodeIfPresent(Double.self, forKey: .low),
+                high: try container.decodeIfPresent(Double.self, forKey: .high)
+            )
+        default:
+            self = .open
+        }
+    }
+}
+
+/// What `POST .../recording` answers with: the workout, now done, and what was read off the file.
+struct RecordingReceipt: Decodable {
+    let date: String
+    let id: String
+    let completedAt: String?
+    let stats: RecordedStats?
+}
+
+struct RecordedStats: Decodable {
+    let platform: String
+    let activityId: String
+    let session: SessionTotals?
+    let flags: [String]
+}
+
+struct SessionTotals: Decodable {
+    let sport: String?
+    let elapsedS: Double?
+    let movingS: Double?
+    let distanceM: Double?
+    let avgHr: Double?
+    let avgPaceSKm: Double?
+    let avgPowerW: Double?
+    let avgCadence: Double?
+    let calories: Double?
+}
+
+/// The server keeps a fortnight ahead and a week behind; dates are plain `YYYY-MM-DD`.
+enum WorkoutDate {
+    static let formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    /// Read in the athlete's own timezone: the day a workout sits on is their day, not UTC's.
+    static func parse(_ text: String) -> Date? {
+        formatter.timeZone = TimeZone.current
+        return formatter.date(from: text)
+    }
+
+    static func string(_ date: Date) -> String {
+        formatter.timeZone = TimeZone.current
+        return formatter.string(from: date)
+    }
+}
