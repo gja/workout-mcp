@@ -5,8 +5,8 @@ There is no watch app: the plan is scheduled through **WorkoutKit**, so it appea
 Workout app on the watch the way any Fitness+ or third-party plan does, and the session
 comes back through **HealthKit** like any other.
 
-It talks to [workouts-mcp.com](https://workouts-mcp.com) out of the box, or to your own
-deployment — the sign-in screen asks which.
+It talks to [workouts-mcp.com](https://workouts-mcp.com). Pointing a build at your own
+deployment is one constant in `Auth/AppSession.swift`.
 
 Why it exists and how the two halves join up is [docs/ios.md](../docs/ios.md). This file
 is how to build it.
@@ -110,8 +110,9 @@ revoking it there signs the app out. See
 
 The home screen is three things.
 
-**Where the plan stands.** One line — *Synced to Apple Fitness · 8 planned workouts · 2 min
-ago* — and tapping it syncs again. Opening the app syncs on its own if the last one was
+**Where the plan stands.** One line — *Synced to Apple Fitness · 8 planned workouts · 2
+minutes ago* — and tapping it syncs again. The time is coarse on purpose: *just now*, then
+minutes, then hours. A sync five seconds ago and one twenty seconds ago are the same fact. Opening the app syncs on its own if the last one was
 over half an hour ago, so the line is true rather than merely reassuring.
 
 What goes to the watch is **two days back to seven days ahead**, minus anything already
