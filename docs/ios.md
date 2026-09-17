@@ -287,6 +287,15 @@ a recording reaches this server without the athlete opening anything. What happe
 narrower than what happens on the screen: a session is built and uploaded **only** where the
 watch itself named the plan it was run against.
 
+Being woken is two things, and they fail on different days. An **observer** answers a wake, and
+is registered in the app's initialiser because a background launch builds no view to register
+it from. **Background delivery** is what causes one, and HealthKit refuses to enable it for a
+type the athlete has not authorised — which, on a first install, is every launch before they
+have been asked, the initialiser running well ahead of the screen that asks. So enabling it is
+a step of its own, re-tried: at every launch, and again wherever authorization has just been
+granted. Attempted once and assumed, it leaves an app that would answer a wake perfectly and
+is never sent one — silently, since there is nobody in a background launch to tell.
+
 The day-and-sport fallback is deliberately not used there. It is a good guess, and a good
 guess is the right thing to offer somebody who is looking at it and the wrong thing to act
 on unattended — a session filed against a workout nobody chose is a completion to undo and a

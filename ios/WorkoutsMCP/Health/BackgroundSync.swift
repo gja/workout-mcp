@@ -7,6 +7,11 @@
 // background ones, which is why `start()` is called from the app's own initialiser rather
 // than from a view.
 //
+// It also needs delivery actually enabled, which is a separate thing that fails separately:
+// HealthKit refuses it for a type nobody has authorised yet, and the initialiser runs before
+// anybody has been asked. So `enableDelivery()` is its own step, re-tried rather than
+// attempted once — see the note on it.
+//
 // What it does on waking is deliberately narrow. A session is uploaded only where the watch
 // itself named the plan it was run against; the day-and-sport fallback the home screen uses
 // is a guess, and a guess is fine when the athlete is looking at it and wrong when it files
@@ -17,29 +22,61 @@ import HealthKit
 
 enum BackgroundSync {
     private static var observer: HKObserverQuery?
+    private static var deliveryEnabled = false
 
-    /// Idempotent: called on every launch, and the second call is a no-op.
+    /// Idempotent: called on every launch, and the second call re-tries only what failed.
     static func start() {
-        guard HKHealthStore.isHealthDataAvailable(), observer == nil else { return }
+        guard HKHealthStore.isHealthDataAvailable() else { return }
 
-        let query = HKObserverQuery(sampleType: .workoutType(), predicate: nil) { _, completion, error in
-            guard error == nil else {
-                // Still acknowledged. HealthKit backs off an observer that stops answering,
-                // and a failed read is not a reason to stop being told about the next one.
-                completion()
-                return
+        if observer == nil {
+            let query = HKObserverQuery(sampleType: .workoutType(), predicate: nil) { _, completion, error in
+                guard error == nil else {
+                    // Still acknowledged. HealthKit backs off an observer that stops answering,
+                    // and a failed read is not a reason to stop being told about the next one.
+                    completion()
+                    return
+                }
+                Task {
+                    await uploadWhatIsCertain()
+                    completion()
+                }
             }
-            Task {
-                await uploadWhatIsCertain()
-                completion()
-            }
+
+            observer = query
+            HealthAccess.store.execute(query)
         }
 
-        observer = query
-        HealthAccess.store.execute(query)
+        enableDelivery()
+    }
+
+    /// Asking HealthKit to launch this app when a workout lands — the half that makes a wake
+    /// happen at all, as opposed to the observer above, which is what answers one.
+    ///
+    /// Separate from the observer, and re-tried, because the two fail on different days.
+    /// `enableBackgroundDelivery` throws for a type the athlete has not authorised, and on a
+    /// first install that is every launch before they have been asked: `start()` runs in the
+    /// app's initialiser and `HealthAccess.request()` runs from the first screen that needs
+    /// it, so the very first launch asks in that order every time. Registering the observer
+    /// once is right — it is cheap and it cannot fail that way. Giving up on delivery after
+    /// one attempt was what left the app never woken, until some later cold launch happened
+    /// to re-run this with authorization already granted.
+    ///
+    /// So it is called again wherever authorization has just been granted, and the flag is
+    /// set only on success: a failure leaves it false so the next caller tries once more.
+    static func enableDelivery() {
+        guard HKHealthStore.isHealthDataAvailable(), !deliveryEnabled else { return }
 
         Task {
-            try? await HealthAccess.store.enableBackgroundDelivery(for: .workoutType(), frequency: .immediate)
+            do {
+                try await HealthAccess.store.enableBackgroundDelivery(for: .workoutType(), frequency: .immediate)
+                deliveryEnabled = true
+            } catch {
+                // Left false on purpose. There is nobody to tell in a background launch, and
+                // the next launch — or the next time the athlete grants Health access — asks
+                // again. What this used to do was swallow the error with nothing left to
+                // re-try from, which is a failure that reports itself as an app that simply
+                // never wakes.
+            }
         }
     }
 

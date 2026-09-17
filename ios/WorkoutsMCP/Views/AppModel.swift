@@ -161,6 +161,12 @@ final class AppModel: ObservableObject {
 
         do {
             try await HealthAccess.request()
+            // Authorization has just been granted, which is the thing background delivery
+            // needs and cannot have had on a first launch: `BackgroundSync.start()` runs in
+            // the app's initialiser, before anybody has been asked. Enabling it here is what
+            // makes HealthKit wake the app for the session recorded *today* rather than from
+            // whenever the app is next launched cold.
+            BackgroundSync.enableDelivery()
             activities = try await HealthAccess.recentActivities(days: recentDays)
         } catch {
             problem = error.localizedDescription
