@@ -43,9 +43,21 @@ speed with no floor, and WorkoutKit's one-sided alerts cannot carry it: `SpeedTh
 `PowerThresholdAlert` and `CadenceThresholdAlert` each hold a single `target` and no side,
 and Apple does not say which side the watch reads it as, so that bound and `faster than
 7:45/km` would go out as the same alert. The app sends a range instead, and stands in for
-the end the plan left open — 60:00/km and 1:00/km for pace, 30 and 240 bpm, 0 and 2000 W,
-0 and 250 rpm. Each stand-in is past what a session reaches, so the band the athlete is
-actually held to is the one they wrote.
+the end the plan left open — 20:00/km and 2:00/km for pace, 40 and 220 bpm, 10 and 1000 W,
+20 and 200 rpm. Each stand-in is past what a session reaches, so the band the athlete is
+actually held to is the one they wrote — and no further than that, because a figure outside
+what the watch has a dial for is worse than a wide band, and a zero end reads as no target
+rather than as no floor.
+
+**Everything `CustomWorkout.init` asserts is asked first.** That initialiser is not failable
+and does not throw: handed something it will not take, it traps, and the app goes down with
+`EXC_BREAKPOINT` somewhere inside WorkoutKit. A 0 W floor standing in for an open end did
+exactly that. So the three static checks Apple put there for it are all made on the way in
+— `supportsActivity` for the workout, and `supportsGoal` and `supportsAlert` per step. An
+activity the Workout app has no room for is a workout that cannot be scheduled, and says so.
+A goal that does not fit falls back to running until the lap button. An alert that does not
+— a pace band on a rowing machine, a power band where nothing reads watts — is left off and
+its target named, below.
 
 **A percentage bound still gets no alert.** `85%` of max heart rate, `95%` of FTP: there the
 number itself is missing rather than an end, and it is one only the athlete's own profile
