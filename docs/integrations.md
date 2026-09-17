@@ -212,6 +212,19 @@ from "it reached us paired with something else", which look identical from the
 outside. The webhook's own response carries the same count as `ignored`
 alongside `matched` and `marked`.
 
+### A placeholder is not a session
+
+Their activity listing also carries rows that are not sessions: an id, a date,
+and no name, no activity type, no distance and no moving time. One appears while
+an upload is still being processed, and one is left behind by a source activity
+that has gone.
+
+`activities` drops them. What reads that list — `list_recorded_workouts`, and
+`src/drive/` — is answering "what did the athlete actually do", and a row that
+says nothing happened has no honest answer to give. It used to be listed under
+the fallback name `workout`, which put a session nobody did in front of an
+assistant describing the day.
+
 ### And the recording behind it
 
 Applying a completion is also where the session's stats are read. The activity

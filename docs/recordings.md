@@ -64,6 +64,12 @@ own line there on upload. `comment_workout` pushes a planned workout's comment
 *into* that field, but nothing is ever adopted out of it; see
 ["Why nothing is read back"](integrations.md#why-nothing-is-read-back).
 
+A row carrying no name, no activity type and neither a distance nor a moving
+time is not listed at all. intervals.icu keeps one while an upload is still
+being processed, or after a source activity has gone, and it says nothing about
+any training — see ["A placeholder is not a
+session"](integrations.md#a-placeholder-is-not-a-session).
+
 `file` is the name that session has inside the archive, and the same name
 `src/drive/` gives it: one file, two routes out, named once.
 Nothing matched means no link — there is no point signing an empty archive.
