@@ -211,8 +211,8 @@ is no second-by-second heart rate anywhere to draw. What the quarters give inste
 thing an average hides — a rep that started at 6:00/km and finished at 6:40 reads as a
 clean hit until you see its four.
 
-Below all of it, where Health has the session, are the two buttons this app started as:
-*Generate .fit*, which writes the file on the phone, and *Upload*, which posts it.
+Below all of it, where Health has the session, is *Generate .fit*, which writes the file on
+the phone, and then *Share* it.
 
 Building the file is never what anybody wanted — it is what they had to do first — so the
 share sheet opens on its own the moment it is written, and every way out of the screen is in
@@ -221,11 +221,11 @@ beside them. That is `UIActivityViewController` with a `UIActivity` rather than 
 `ShareLink`, which can do neither half — it opens only when its own link is tapped, and it
 takes no actions.
 
-The upload stays on the screen behind as well. A share sheet is gone the moment it is
-dismissed, and an upload reachable only from inside one would mean building the file a second
-time to find it. Where the session has no planned workout to be filed against, the action is
-not offered at all rather than offered and refused: a list of places to send something should
-only hold places it can go.
+The upload is in the sheet and nowhere else. A button behind it would be two ways to do one
+thing, and a sheet dismissed by accident costs a tap on *Share* rather than a lost file.
+Where the session has no planned workout to be filed against, the action is not offered at
+all rather than offered and refused: a list of places to send something should only hold
+places it can go.
 
 ### Settings
 

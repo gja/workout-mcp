@@ -10,10 +10,9 @@ import UIKit
 
 /// Posting the file to the server, offered as a share target.
 ///
-/// It is a share target because that is where somebody who has just watched a file appear
-/// is already looking. The button on the screen behind stays too: a share sheet is gone the
-/// moment it is dismissed, and an upload reachable only from inside one would mean building
-/// the file again to find it.
+/// It is a share target and nothing else, because that is where somebody who has just
+/// watched a file appear is already looking, and a second button behind the sheet would be
+/// two ways to do one thing. A sheet dismissed by accident costs a tap on *Share* again.
 final class UploadActivity: UIActivity {
     private let title: String
     private let upload: () -> Void

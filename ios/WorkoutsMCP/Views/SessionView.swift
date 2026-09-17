@@ -161,17 +161,11 @@ struct SessionView: View {
                     } label: {
                         Label("Share \(fit.lastPathComponent)", systemImage: "square.and.arrow.up")
                     }
-
-                    Button(workout?.isDone == true ? "Upload again" : "Upload to WorkoutsMCP") {
-                        guard let workout else { return }
-                        Task { await model.upload(fit, from: activity, to: workout, using: session.client) }
-                    }
-                    .disabled(workout == nil || model.loading)
                 }
             } footer: {
                 Text(workout == nil
                     ? "The file is yours to send anywhere. Uploading needs a planned workout to file it against."
-                    : "Sharing opens as soon as the file is built, and the upload is in it. The server ingests the file, works out the stats and marks the session done; it does not keep the file.")
+                    : "Sharing opens as soon as the file is built, and uploading to WorkoutsMCP is one of the actions in it. The server ingests the file, works out the stats and marks the session done; it does not keep the file.")
             }
         }
     }
