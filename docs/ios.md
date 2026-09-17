@@ -170,9 +170,12 @@ reading the same answer rather than two renderings of the same steps.
 It is grouped the way the athlete already thinks about it — **Missed**, **This week**,
 **Next week** — rather than as one list fourteen days long. A fortnight in date order asks
 somebody to work out where this Sunday stops and the next one starts every time they open
-the app, which is the one question a week heading answers for free. The weeks are the
-athlete's own: `Calendar.current` decides whether one begins on a Monday or a Sunday, because
-"next week" is something they say rather than seven days counted from today. Anything the
+the app, which is the one question a week heading answers for free. A week runs **Monday to
+Sunday** whatever the phone's locale says a week begins on, because it is a training week
+rather than a calendar one — the long run is on a Sunday, and a Sunday filed under *Next
+week* on a Saturday evening is the very next session shown as the one after that. It is also
+the week `src/client/dates.ts` groups the dashboard by, so the two screens break a fortnight
+in the same place. Anything the
 server holds past the second week is **Later**, which is a small group by design — the plan
 runs a fortnight and two weeks rarely leave much over.
 

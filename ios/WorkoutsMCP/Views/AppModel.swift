@@ -85,15 +85,22 @@ final class AppModel: ObservableObject {
     /// The same workouts under the headings the Planned tab reads them in: the rest of this
     /// week, next week, and whatever the fortnight reaches past that.
     ///
-    /// A week is the athlete's own — `Calendar.current` decides whether one starts on a Monday
-    /// or a Sunday — because "next week" is something they say rather than a count of seven
-    /// days from today. The far group has no name of its own for the same reason: it is
-    /// whatever the server happens to hold beyond the two weeks anybody is thinking in.
+    /// A week runs **Monday to Sunday**, whatever the phone's locale says a week begins on.
+    /// It is a training week rather than a calendar one: the long run is on a Sunday, and a
+    /// Sunday filed under *Next week* on a Saturday evening — which is what `Calendar.current`
+    /// does in a locale whose week starts then — is the very next session shown as the one
+    /// after that. The grouping exists because "next week" is something an athlete says
+    /// rather than a count of seven days from today, and this is the week they mean; it is
+    /// also the week `src/client/dates.ts` groups the dashboard by, so the two screens break
+    /// a fortnight in the same place. The far group has no name of its own for the same
+    /// reason: it is whatever the server happens to hold beyond the two weeks anybody is
+    /// thinking in.
     ///
     /// An empty group is left out rather than shown empty. `missed` is its own list above
     /// these, because a session behind is a decision to make and not part of the week ahead.
     var plannedWeeks: [PlannedWeek] {
-        let calendar = Calendar.current
+        var calendar = Calendar.current
+        calendar.firstWeekday = 2 // Monday, whatever the locale's own answer would be.
         let now = Date()
         let weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? now
         let boundary = { (weeks: Int) -> String in
