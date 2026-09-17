@@ -68,10 +68,16 @@ enum PlanSync {
         return slots(for: due).contains { placed[$0.workout.key] != PlanPlacement.fingerprint($0.workout, at: $0.time) }
     }
 
-    /// Which of a plan is the watch's business: near enough to matter, and not already done.
+    /// Which of a plan is the watch's business: near enough to matter, done or not.
+    ///
+    /// A session already done goes out too, and goes out ticked — `WorkoutScheduler` marks a
+    /// scheduled plan complete and the Workout app shows it that way. So the week on the
+    /// watch is the week that was planned rather than what is left of it, the days behind
+    /// read as done rather than as missing, and a session worth doing again is still there
+    /// to start.
     static func due(in workouts: [PlannedWorkout]) -> [PlannedWorkout] {
         workouts
-            .filter { $0.date >= day(scheduleFrom) && $0.date <= day(scheduleTo) && !$0.isDone }
+            .filter { $0.date >= day(scheduleFrom) && $0.date <= day(scheduleTo) }
             .sorted { $0.date < $1.date }
     }
 
@@ -112,14 +118,19 @@ enum PlanSync {
         // One request for all of them: this is the slow part of a sync that has work to do,
         // and a week of workouts used to be a week of round trips to the same server.
         let stale = wanted.filter {
-            !PlanPlacement.holds($0.workout, at: $0.time, placed: already, onWatch: onWatch.ids)
+            !PlanPlacement.holds($0.workout, at: $0.time, placed: already, onWatch: onWatch)
         }
         let plans = try await client.plans(for: stale.map(\.workout))
 
         var count = 0
         for slot in wanted {
             if let plan = plans[slot.workout.key] {
-                try await WorkoutKitSync.schedule(plan, at: slot.time, replacing: onWatch)
+                try await WorkoutKitSync.schedule(
+                    plan,
+                    at: slot.time,
+                    done: slot.workout.isDone,
+                    replacing: onWatch
+                )
                 PlanPlacement.remember(slot.workout, at: slot.time)
             }
             count += 1
@@ -149,10 +160,18 @@ enum PlanSync {
     /// The next *whole* hour rather than a minute from now, so a resync ten minutes later
     /// lands on the same time and the watch is not rewritten for nothing. And a minute apart
     /// per workout, so two missed days are two entries rather than one time carrying both.
+    ///
+    /// **A workout already done keeps its own day.** The bump exists so a session still to
+    /// run is reachable, and there is nothing left to reach on one that is ticked: moved
+    /// forward it would file Sunday's long run under today, which is the one fact the tick
+    /// is making a claim about. The day it was planned for and not the minute it was
+    /// finished at — `completed_at` is when the recording ended, or when somebody marked it
+    /// done days later, and only the plan's own date belongs on the plan.
     static func scheduledTime(for workout: PlannedWorkout, slot: Int) -> Date {
         let calendar = Calendar.current
         let planned = workout.day ?? Date()
         let early = calendar.date(bySettingHour: scheduledHour, minute: 0, second: 0, of: planned) ?? planned
+        if workout.isDone { return early.addingTimeInterval(Double(60 * slot)) }
 
         var hour = calendar.dateComponents([.year, .month, .day, .hour], from: Date())
         hour.hour = (hour.hour ?? 0) + 1

@@ -31,6 +31,7 @@ The two models line up better than they have any right to:
 | `{ repeat: 8, steps: [...] }` | `IntervalBlock(steps:iterations:)` |
 | `intensity: rest` or `recovery` | `IntervalStep(.recovery, …)` |
 | `goal_s`, `goal_meters`, no goal | `.time`, `.distance`, `.open` |
+| `completed_at` | `WorkoutScheduler.markComplete` |
 
 The app asks for the plan already resolved — `GET /api/workout-plans`, one duration and
 up to two targets a step, repeats kept — rather than the steps as they were written. There
@@ -220,7 +221,8 @@ behind is a decision to make, and the week ahead is not.
 An empty group is left out rather than shown empty, so a heading on that screen is always a
 promise that there is something under it.
 
-Completed workouts are not here. They are a session now, and sessions are the next tab.
+Completed workouts are not here. They are a session now, and sessions are the next tab —
+though they are still on the watch, ticked, for as long as the sync window reaches them.
 
 ### Executed
 
@@ -284,7 +286,7 @@ plan is here: everything that was is on the tab with the plan on it.
 
 ### What a sync sends
 
-**Two days back to seven days ahead**, minus anything already done, and then it **prunes**:
+**Two days back to seven days ahead**, done or not, and then it **prunes**:
 whatever this app put on the watch outside that window comes off, so the two really do agree
 rather than accumulating. Plans the athlete follows from elsewhere are not this app's to
 touch, and are left alone — only ids in this app's own index are removed.
@@ -296,6 +298,24 @@ scheduler has nothing to show for a time that has gone — the next *whole* hour
 resyncing ten minutes later lands on the same time and does not rewrite the watch for
 nothing. Seven ahead rather than the fourteen the server holds: the far end of a fortnight
 is a plan still being edited, and putting it on the watch is a list to scroll past.
+
+**A session already done goes out ticked.** `WorkoutScheduler.markComplete` marks a plan the
+scheduler is holding, and the Workout app draws it as done — so the days behind read as
+finished rather than as absent, and the week on the watch is the week that was planned
+rather than what is left of it. It also leaves the workout there to start again, which is
+what a second run of the same session needs.
+
+Those keep **their own day**, and are the one exception to the bump above. The bump exists
+so a session still to run is reachable, and a session that is done has nothing left to
+reach: moved to the next whole hour it would file Sunday's long run under today, which is
+the very thing the tick is claiming. The day the workout was planned for, not the minute it
+was finished at — `completed_at` is when the recording ended, or when an assistant marked
+it done two days later, and only the plan's own date belongs on the plan.
+
+The tick is read back as well as written. `ScheduledWorkoutPlan.complete` is what the
+scheduler is actually holding, and a sync compares it the same way it compares the ids: a
+completion cleared in the Workout app is one this app's record still claims, and putting it
+back is the point of looking at all.
 
 **And most of a sync sends nothing at all.** Everything a scheduled workout is built from
 comes off the server, and the listing says when the server last wrote each workout — so a

@@ -35,10 +35,11 @@ enum WorkoutKitSync {
     /// What the scheduler is holding, read once. Nothing outside this file is given
     /// WorkoutKit's own type for it, so a caller can carry the reading around and still not
     /// know what a scheduled workout is; `ids` is all one needs to ask whether a plan it
-    /// placed is still there.
+    /// placed is still there, and `ticked` whether it is there as done.
     struct Schedule {
         fileprivate let workouts: [ScheduledWorkoutPlan]
         let ids: Set<UUID>
+        let ticked: Set<UUID>
     }
 
     /// Read once a sync and handed to everything below. Asked per workout, this was the same
@@ -46,11 +47,21 @@ enum WorkoutKitSync {
     /// that changes nothing should ask it once.
     static func scheduled() async -> Schedule {
         let workouts = await WorkoutScheduler.shared.scheduledWorkouts
-        return Schedule(workouts: workouts, ids: Set(workouts.map(\.plan.id)))
+        return Schedule(
+            workouts: workouts,
+            ids: Set(workouts.map(\.plan.id)),
+            ticked: Set(workouts.filter(\.complete).map(\.plan.id))
+        )
     }
 
-    /// Puts one planned workout on the athlete's watch, at `time` on the day it is planned for.
-    static func schedule(_ plan: ResolvedPlan, at time: Date, replacing existing: Schedule) async throws {
+    /// Puts one planned workout on the athlete's watch, at `time` on the day it is planned
+    /// for, and ticks it where the session has already been done.
+    static func schedule(
+        _ plan: ResolvedPlan,
+        at time: Date,
+        done: Bool,
+        replacing existing: Schedule
+    ) async throws {
         let custom = try build(plan)
         let key = "\(plan.date)/\(plan.id)"
         let planID = PlanLink.planID(for: key)
@@ -61,7 +72,11 @@ enum WorkoutKitSync {
         for scheduled in existing.workouts where scheduled.plan.id == planID {
             await WorkoutScheduler.shared.remove(scheduled.plan, at: scheduled.date)
         }
-        await WorkoutScheduler.shared.schedule(WorkoutPlan(.custom(custom), id: planID), at: when)
+        let scheduling = WorkoutPlan(.custom(custom), id: planID)
+        await WorkoutScheduler.shared.schedule(scheduling, at: when)
+        // After scheduling and not instead of it: a completion is set on a plan the scheduler
+        // is already holding, and the write above has just replaced whatever it held before.
+        if done { await WorkoutScheduler.shared.markComplete(scheduling, at: when) }
         PlanLink.remember(planID: planID, for: key)
     }
 

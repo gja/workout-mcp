@@ -32,10 +32,21 @@ enum PlanPlacement {
         return "\(updated)@\(Int(time.timeIntervalSince1970 / 60))"
     }
 
-    /// Whether this workout can be left alone: placed as it now is, and still on the watch.
-    static func holds(_ workout: PlannedWorkout, at time: Date, placed: [String: String], onWatch: Set<UUID>) -> Bool {
+    /// Whether this workout can be left alone: placed as it now is, still on the watch, and
+    /// ticked there if it is done here.
+    ///
+    /// The tick is checked against the scheduler for the same reason the plan itself is —
+    /// a completion cleared in the Workout app is one this app's own record would still
+    /// claim, and putting it back is the point of looking.
+    static func holds(
+        _ workout: PlannedWorkout,
+        at time: Date,
+        placed: [String: String],
+        onWatch: WorkoutKitSync.Schedule
+    ) -> Bool {
         guard let wanted = fingerprint(workout, at: time), placed[workout.key] == wanted else { return false }
-        return onWatch.contains(PlanLink.planID(for: workout.key))
+        let planID = PlanLink.planID(for: workout.key)
+        return onWatch.ids.contains(planID) && onWatch.ticked.contains(planID) == workout.isDone
     }
 
     static func remember(_ workout: PlannedWorkout, at time: Date) {
