@@ -80,29 +80,38 @@ enum WorkoutKitSync {
     /// A warmup step and a cooldown step are Apple's own slots; everything between them is a
     /// block. A repeat becomes a block that iterates, which is the one place the two models
     /// line up exactly.
+    ///
+    /// `CustomWorkout.init` is not failable and does not throw. It validates what it is
+    /// given by trapping, which took the app down on a power band whose open floor had been
+    /// filled with 0 W. So everything it asserts is asked first, through the three `supports`
+    /// calls Apple put there for it: the activity here, the goal and the alert per step.
     static func build(_ plan: ResolvedPlan) throws -> CustomWorkout {
+        let sport = Sport(activity: Sports.activityType(plan.sport), location: Sports.location(plan.subSport))
+        guard CustomWorkout.supportsActivity(sport.activity) else {
+            throw PlanSyncError.nothingToSchedule(plan.name)
+        }
         var steps = plan.steps
 
         var warmup: WorkoutStep?
         if let first = steps.first, case .effort(let effort) = first, effort.intensity == "warmup" {
-            warmup = step(effort)
+            warmup = step(effort, sport)
             steps.removeFirst()
         }
 
         var cooldown: WorkoutStep?
         if let last = steps.last, case .effort(let effort) = last, effort.intensity == "cooldown" {
-            cooldown = step(effort)
+            cooldown = step(effort, sport)
             steps.removeLast()
         }
 
-        let blocks = steps.map { block($0) }
+        let blocks = steps.map { block($0, sport) }
         guard warmup != nil || cooldown != nil || !blocks.isEmpty else {
             throw PlanSyncError.nothingToSchedule(plan.name)
         }
 
         return CustomWorkout(
-            activity: Sports.activityType(plan.sport),
-            location: Sports.location(plan.subSport),
+            activity: sport.activity,
+            location: sport.location,
             displayName: plan.name,
             warmup: warmup,
             blocks: blocks,
@@ -110,14 +119,24 @@ enum WorkoutKitSync {
         )
     }
 
-    private static func block(_ resolved: ResolvedStep) -> IntervalBlock {
+    /// What the workout is, carried down to each step, because whether an alert may be
+    /// attached at all is a question about the activity and not about the step.
+    private struct Sport {
+        let activity: HKWorkoutActivityType
+        let location: HKWorkoutSessionLocationType
+    }
+
+    private static func block(_ resolved: ResolvedStep, _ sport: Sport) -> IntervalBlock {
         switch resolved {
         case .effort(let effort):
-            return IntervalBlock(steps: [interval(effort)], iterations: 1)
+            return IntervalBlock(steps: [interval(effort, sport)], iterations: 1)
         case .block(let times, let steps):
             // A repeat of repeats is flattened: WorkoutKit blocks do not nest, and the plan
             // format allows two levels. The reps are right; only the grouping is lost.
-            return IntervalBlock(steps: steps.flatMap { efforts(of: $0) }.map { interval($0) }, iterations: times)
+            return IntervalBlock(
+                steps: steps.flatMap { efforts(of: $0) }.map { interval($0, sport) },
+                iterations: times
+            )
         }
     }
 
@@ -128,21 +147,53 @@ enum WorkoutKitSync {
         }
     }
 
-    private static func interval(_ effort: PlanEffort) -> IntervalStep {
-        IntervalStep(effort.isRecovery ? .recovery : .work, step: step(effort))
+    private static func interval(_ effort: PlanEffort, _ sport: Sport) -> IntervalStep {
+        IntervalStep(effort.isRecovery ? .recovery : .work, step: step(effort, sport))
     }
 
-    private static func step(_ effort: PlanEffort) -> WorkoutStep {
-        var step = WorkoutStep(goal: goal(effort.duration), alert: PlanAlerts.alert(for: effort.target))
-        step.displayName = effort.name
+    /// Every alert is put to `CustomWorkout.supportsAlert` before it is attached. WorkoutKit
+    /// takes an alert the activity has no meter for — a pace band on a rowing machine, a
+    /// power band where nothing reads watts — and only finds out at the scheduler, which
+    /// does not throw and so has nowhere to say so. Asked here, an alert that will not do is
+    /// simply not attached, and the target goes into the step's name like any other.
+    private static func step(_ effort: PlanEffort, _ sport: Sport) -> WorkoutStep {
+        let alert = PlanAlerts.alert(for: effort.target).flatMap {
+            CustomWorkout.supportsAlert($0, activity: sport.activity, location: sport.location) ? $0 : nil
+        }
+        var step = WorkoutStep(goal: goal(effort.duration, sport), alert: alert)
+        step.displayName = name(effort, alerted: alert != nil)
         return step
     }
 
-    private static func goal(_ duration: PlanDuration) -> WorkoutGoal {
+    /// A step carries one alert and one line of text, and a plan step can hold more target
+    /// than that: a percentage bound, which needs a profile this app does not hold, a zone
+    /// past the five the watch has, and a second target, which WorkoutKit has nowhere to
+    /// put. Whatever did not become an alert is written into the name the watch already
+    /// shows — `Spin @ 85-95 rpm` — in the same words the workout reads in on the phone, so
+    /// the athlete still sees what the step was for.
+    private static func name(_ effort: PlanEffort, alerted: Bool) -> String? {
+        var unalerted: [PlanTarget] = alerted ? [] : [effort.target]
+        if let secondary = effort.secondaryTarget { unalerted.append(secondary) }
+
+        let described = unalerted.compactMap { Formats.describe($0) }
+        guard !described.isEmpty else { return effort.name }
+
+        let targets = described.joined(separator: " + ")
+        guard let name = effort.name else { return targets }
+        return "\(name) @ \(targets)"
+    }
+
+    /// A distance is not a goal every activity has — nothing measures how far a strength
+    /// session went — and one that does not fit traps in `CustomWorkout.init` rather than
+    /// being refused. The step falls back to running until the lap button, which is the one
+    /// goal always available, instead of taking the app down.
+    private static func goal(_ duration: PlanDuration, _ sport: Sport) -> WorkoutGoal {
+        let goal: WorkoutGoal
         switch duration {
         case .open: return .open
-        case .time(let seconds): return .time(seconds, .seconds)
-        case .distance(let meters): return .distance(meters, .meters)
+        case .time(let seconds): goal = .time(seconds, .seconds)
+        case .distance(let meters): goal = .distance(meters, .meters)
         }
+        return CustomWorkout.supportsGoal(goal, activity: sport.activity, location: sport.location) ? goal : .open
     }
 }
