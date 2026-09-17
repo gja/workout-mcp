@@ -162,6 +162,12 @@ and the one workout of that sport planned for that day, where there is exactly o
 WorkoutKit plan ids are **derived** from the workout key rather than allocated, so
 scheduling a workout again replaces the plan on the watch instead of leaving two.
 
+The id the watch recorded is read off `HKWorkout.workoutPlan`, WorkoutKit's own extension on
+the session. There is no metadata key to look it up by, which is worth saying because this
+app spent a while guessing at three of them and matching nothing: every session came back
+unplanned, and the day-and-sport fallback covered it well enough on screen that the hole only
+showed in the background, where that fallback is deliberately not used.
+
 **And then nothing.** There was a third way — a picker, always there, the athlete's own
 choice winning over both — and it is gone. A session the watch named is certain and a day
 with one workout of that sport on it is as good as certain; everything left over is a
@@ -313,6 +319,15 @@ HealthKit launches the app in the background when a workout is saved, which is t
 a recording reaches this server without the athlete opening anything. What happens then is
 narrower than what happens on the screen: a session is built and uploaded **only** where the
 watch itself named the plan it was run against.
+
+Being woken is two things, and they fail on different days. An **observer** answers a wake, and
+is registered in the app's initialiser because a background launch builds no view to register
+it from. **Background delivery** is what causes one, and HealthKit refuses to enable it for a
+type the athlete has not authorised — which, on a first install, is every launch before they
+have been asked, the initialiser running well ahead of the screen that asks. So enabling it is
+a step of its own, re-tried: at every launch, and again wherever authorization has just been
+granted. Attempted once and assumed, it leaves an app that would answer a wake perfectly and
+is never sent one — silently, since there is nobody in a background launch to tell.
 
 The day-and-sport fallback is deliberately not used there. It is a good guess, and a good
 guess is the right thing to offer somebody who is looking at it and the wrong thing to act
