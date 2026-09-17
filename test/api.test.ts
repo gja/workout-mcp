@@ -492,14 +492,28 @@ describe('completing a workout', () => {
   });
 });
 
-describe('the resolved plan', () => {
+describe('the resolved plans', () => {
+  type PlanBatch = {
+    plans: Array<{ date: string; id: string; sport: string; steps: Array<Record<string, any>> }>;
+    missing: string[];
+  };
+
+  const plansFor = async (...slugs: string[]): Promise<{ status: number; body: PlanBatch }> => {
+    const response = await call(`/api/workout-plans?plan-ids=${slugs.join(',')}`);
+    return { status: response.status, body: (await response.json()) as PlanBatch };
+  };
+
+  const slug = (workout: { date: string; id: string }) => `${workout.date}-${workout.id}`;
+
   it('hands back one duration and its targets a step, with the repeats kept', async () => {
     const created = await createIntervals();
 
-    const response = await call(`/api/workouts/${created.date}/${created.id}/plan`);
-    expect(response.status).toBe(200);
+    const { status, body } = await plansFor(slug(created));
+    expect(status).toBe(200);
+    expect(body.missing).toEqual([]);
+    expect(body.plans).toHaveLength(1);
 
-    const plan = (await response.json()) as { sport: string; steps: Array<Record<string, any>> };
+    const plan = body.plans[0];
     expect(plan.sport).toBe('running');
     expect(plan.steps).toHaveLength(3);
     expect(plan.steps[0]).toMatchObject({
@@ -516,9 +530,76 @@ describe('the resolved plan', () => {
     });
   });
 
-  it('404s a workout that is not there', async () => {
-    const response = await call(`/api/workouts/${DAY}/nosuchid/plan`);
-    expect(response.status).toBe(404);
+  it('answers several in one request, whatever order they were asked in', async () => {
+    const first = await createIntervals();
+    const second = (await (
+      await call('/api/workouts', { method: 'POST', body: JSON.stringify({ ...INTERVALS, date: NEXT_DAY }) })
+    ).json()) as { date: string; id: string };
+
+    const { body } = await plansFor(slug(second), slug(first));
+    expect(body.missing).toEqual([]);
+    expect(body.plans.map((plan) => `${plan.date}-${plan.id}`).sort()).toEqual([slug(first), slug(second)].sort());
+  });
+
+  // A workout deleted between the listing and this call is the answer, not a failure:
+  // one missing plan must not cost a client the rest of the week it asked for.
+  it('names what it could not find instead of failing the batch', async () => {
+    const created = await createIntervals();
+
+    const { status, body } = await plansFor(slug(created), `${DAY}-nosuchid`);
+    expect(status).toBe(200);
+    expect(body.plans).toHaveLength(1);
+    expect(body.missing).toEqual([`${DAY}-nosuchid`]);
+  });
+
+  it('asks for the same plan twice and is answered once', async () => {
+    const created = await createIntervals();
+
+    const { body } = await plansFor(slug(created), slug(created));
+    expect(body.plans).toHaveLength(1);
+    expect(body.missing).toEqual([]);
+  });
+
+  it('refuses a plan id that is not a date and an id', async () => {
+    const response = await call('/api/workout-plans?plan-ids=43zhc7b6');
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { error: string }).error).toContain('YYYY-MM-DD-<id>');
+  });
+
+  it('refuses an empty ask rather than answering nothing', async () => {
+    expect((await call('/api/workout-plans')).status).toBe(400);
+    expect((await call('/api/workout-plans?plan-ids=')).status).toBe(400);
+  });
+
+  // The cap itself, not just over it: a pair of bound parameters per key ran out of D1's
+  // hundred here, and only here — asking for one more is refused before it reaches the query.
+  it('answers an ask at the cap rather than running out of bound parameters', async () => {
+    const created = await createIntervals();
+    const slugs = Array.from({ length: MAX_WORKOUTS_PER_USER - 1 }, (_, i) => `${NEXT_DAY}-id${i}`);
+
+    const { status, body } = await plansFor(slug(created), ...slugs);
+    expect(status).toBe(200);
+    expect(body.plans).toHaveLength(1);
+    expect(body.missing).toHaveLength(MAX_WORKOUTS_PER_USER - 1);
+  });
+
+  it('refuses more ids than there can be workouts', async () => {
+    const slugs = Array.from({ length: MAX_WORKOUTS_PER_USER + 1 }, (_, i) => `${DAY}-id${i}`);
+    const response = await call(`/api/workout-plans?plan-ids=${slugs.join(',')}`);
+    expect(response.status).toBe(400);
+  });
+
+  it('is silent about the workouts of another athlete', async () => {
+    const created = await createIntervals();
+    const other = await seedUser();
+
+    const response = await SELF.fetch(`${BASE}/api/workout-plans?plan-ids=${slug(created)}`, {
+      headers: { Authorization: `Bearer ${other.token}` },
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as PlanBatch;
+    expect(body.plans).toEqual([]);
+    expect(body.missing).toEqual([slug(created)]);
   });
 });
 

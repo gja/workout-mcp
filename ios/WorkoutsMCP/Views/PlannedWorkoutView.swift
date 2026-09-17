@@ -1,6 +1,6 @@
 // One planned workout, step by step.
 //
-// The steps come from `GET /api/workouts/:date/:id/plan` already resolved — one duration
+// The steps come from `GET /api/workout-plans` already resolved — one duration
 // and up to two targets each, repeats kept — so this renders the plan rather than
 // re-implementing the resolver that decides what it means. See docs/ios.md.
 

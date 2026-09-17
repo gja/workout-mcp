@@ -90,9 +90,10 @@ enum PlanSync {
     ///
     /// Most syncs place nothing. A workout whose row the server has not rewritten, scheduled
     /// for the minute it is already scheduled for and still on the watch, would land exactly
-    /// as it stands — so it is left alone, and neither the round trip for its plan nor the
-    /// two writes to the scheduler are spent. What that leaves in the common case is the
-    /// listing the caller already had and one read of the scheduler.
+    /// as it stands — so it is left alone, and neither its steps nor the two writes to the
+    /// scheduler are spent on it. What that leaves in the common case is the listing the
+    /// caller already had and one read of the scheduler; where there is work to do, the
+    /// plans for all of it come back in a single request.
     ///
     /// `placed` is called as each one is dealt with so a foreground caller can count them
     /// out; a background one passes nothing and the loop is the same either way.
@@ -108,12 +109,12 @@ enum PlanSync {
         let onWatch = await WorkoutKitSync.scheduled()
         let already = PlanPlacement.all()
 
-        // Read together rather than one after another: this is the slow part of a sync that
-        // has work to do, and a week of workouts is a week of round trips to one server.
+        // One request for all of them: this is the slow part of a sync that has work to do,
+        // and a week of workouts used to be a week of round trips to the same server.
         let stale = wanted.filter {
             !PlanPlacement.holds($0.workout, at: $0.time, placed: already, onWatch: onWatch.ids)
         }
-        let plans = try await fetch(stale, using: client)
+        let plans = try await client.plans(for: stale.map(\.workout))
 
         var count = 0
         for slot in wanted {
@@ -138,27 +139,6 @@ enum PlanSync {
         UserDefaults.standard.set(at, forKey: syncedAtKey)
         UserDefaults.standard.set(count, forKey: syncedCountKey)
         return count
-    }
-
-    /// The plans that have to be fetched, fetched at once. The server answers each from its
-    /// own row, so there is nothing to serialise them for, and one after another is what a
-    /// first sync — or the morning after a week was written — spends nearly all of its time
-    /// on. The scheduler is still written to in order, one workout at a time.
-    private static func fetch(_ slots: [Slot], using client: WorkoutsClient) async throws -> [String: ResolvedPlan] {
-        guard !slots.isEmpty else { return [:] }
-
-        return try await withThrowingTaskGroup(of: (String, ResolvedPlan).self) { group in
-            for slot in slots {
-                group.addTask {
-                    let plan = try await client.plan(for: slot.workout)
-                    return (slot.workout.key, plan)
-                }
-            }
-
-            var plans: [String: ResolvedPlan] = [:]
-            for try await (key, plan) in group { plans[key] = plan }
-            return plans
-        }
     }
 
     /// Early on the day it is planned for, and never in the past — which is where this

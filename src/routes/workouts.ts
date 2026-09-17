@@ -10,6 +10,7 @@ import type { Router } from '../router';
 import { MAX_RECORDING_BYTES, StatsError } from '../stats';
 import { callTool, present, presentBrief } from '../tools';
 import { fail, parseDate, parseTimestamp } from '../units';
+import type { Workout } from '../workout';
 import { parseComment, parseWorkout } from '../workout';
 
 /** The `:date`/`:id` pair every single-workout route is addressed by. */
@@ -17,7 +18,6 @@ type WorkoutRoute = '/api/workouts/:date(\\d{4}-\\d{2}-\\d{2})/:id([0-9a-z]+)';
 type CompletionRoute = `${WorkoutRoute}/complete`;
 type CommentRoute = `${WorkoutRoute}/comment`;
 type StatsRoute = `${WorkoutRoute}/stats`;
-type PlanRoute = `${WorkoutRoute}/plan`;
 type RecordingRoute = `${WorkoutRoute}/recording`;
 
 const WORKOUT: WorkoutRoute = '/api/workouts/:date(\\d{4}-\\d{2}-\\d{2})/:id([0-9a-z]+)';
@@ -63,19 +63,74 @@ const getWorkoutStats: AuthedRoute<StatsRoute> = async ({ env, user, params }) =
   );
 };
 
+/** `2026-09-12-a1b2c3d4` -> its parts. The one spelling of a plan id, here and in `/export`. */
+function splitDateId(slug: string): { date: string; id: string } | null {
+  if (slug.length < 12 || slug[10] !== '-') return null;
+  const date = slug.slice(0, 10);
+  const id = slug.slice(11);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^[0-9a-z]+$/.test(id)) return null;
+  return { date, id };
+}
+
 /** The plan resolved: one duration and up to two targets a step, for a client that schedules it. */
-const getWorkoutPlan: AuthedRoute<PlanRoute> = async ({ env, user, params }) => {
-  const date = parseDate(params.date, 'date');
-  const workout = await db.getWorkout(env, user.id, date, params.id);
-  if (!workout) return error(`no workout ${params.id} on ${date}`, 404);
+const resolvedPlan = (workout: Workout) => ({
+  date: workout.date,
+  id: workout.id,
+  name: workout.name,
+  sport: workout.sport,
+  sub_sport: workout.sub_sport ?? null,
+  steps: resolveSteps(workout.steps),
+});
+
+/**
+ * Every plan a client is about to schedule, in one round trip.
+ *
+ * A watch app syncs a week at a time and wants the steps for each of them, which a route
+ * addressed by one workout made a request — and an authentication, and a read — per
+ * workout. Ids are `YYYY-MM-DD-<id>`, comma-separated, because a workout is keyed by the
+ * pair and the short id alone is only unique within its date.
+ *
+ * A plan that is not there is named in `missing` rather than failing the batch: between
+ * the listing a client scheduled from and this call, a workout may have been deleted or
+ * moved, and that is the answer to the question rather than an error.
+ */
+const getWorkoutPlans: AuthedRoute = async ({ url, env, user }) => {
+  const asked = [
+    ...new Set(
+      (url.searchParams.get('plan-ids') ?? '')
+        .split(',')
+        .map((slug) => slug.trim())
+        .filter((slug) => slug !== ''),
+    ),
+  ];
+  if (asked.length === 0) {
+    return error('plan-ids is required: a comma-separated list of YYYY-MM-DD-<id>', 400);
+  }
+  if (asked.length > db.MAX_WORKOUTS_PER_USER) {
+    return error(
+      `at most ${db.MAX_WORKOUTS_PER_USER} plan ids at a time, which is every workout there can be, ` +
+        `but ${asked.length} were asked for`,
+      400,
+    );
+  }
+
+  const keys: { date: string; id: string }[] = [];
+  const malformed: string[] = [];
+  for (const slug of asked) {
+    const parts = splitDateId(slug);
+    if (parts) keys.push(parts);
+    else malformed.push(slug);
+  }
+  if (malformed.length > 0) {
+    return error(`expected each plan id as YYYY-MM-DD-<id>, got ${malformed.join(', ')}`, 400);
+  }
+
+  const workouts = await db.getWorkouts(env, user.id, keys);
+  const found = new Set(workouts.map((workout) => `${workout.date}-${workout.id}`));
 
   return json({
-    date: workout.date,
-    id: workout.id,
-    name: workout.name,
-    sport: workout.sport,
-    sub_sport: workout.sub_sport ?? null,
-    steps: resolveSteps(workout.steps),
+    plans: workouts.map(resolvedPlan),
+    missing: asked.filter((slug) => !found.has(slug)),
   });
 };
 
@@ -180,15 +235,6 @@ const uncommentWorkout: AuthedRoute<CommentRoute> = (context) => setComment(cont
 const runTool: AuthedRoute<'/api/tools/:name([a-z_]+)'> = async ({ request, url, env, user, params }) =>
   json(await callTool(params.name, await request.json(), env, user, url.origin));
 
-/** `2026-09-12-a1b2c3d4` -> its parts. */
-function splitDateId(slug: string): { date: string; id: string } | null {
-  if (slug.length < 12 || slug[10] !== '-') return null;
-  const date = slug.slice(0, 10);
-  const id = slug.slice(11);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^[0-9a-z]+$/.test(id)) return null;
-  return { date, id };
-}
-
 const exportFit: AuthedRoute<'/export/:slug'> = async ({ env, user, params }) => {
   const parts = splitDateId(params.slug.replace(/\.fit$/, ''));
   if (!parts) return error('expected /export/YYYY-MM-DD-<id>.fit', 400);
@@ -208,11 +254,11 @@ const exportFit: AuthedRoute<'/export/:slug'> = async ({ env, user, params }) =>
 
 export const routes = (app: Router<Context>): void => {
   app
+    .get('/api/workout-plans', withUser(getWorkoutPlans))
     .get('/api/workouts', withUser(listWorkouts))
     .post('/api/workouts', withUser(createWorkout))
     .get(WORKOUT, withUser(getWorkout))
     .get(`${WORKOUT}/stats`, withUser(getWorkoutStats))
-    .get(`${WORKOUT}/plan`, withUser(getWorkoutPlan))
     .post(`${WORKOUT}/recording`, withUser(recordWorkout))
     .put(WORKOUT, withUser(replaceWorkout))
     .delete(WORKOUT, withUser(deleteWorkout))
