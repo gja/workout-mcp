@@ -31,7 +31,7 @@ list carries only `name`, `title` and `description` — the picker is all a
 client needs to offer one — and the body is sent by `prompts/get`, after the
 athlete has asked for it. Nothing pays for the interview until it is running.
 
-So `src/getting-started.md` is fifteen hundred words of prose, and it can
+So `src/getting-started.md` is some two thousand words of prose, and it can
 afford to be. It is a markdown file for the same reason the workout library is
 one, and imported the same way through both bundlers — the `Text` rule for
 esbuild, `vite-markdown.ts` for rolldown.
@@ -53,6 +53,16 @@ actually have; the numbers, per sport; indoors or outdoors and how they follow
 a target mid-session; and what constrains the plan. A round per message rather
 than one question per turn, or a single wall of questions — the first is
 twenty turns, the second gets skimmed.
+
+Round 4 does not simply ask for a max HR, because the answer to that question is
+usually a guess. It asks where their training is recorded — Apple Watch, Garmin,
+Strava, Coros, whatever — and walks them to the figure their own history already
+holds, naming the app for a watch when they are not sure which they use. Two
+warnings come with it: the max HR sitting in a platform's zone settings is
+frequently 220 minus age rather than anything measured, and a wrist optical
+sensor spikes, so a peak that appears in one session and nowhere near it again
+is an artefact. What survives is written as an observed maximum with its date,
+and noted as a floor rather than a true max.
 
 Two rules run through it. **Never invent a number**: anything unknown is
 written as `*not set*` beside the test that would set it, because a guessed
@@ -109,9 +119,9 @@ body sits behind a tool, which works in every client whether or not it
 implements prompts, and can be reached mid-conversation rather than only at the
 moment a client connects.
 
-The tool's description says when *not* to call it. It returns some fifteen
-hundred words, which is worth it exactly once and wasteful on every session
-after, so it is fetched when asked for or when a read has just come back empty —
+The tool's description says when *not* to call it. It returns some two thousand
+words, which is worth it exactly once and wasteful on every session after, so it
+is fetched when asked for or when a read has just come back empty —
 never speculatively, and never as a way of finding out whether the athlete is
 set up, which the context readers answer for nothing.
 
