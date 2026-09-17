@@ -95,6 +95,91 @@ Uploading ingests the file server-side: the stats are worked out and stored, the
 is marked done, and **the file itself is not kept**. See
 [docs/stats.md](../docs/stats.md).
 
+## Shipping it to TestFlight
+
+Needs an **Apple Developer Program** membership. Everything below is done once except the
+last three steps, which are every build.
+
+### Once, on Apple's side
+
+1. **Register the App ID.** Automatic signing does this for you the first time you build to
+   a device — or do it by hand at *developer.apple.com › Certificates, Identifiers &
+   Profiles › Identifiers*, bundle id `com.workouts-mcp.ios`, with **HealthKit** ticked.
+2. **Create the app record** at *App Store Connect › Apps › +*. iOS, the same bundle id,
+   any SKU. An upload with no app record behind it is rejected at the end of a long archive,
+   so do this before the first one.
+3. **Privacy policy URL**: `https://workouts-mcp.com/privacy-policy`. HealthKit apps are
+   reviewed against it, and App Store Connect asks for it under *App Privacy*.
+
+### Compile it first
+
+Worth doing on the simulator before anything else, because the simulator needs no signing
+and this is the fastest way to a clean build:
+
+```bash
+xcodebuild -project ios/WorkoutsMCP.xcodeproj -scheme WorkoutsMCP \
+  -destination 'platform=iOS Simulator,name=iPhone 16' build
+```
+
+Then run it on a real iPhone (⌘R with the phone selected), which is the only place
+HealthKit has data and `WorkoutScheduler` does anything.
+
+### Every build
+
+1. **Bump the build number.** App Store Connect refuses a build number it has already seen
+   for a version. `CURRENT_PROJECT_VERSION` is the build, `MARKETING_VERSION` the version:
+
+   ```bash
+   cd ios && agvtool next-version -all
+   ```
+
+2. **Archive.** In Xcode, choose *Any iOS Device (arm64)* and *Product › Archive*. Or:
+
+   ```bash
+   xcodebuild -project ios/WorkoutsMCP.xcodeproj -scheme WorkoutsMCP \
+     -destination 'generic/platform=iOS' \
+     -archivePath build/WorkoutsMCP.xcarchive \
+     -allowProvisioningUpdates archive
+   ```
+
+3. **Upload.** *Window › Organizer*, select the archive, *Distribute App › TestFlight &
+   App Store › Upload*. From the command line it is two steps and an
+   [App Store Connect API key](https://appstoreconnect.apple.com/access/integrations/api):
+
+   ```bash
+   xcodebuild -exportArchive \
+     -archivePath build/WorkoutsMCP.xcarchive \
+     -exportOptionsPlist ios/ExportOptions.plist \
+     -exportPath build/export \
+     -allowProvisioningUpdates \
+     -authenticationKeyPath "$PWD/AuthKey_XXXXXXXXXX.p8" \
+     -authenticationKeyID XXXXXXXXXX \
+     -authenticationKeyIssuerID 00000000-0000-0000-0000-000000000000
+   ```
+
+   with an `ExportOptions.plist` of `method` = `app-store-connect`, `destination` = `upload`
+   and your `teamID`. **That `.p8` key is a secret: keep it outside this repository.**
+
+Processing takes five to thirty minutes, then the build shows up under *TestFlight*.
+
+### Testers
+
+**Internal** (up to 100 people who have an App Store Connect role) get it as soon as
+processing finishes — no review. That is the loop you want while the app is young.
+
+**External** (up to 10,000) needs Beta App Review first, and that review will want to sign
+in. Fill in *Test Information* with a demo account on your deployment and a line saying the
+sign-in is Google or Apple on the server's own page, or it comes back rejected for a
+reviewer who could not get past the first screen.
+
+### Export compliance
+
+Every upload asks whether the app uses non-exempt encryption. This app only uses HTTPS and
+the keychain, which is the standard exemption, so the answer is no. Adding
+`INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO` to the build settings answers it once
+rather than on every build — left out of the project deliberately, because it is a legal
+declaration and it should be the shipper who makes it.
+
 ## Where things are
 
 ```
