@@ -62,6 +62,13 @@ The platform's own activity type is placed back on our scale by `sportOf` in
 type we cannot place stays `sport: null` — it still lists, but a `sport` filter leaves it
 out, because "we could not tell" and "a generic workout" are different answers.
 
+Their listing also carries rows that are not sessions — an id, a date, and no name, type,
+distance or moving time — left by an upload still being processed, or by a source activity
+that has gone. `activities` in `src/platforms/intervals.ts` drops them: what reads this list
+is answering "what did the athlete actually do", and a row saying nothing happened has no
+honest answer to give. They used to list under the fallback name `workout`, which put a
+session nobody did in front of an assistant describing the day.
+
 ## Two limits
 
 **At most 40 sessions** in one archive, and **at most 14 days** in one range.

@@ -122,6 +122,20 @@ describe('listing recorded sessions', () => {
     expect(all.body.sessions.find((session) => session.id === 'mystery')?.sport).toBeNull();
   });
 
+  // Their placeholder row: an id and a date, and nothing that says a session happened.
+  it('leaves out a row with no name, no type and no figures', async () => {
+    await control('setup', {
+      activities: [
+        recorded('real'),
+        { id: '20185273981', start_date_local: `${DAY}T08:00:00` },
+        { id: '20185273982', start_date_local: `${DAY}T09:00:00`, name: '', type: null },
+      ],
+    });
+
+    const { body } = await listing(RANGE);
+    expect(body.sessions.map((session) => session.id)).toEqual(['real']);
+  });
+
   it('signs no link when the range holds nothing', async () => {
     const { body } = await listing(RANGE);
     expect(body).toMatchObject({ count: 0, download_url: null, expires_at: null });

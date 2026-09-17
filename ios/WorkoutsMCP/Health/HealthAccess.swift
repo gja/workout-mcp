@@ -50,12 +50,13 @@ enum HealthAccess {
         try await store.requestAuthorization(toShare: [], read: readTypes)
     }
 
-    /// The runs and rides of the last `days` days, newest first. Swim is out of scope.
+    /// The runs, rides and walks of the last `days` days, newest first. Swim is out of scope.
     static func recentActivities(days: Int) async throws -> [HKWorkout] {
         let since = Calendar.current.date(byAdding: .day, value: -days, to: Date()) ?? Date()
         let sports = NSCompoundPredicate(orPredicateWithSubpredicates: [
             HKQuery.predicateForWorkouts(with: .running),
             HKQuery.predicateForWorkouts(with: .cycling),
+            HKQuery.predicateForWorkouts(with: .walking),
         ])
         let window = HKQuery.predicateForSamples(withStart: since, end: nil, options: .strictStartDate)
 
@@ -107,12 +108,19 @@ enum HealthAccess {
         case (.running, false): return .street
         case (.cycling, true): return .indoorCycling
         case (.cycling, false): return .road
+        case (.walking, true): return .indoorWalking
         default: return .generic
         }
     }
 
-    /// So a view can say "Ride" without knowing what a FIT sport is.
-    static func isRide(_ workout: HKWorkout) -> Bool { sport(of: workout) == .cycling }
+    /// So a view can say "Ride" or "Walk" without knowing what a FIT sport is.
+    static func label(of workout: HKWorkout) -> String {
+        switch sport(of: workout) {
+        case .cycling: return "Ride"
+        case .walking: return "Walk"
+        default: return "Run"
+        }
+    }
 
     static func distance(of workout: HKWorkout) -> Double? {
         let type: HKQuantityType = sport(of: workout) == .cycling

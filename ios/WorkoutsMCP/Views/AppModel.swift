@@ -32,7 +32,7 @@ struct ExecutedSession: Identifiable, Hashable {
     var when: Date { activity?.startDate ?? workout?.doneAt ?? workout?.day ?? .distantPast }
 
     var sport: String {
-        if let activity { return HealthAccess.isRide(activity) ? "Ride" : "Run" }
+        if let activity { return HealthAccess.label(of: activity) }
         return workout?.sport.capitalized ?? "Session"
     }
 
@@ -306,7 +306,7 @@ final class AppModel: ObservableObject {
     /// with no workout to name is `unmatched`.
     private func filename(for activity: HKWorkout, as workout: PlannedWorkout?) -> String {
         let day = WorkoutDate.string(activity.startDate)
-        let name = workout?.name ?? (HealthAccess.isRide(activity) ? "Ride" : "Run")
+        let name = workout?.name ?? HealthAccess.label(of: activity)
         return "\(day)-\(slug(workout?.id ?? "unmatched", 40))-\(slug(name, 80)).fit"
     }
 
