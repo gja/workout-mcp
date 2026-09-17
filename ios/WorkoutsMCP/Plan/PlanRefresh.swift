@@ -9,6 +9,12 @@
 // What it does with a turn is the same `PlanSync` the athlete's own tap runs. A background
 // sync that placed workouts by different rules would be a watch that changed depending on
 // which of the two last ran.
+//
+// A turn also carries the other direction, as a backstop rather than as its job: a wake is
+// what should upload a session, and `.immediate` delivery is a request rather than a
+// promise, so the turn that already exists runs `BackgroundSync.uploadWhatIsCertain()` on
+// its way past. Every few hours is a poor substitute for a wake and a good substitute for
+// nothing, which is what a missed wake used to leave.
 
 import BackgroundTasks
 import Foundation
@@ -62,6 +68,15 @@ enum PlanRefresh {
         schedule()
 
         let work = Task {
+            // The session first, and unconditionally. HealthKit's wake is the fast path for
+            // a recording and this is the slow one behind it: `.immediate` delivery is a
+            // request rather than a promise, and a wake that Low Power Mode delayed, that
+            // ran out of time, or that a force-quit stopped iOS from sending at all leaves a
+            // session on the phone with nothing else due to look at it. It is skipped by the
+            // staleness check below on purpose — that check is about the plan going out, and
+            // a sync ten minutes ago is exactly the state a session finishing arrives in.
+            await BackgroundSync.uploadWhatIsCertain()
+
             let placed = await sync()
             task.setTaskCompleted(success: placed)
         }

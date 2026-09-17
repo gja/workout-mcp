@@ -138,7 +138,9 @@ a field to edit. It comes from the plan id the watch recorded, or from the one w
 that sport planned for that day — and where it is neither, the session says so rather than
 offering a menu to guess from.
 
-**Settings.** Who is signed in, which deployment this build talks to, and **Log out**.
+**Settings.** Who is signed in, which deployment this build talks to, **Log out**, and
+whether Health can wake the app, when it last did and what came of it, and how many sessions
+have gone up without anybody tapping *Export*.
 
 What goes to the watch is **two days back to seven days ahead**, minus anything already
 done. Back as well as forward because a day missed is a session still worth doing, and a
@@ -152,6 +154,12 @@ session the **watch itself** matched to a plan is built and uploaded there and t
 that match: the day-and-sport fallback the list uses is a guess, which is fine when the
 athlete is looking at it and wrong when it files a session against a workout nobody chose.
 `Health/BackgroundSync.swift`.
+
+A wake is a request rather than a promise — Low Power Mode delays it, a force-quit stops it
+until the app is opened by hand — so the same upload runs under the same rules on every
+background refresh turn and on opening the app, and nothing is guessed at in either that a
+wake would not guess at. Whether any of it is working is three lines in **Settings**, because
+a background launch has nobody to tell.
 
 Uploading ingests the file server-side: the stats are worked out and stored, the session
 is marked done, and **the file itself is not kept**. See

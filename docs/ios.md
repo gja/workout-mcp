@@ -281,8 +281,17 @@ repeat it.
 
 ### Settings
 
-Who is signed in, which deployment this build talks to, and the way out. Nothing about the
-plan is here: everything that was is on the tab with the plan on it.
+Who is signed in, which deployment this build talks to, the way out — and whether the half of
+this app nobody watches is alive. Nothing about the plan is here: everything that was is on the
+tab with the plan on it.
+
+The background section is the exception that proves that rule. It is not a fact about the plan,
+it is a fact about the app, and it is here because a session missing from the server is equally
+consistent with HealthKit never having woken the app, with a wake that was cut short, and with a
+session this app will not upload unattended — three different problems with one symptom, none of
+which can say so from a background launch. Three lines separate them: whether Health can wake
+the app, when it last did and what came of it, and how many sessions this app has uploaded on its
+own. A number above zero on the last is the whole proof that the path works.
 
 ### What a sync sends
 
@@ -347,14 +356,47 @@ a recording reaches this server without the athlete opening anything. What happe
 narrower than what happens on the screen: a session is built and uploaded **only** where the
 watch itself named the plan it was run against.
 
-Being woken is two things, and they fail on different days. An **observer** answers a wake, and
-is registered in the app's initialiser because a background launch builds no view to register
-it from. **Background delivery** is what causes one, and HealthKit refuses to enable it for a
-type the athlete has not authorised — which, on a first install, is every launch before they
-have been asked, the initialiser running well ahead of the screen that asks. So enabling it is
-a step of its own, re-tried: at every launch, and again wherever authorization has just been
-granted. Attempted once and assumed, it leaves an app that would answer a wake perfectly and
-is never sent one — silently, since there is nobody in a background launch to tell.
+Being woken is three things, and they fail on different days.
+
+An **observer** answers a wake, and is registered in the app's initialiser because a background
+launch builds no view to register it from. HealthKit remembers that delivery was turned on for
+a type across process restarts; it does not remember the callback, so that is re-executed every
+launch.
+
+**Background delivery** is what causes a wake, and HealthKit refuses to enable it for a type the
+athlete has not authorised — which, on a first install, is every launch before they have been
+asked, the initialiser running well ahead of the screen that asks. So enabling it is a step of
+its own, re-tried: at every launch, and again wherever authorization has just been granted.
+Attempted once and assumed, it leaves an app that would answer a wake perfectly and is never
+sent one.
+
+**Answering** is the third, and it is the one that turns itself off. HealthKit hands the observer
+a completion block and reads an observer that does not call it as one that is not coping: it
+wakes the app less eagerly, and then not at all. The work a wake is for — the listing, the
+session read out of Health, a FIT file written and posted — can outlast what iOS grants a
+background launch, and held until after all of it the acknowledgement was one slow round trip
+away from switching this path off for good. So it is owned by `Wake` in
+`Health/BackgroundSync.swift`, which takes a background-task assertion and acknowledges exactly
+once: when the work finishes, or when iOS says the launch is over, whichever comes first. A wake
+that runs out of time still answers, and still counts as coping.
+
+**A wake is a request, not a promise.** `.immediate` asks iOS to launch the app the moment a
+matching sample lands, and Low Power Mode, a watch that has not synced the session over yet, and
+the system's own view of what this app is worth waking all delay it — a force-quit stops it
+altogether until the app is next opened by hand. So the same upload runs from two other places,
+under exactly the same rules: on every `PlanRefresh` turn, and on opening the app. The first is
+every few hours at iOS's discretion, which is a poor substitute for a wake and a good substitute
+for nothing; the second is the moment that is certain to happen. Neither guesses at anything a
+wake would not: the watch must have named the workout, and the server must have no recording for
+it. A session that failed to upload is simply one the server still has no recording for, so the
+next run finds it again — there is no watermark to advance past it.
+
+**And it is written down.** A wake that never arrives and a wake that arrives and finds nothing
+are the same silence from outside the app, and there is nobody in a background launch to tell
+the difference. So `Health/WakeLog.swift` keeps three facts in `UserDefaults` — whether HealthKit
+accepted the request to wake us and what it said if not, when a wake last arrived and what it
+did with itself, and how many sessions have gone up without anybody tapping *Export* — and
+Settings shows them. The question stops being a guess.
 
 The day-and-sport fallback is deliberately not used there. It is a good guess, and a good
 guess is the right thing to offer somebody who is looking at it and the wrong thing to act
