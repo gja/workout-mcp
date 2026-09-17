@@ -255,6 +255,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = WorkoutsMCP;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "WorkoutsMCP reads your recorded runs and rides so it can build a FIT file from them and upload it to your own server.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "WorkoutsMCP never writes anything to Health. It only reads the runs and rides you have already recorded.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -283,6 +284,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = WorkoutsMCP;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "WorkoutsMCP reads your recorded runs and rides so it can build a FIT file from them and upload it to your own server.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "WorkoutsMCP never writes anything to Health. It only reads the runs and rides you have already recorded.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";

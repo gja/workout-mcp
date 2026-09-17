@@ -117,8 +117,6 @@ private struct SyncRow: View {
         }
     }
 
-    /// `Text(_:style: .relative)` keeps counting on its own, so "2 min ago" stays true
-    /// without the view being told to redraw.
     @ViewBuilder private var detail: some View {
         switch phase {
         case .never:
@@ -126,7 +124,12 @@ private struct SyncRow: View {
         case .syncing(let done, let total):
             Text(total > 0 ? "\(done) of \(total)" : "Checking your plan")
         case .synced(let at, let count):
-            Text("\(count) planned workout\(count == 1 ? "" : "s") · ") + Text(at, style: .relative) + Text(" ago · Tap to resync")
+            // Redrawn on the minute, because nothing else on this screen changes when time
+            // passes and the line would otherwise still say "just now" an hour later.
+            TimelineView(.periodic(from: at, by: 60)) { tick in
+                Text("\(count) planned workout\(count == 1 ? "" : "s") · "
+                    + "\(Formats.since(at, now: tick.date)) · Tap to resync")
+            }
         case .failed(let why):
             Text("\(why) · Tap to try again")
         }
@@ -165,6 +168,23 @@ enum Formats {
             parts.append(String(format: "%.2f km", metres / 1000))
         }
         return parts.joined(separator: " · ")
+    }
+
+    /// Coarse on purpose. A sync five seconds ago and one twenty seconds ago are the same
+    /// fact, and a line that counts seconds at the athlete invites them to read it twice to
+    /// see whether it changed. Minutes until an hour, then hours, then days.
+    static func since(_ then: Date, now: Date = Date()) -> String {
+        let seconds = max(0, now.timeIntervalSince(then))
+
+        switch seconds {
+        case ..<60: return "just now"
+        case ..<120: return "a minute ago"
+        case ..<3600: return "\(Int(seconds / 60)) minutes ago"
+        case ..<7200: return "an hour ago"
+        case ..<86_400: return "\(Int(seconds / 3600)) hours ago"
+        case ..<172_800: return "yesterday"
+        default: return "\(Int(seconds / 86_400)) days ago"
+        }
     }
 
     static func duration(_ seconds: TimeInterval) -> String {

@@ -5,8 +5,8 @@ There is no watch app: the plan is scheduled through **WorkoutKit**, so it appea
 Workout app on the watch the way any Fitness+ or third-party plan does, and the session
 comes back through **HealthKit** like any other.
 
-It talks to [workouts-mcp.com](https://workouts-mcp.com) out of the box, or to your own
-deployment — the sign-in screen asks which.
+It talks to [workouts-mcp.com](https://workouts-mcp.com). Pointing a build at your own
+deployment is one constant in `Auth/AppSession.swift`.
 
 Why it exists and how the two halves join up is [docs/ios.md](../docs/ios.md). This file
 is how to build it.
@@ -51,6 +51,10 @@ Xcode resolves the one package dependency on first open. Then, once:
    Delivery** ticked under it. Both come from `WorkoutsMCP.entitlements`, which is
    deliberately outside the source folder so it is not copied into the bundle as a
    resource. Background delivery also has to be on the App ID; automatic signing adds it.
+
+   The target carries **both** HealthKit purpose strings, share and update, even though
+   this app only ever reads: App Store validation asks for the update string because the
+   entitlement permits writing, not because the code does any. The string says so.
 3. Run it **on a real iPhone**. The simulator has no Health data worth reading and
    `WorkoutScheduler` does nothing there, so almost none of this app can be exercised in
    it. The phone needs **Developer Mode** on — *Settings › Privacy & Security › Developer
@@ -106,11 +110,17 @@ revoking it there signs the app out. See
 
 The home screen is three things.
 
-**Where the plan stands.** One line — *Synced to Apple Fitness · 8 planned workouts · 2 min
-ago* — and tapping it syncs again. Opening the app syncs on its own if the last one was
-over half an hour ago, so the line is true rather than merely reassuring. Syncing sends
-every workout still to come, and takes off the watch anything this app put there that the
-plan no longer has.
+**Where the plan stands.** One line — *Synced to Apple Fitness · 8 planned workouts · 2
+minutes ago* — and tapping it syncs again. The time is coarse on purpose: *just now*, then
+minutes, then hours. A sync five seconds ago and one twenty seconds ago are the same fact. Opening the app syncs on its own if the last one was
+over half an hour ago, so the line is true rather than merely reassuring.
+
+What goes to the watch is **two days back to seven days ahead**, minus anything already
+done. Back as well as forward because a day missed is a session still worth doing, and a
+past-dated one is scheduled for the next whole hour so it is reachable today. Seven ahead
+rather than the fourteen the server holds, because the far end of a fortnight has not
+settled yet. Anything this app put on the watch that is no longer in that window — done,
+older than two days, or deleted upstream — comes off.
 
 **The last 7 days**, from Health: every run and ride, with the planned workout it matches
 and a tick where the server already has it. Tap one for *Generate .fit*, which builds the
