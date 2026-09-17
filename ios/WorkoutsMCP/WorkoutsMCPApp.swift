@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct WorkoutsMCPApp: App {
     @StateObject private var session = AppSession()
+    @Environment(\.scenePhase) private var phase
 
     init() {
         // Here rather than in a view: HealthKit launches this app in the background when a
@@ -23,6 +24,11 @@ struct WorkoutsMCPApp: App {
                 }
             }
             .environmentObject(session)
+            // A background launch never reaches `.active`, which is what lets the log tell a
+            // wake nobody saw from the one that opening the app causes. See `SyncLog`.
+            .onChange(of: phase, initial: true) { _, now in
+                if now == .active { SyncLog.becameActive() }
+            }
         }
     }
 }

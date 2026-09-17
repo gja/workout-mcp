@@ -32,9 +32,7 @@ enum BackgroundSync {
                     // Acknowledged first: HealthKit backs off an observer that stops
                     // answering, and writing it down can follow.
                     completion()
-                    Task { @MainActor in
-                        WakeLog.woke(.unreadable, inBackground: UIApplication.shared.applicationState == .background)
-                    }
+                    SyncLog.record(.wake, SyncLog.Outcome.unreadable.rawValue)
                     return
                 }
                 Task { @MainActor in await answer(completion) }
@@ -63,12 +61,12 @@ enum BackgroundSync {
             do {
                 try await HealthAccess.store.enableBackgroundDelivery(for: .workoutType(), frequency: .immediate)
                 deliveryEnabled = true
-                WakeLog.deliveryEnabled()
+                SyncLog.deliveryEnabled()
             } catch {
                 // Left false on purpose, so the next launch — or the next grant of Health
                 // access — asks again. Swallowed, this failure reports itself as an app that
                 // simply never wakes, which is why it is also written down.
-                WakeLog.deliveryRefused(error)
+                SyncLog.deliveryRefused(error)
             }
         }
     }
@@ -77,15 +75,11 @@ enum BackgroundSync {
     /// this is the only place that knows both it and the work.
     @MainActor
     private static func answer(_ completion: @escaping () -> Void) async {
-        // Read before the work, not after: by the time an upload finishes the athlete may
-        // have opened the app, which would report a background wake as a foreground one.
-        let inBackground = UIApplication.shared.applicationState == .background
-
-        let wake = Wake(completion, inBackground: inBackground)
+        let wake = Wake(completion)
         wake.begin()
 
         let outcome = await uploadWhatIsCertain()
-        WakeLog.woke(outcome, inBackground: inBackground)
+        SyncLog.record(.wake, outcome.rawValue)
         wake.done()
     }
 
@@ -97,13 +91,8 @@ enum BackgroundSync {
     private final class Wake {
         private var acknowledge: (() -> Void)?
         private var assertion = UIBackgroundTaskIdentifier.invalid
-        /// Carried from the start of the wake: expiring is the moment the app state changes,
-        /// and what matters is what was true when iOS handed this launch over.
-        private let inBackground: Bool
-
-        init(_ acknowledge: @escaping () -> Void, inBackground: Bool) {
+        init(_ acknowledge: @escaping () -> Void) {
             self.acknowledge = acknowledge
-            self.inBackground = inBackground
         }
 
         func begin() {
@@ -111,7 +100,7 @@ enum BackgroundSync {
                 // UIKit calls an expiration handler on the main thread, which is where this
                 // object lives. This is the last moment there is to answer.
                 MainActor.assumeIsolated {
-                    WakeLog.woke(.ranOut, inBackground: self.inBackground)
+                    SyncLog.record(.wake, SyncLog.Outcome.ranOut.rawValue)
                     self.done()
                 }
             }
@@ -135,7 +124,7 @@ enum BackgroundSync {
     /// Not private, and not only for a wake: `PlanRefresh` and opening the app run it too,
     /// because `.immediate` delivery is a request rather than a guarantee.
     @discardableResult
-    static func uploadWhatIsCertain() async -> WakeLog.Outcome {
+    static func uploadWhatIsCertain() async -> SyncLog.Outcome {
         guard let client = StoredSession.load()?.client else { return .signedOut }
 
         let from = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
@@ -167,14 +156,16 @@ enum BackgroundSync {
                     activityID: activity.uuid.uuidString
                 )
                 uploaded += 1
+                SyncLog.record(.upload, "\(workout.name) went up")
             } catch {
                 // Continue, not return: one session that cannot be read or sent must not
                 // hide every session behind it for as long as it stays stuck.
+                SyncLog.record(.upload, "\(workout.name) would not go up: \(error.localizedDescription)")
                 refused = true
             }
         }
 
-        if uploaded > 0 { WakeLog.uploaded(uploaded) }
+        if uploaded > 0 { SyncLog.uploaded(uploaded) }
         if refused { return .failed }
         return uploaded > 0 ? .uploaded : .nothing
     }

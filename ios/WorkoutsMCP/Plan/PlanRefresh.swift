@@ -56,6 +56,7 @@ enum PlanRefresh {
         schedule()
 
         let work = Task {
+            SyncLog.record(.plan, "background refresh turn")
             // The session first, and unconditionally: this is the slow path behind
             // HealthKit's wake, which `.immediate` delivery does not promise. Deliberately
             // ahead of the staleness check below, which is about the plan going out — a sync
