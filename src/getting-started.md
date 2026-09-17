@@ -102,6 +102,31 @@ from and when, and write that alongside it.
 - **Everyone:** age, if they are willing, when max HR is a guess rather than a
   measurement.
 
+**Max HR is usually already on their watch**, so ask where their sessions are
+recorded before asking them for a number. The highest heart rate in a hard
+recent session is a measurement, and it is the one figure in this round most
+athletes have without testing for it.
+
+- **Ask which platform** their training ends up in — Apple Watch, Garmin,
+  Strava, Coros, Polar, Wahoo, Whoop.
+- **If they are not sure**, ask what is on their wrist and whether it syncs to a
+  phone: the watch names the app. Apple Watch is the Fitness or Health app,
+  Garmin is Garmin Connect, Coros and Polar are their own apps, and a chest
+  strap with no watch usually lands in Strava.
+- **Where to look**, roughly: Apple — a hard workout in Fitness, then its heart
+  rate chart and the peak figure. Garmin Connect — an activity's max HR, or the
+  all-time figure under its performance stats. Strava — max heart rate on an
+  activity page, or the seasonal maximum in the heart rate zone settings.
+- **Take it from sessions, not from the profile field.** The max HR a platform
+  shows in its zone settings is often 220 minus age, entered once and never
+  looked at again — a guess wearing a measurement's clothes. Ask for the highest
+  figure they can see across a few hard efforts instead.
+- **Two or three sessions agreeing is the signal.** A wrist sensor spikes, so a
+  lone 210 with nothing near it in any other session is an artefact. Write what
+  survives that check as an observed maximum, with the session and the date it
+  came from, and note it is a floor — a true max needs an effort hard enough to
+  find it. Nothing that agrees means `*not set*`.
+
 ### Round 5 — indoors or outdoors, and how they follow a target
 
 Ask per sport: treadmill or road, trainer or road, pool or open water, or both.
