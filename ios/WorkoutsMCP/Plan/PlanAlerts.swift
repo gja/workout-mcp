@@ -18,19 +18,23 @@ import Foundation
 import WorkoutKit
 
 enum PlanAlerts {
-    /// What an open end becomes. Each one is past what a session reaches — nobody jogs a
-    /// recovery slower than an hour a kilometre, or holds a minute a kilometre — so a band
-    /// the plan left open on one side reads on the watch as the one bound it actually named.
+    /// What an open end becomes: an ordinary figure past anything a session reaches, so the
+    /// bound the athlete is held to is the one they named. Past what a session reaches, and
+    /// no further — an hour a kilometre or a minute a kilometre is outside what a watch has
+    /// a dial for, and a figure the watch cannot show is worse than a wide band. None of
+    /// them is zero either, which reads as no target rather than no floor in more than one
+    /// place downstream.
     private enum Open {
-        /// 60:00/km and 1:00/km, as metres a second, the unit the plan arrives in.
-        static let slowest = 1000.0 / 3600
-        static let fastest = 1000.0 / 60
-        static let lowestHeartRate = 30.0
-        static let highestHeartRate = 240.0
-        static let lowestPower = 0.0
-        static let highestPower = 2000.0
-        static let lowestCadence = 0.0
-        static let highestCadence = 250.0
+        /// 20:00/km and 2:00/km, as metres a second, the unit the plan arrives in — slower
+        /// than a walk, and faster than the mile record.
+        static let slowest = 1000.0 / 1200
+        static let fastest = 1000.0 / 120
+        static let lowestHeartRate = 40.0
+        static let highestHeartRate = 220.0
+        static let lowestPower = 10.0
+        static let highestPower = 1000.0
+        static let lowestCadence = 20.0
+        static let highestCadence = 200.0
     }
 
     static func alert(for target: PlanTarget) -> (any WorkoutAlert)? {
