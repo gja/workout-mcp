@@ -135,6 +135,12 @@ and the one workout of that sport planned for that day, where there is exactly o
 WorkoutKit plan ids are **derived** from the workout key rather than allocated, so
 scheduling a workout again replaces the plan on the watch instead of leaving two.
 
+The id the watch recorded is read off `HKWorkout.workoutPlan`, WorkoutKit's own extension on
+the session. There is no metadata key to look it up by, which is worth saying because this
+app spent a while guessing at three of them and matching nothing: every session came back
+unplanned, and the day-and-sport fallback covered it well enough on screen that the hole only
+showed in the background, where that fallback is deliberately not used.
+
 **And then nothing.** There was a third way — a picker, always there, the athlete's own
 choice winning over both — and it is gone. A session the watch named is certain and a day
 with one workout of that sport on it is as good as certain; everything left over is a

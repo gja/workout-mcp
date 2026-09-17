@@ -4,6 +4,7 @@
 import FITSwiftSDK
 import Foundation
 import HealthKit
+import WorkoutKit
 
 enum HealthError: LocalizedError {
     case unavailable
@@ -68,17 +69,19 @@ enum HealthAccess {
 
     /// The scheduled plan this session was run against, where Health recorded one.
     ///
-    /// The key iOS files a WorkoutKit plan's id under is not in the public headers this app
-    /// compiles against, so it is read by name and a miss is not a failure: the athlete picks
-    /// the workout themselves, and the day and the sport narrow the list to one most of the time.
+    /// WorkoutKit puts this on `HKWorkout` itself, and that is what this asks. It used to
+    /// read the metadata dictionary under three guessed key names instead, on the belief
+    /// that the key "is not in the public headers this app compiles against" — it is, as an
+    /// extension rather than a metadata constant, and the guesses matched nothing. Every
+    /// session came back unplanned, which is invisible on the screen, where the day and the
+    /// sport usually settle it anyway, and total in the background, where that fallback is
+    /// deliberately not used.
+    ///
+    /// The getter throws — a plan the store cannot produce is not the same as a session run
+    /// without one — but both end the same way here: nothing to match on, so nil, and the
+    /// session is shown as unplanned rather than filed against a guess.
     static func planID(of workout: HKWorkout) -> UUID? {
-        let names = ["HKWorkoutPlanId", "HKMetadataKeyWorkoutPlanId", "WorkoutPlanId"]
-        for name in names {
-            guard let raw = workout.metadata?[name] else { continue }
-            if let id = raw as? UUID { return id }
-            if let text = raw as? String, let id = UUID(uuidString: text) { return id }
-        }
-        return nil
+        (try? workout.workoutPlan)?.id
     }
 
     static func isIndoor(_ workout: HKWorkout) -> Bool {
