@@ -214,6 +214,19 @@ clean hit until you see its four.
 Below all of it, where Health has the session, are the two buttons this app started as:
 *Generate .fit*, which writes the file on the phone, and *Upload*, which posts it.
 
+Building the file is never what anybody wanted — it is what they had to do first — so the
+share sheet opens on its own the moment it is written, and every way out of the screen is in
+there: AirDrop, Files, Mail, and **Upload to WorkoutsMCP** as an action of this app's own
+beside them. That is `UIActivityViewController` with a `UIActivity` rather than SwiftUI's
+`ShareLink`, which can do neither half — it opens only when its own link is tapped, and it
+takes no actions.
+
+The upload stays on the screen behind as well. A share sheet is gone the moment it is
+dismissed, and an upload reachable only from inside one would mean building the file a second
+time to find it. Where the session has no planned workout to be filed against, the action is
+not offered at all rather than offered and refused: a list of places to send something should
+only hold places it can go.
+
 ### Settings
 
 Who is signed in, which deployment this build talks to, and the way out. Nothing about the

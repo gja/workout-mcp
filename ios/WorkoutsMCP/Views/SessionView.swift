@@ -17,6 +17,7 @@ struct SessionView: View {
     @State private var stats: WorkoutStats?
     @State private var fit: URL?
     @State private var building = false
+    @State private var sharing = false
     @State private var failure: String?
 
     /// The listing's copy of the planned workout, so an upload a moment ago is reflected here.
@@ -38,6 +39,11 @@ struct SessionView: View {
         .navigationTitle(done.sport)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: workout?.stats?.computedAt) { await loadStats() }
+        .sheet(isPresented: $sharing) {
+            if let fit {
+                ShareSheet(item: fit, activities: [uploadActivity].compactMap { $0 })
+            }
+        }
     }
 
     // --- What the phone has -----------------------------------------------------------
@@ -150,7 +156,11 @@ struct SessionView: View {
                 .disabled(building)
 
                 if let fit {
-                    ShareLink(item: fit) { Label("Share \(fit.lastPathComponent)", systemImage: "square.and.arrow.up") }
+                    Button {
+                        sharing = true
+                    } label: {
+                        Label("Share \(fit.lastPathComponent)", systemImage: "square.and.arrow.up")
+                    }
 
                     Button(workout?.isDone == true ? "Upload again" : "Upload to WorkoutsMCP") {
                         guard let workout else { return }
@@ -159,7 +169,9 @@ struct SessionView: View {
                     .disabled(workout == nil || model.loading)
                 }
             } footer: {
-                Text("The server ingests the file, works out the stats and marks the session done; it does not keep the file.")
+                Text(workout == nil
+                    ? "The file is yours to send anywhere. Uploading needs a planned workout to file it against."
+                    : "Sharing opens as soon as the file is built, and the upload is in it. The server ingests the file, works out the stats and marks the session done; it does not keep the file.")
             }
         }
     }
@@ -171,6 +183,19 @@ struct SessionView: View {
         stats = try? await client.stats(for: workout)
     }
 
+    /// The upload, as a share target — absent where there is no workout to file the session
+    /// against, because an action that cannot say where it is sending this does not belong
+    /// in a list of places to send it.
+    private var uploadActivity: UploadActivity? {
+        guard let activity = done.activity, let fit, let workout else { return nil }
+
+        return UploadActivity(title: workout.isDone ? "Upload again to WorkoutsMCP" : "Upload to WorkoutsMCP") {
+            Task { @MainActor in
+                await model.upload(fit, from: activity, to: workout, using: session.client)
+            }
+        }
+    }
+
     private func build(_ activity: HKWorkout) async {
         building = true
         defer { building = false }
@@ -178,6 +203,9 @@ struct SessionView: View {
         do {
             fit = try await model.buildFit(for: activity, matching: workout)
             failure = nil
+            // Straight into the sheet: building a file is never the thing somebody wanted,
+            // it is what they had to do first, and every path out of here is in there.
+            sharing = true
         } catch {
             failure = error.localizedDescription
             fit = nil
