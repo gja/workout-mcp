@@ -68,6 +68,19 @@ own line there on upload. `comment_workout` pushes a planned workout's comment
 `src/drive/` gives it: one file, two routes out, named once.
 Nothing matched means no link — there is no point signing an empty archive.
 
+### A placeholder is not a session
+
+Their activity listing also carries rows that are not sessions: an id, a date,
+and no name, no activity type, no distance and no moving time. One appears while
+an upload is still being processed, and another is left behind by a source
+activity that has gone.
+
+`activities` in `src/platforms/intervals.ts` drops them. What reads this list —
+`list_recorded_workouts`, and `src/drive/` — is answering "what did the athlete
+actually do", and a row saying nothing happened has no honest answer to give. It
+used to be listed under the fallback name `workout`, which put a session nobody
+did in front of an assistant describing the day.
+
 ### Sport
 
 The platform's own activity type (`Run`, `TrailRun`, `VirtualRide`) is placed
