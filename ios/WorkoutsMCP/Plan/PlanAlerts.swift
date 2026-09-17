@@ -1,11 +1,16 @@
 // A planned target as a watch alert.
 //
-// Two whole classes of target are deliberately dropped rather than guessed at. A bound
-// written as a percentage — 85% of max HR, 95% of FTP — is a number only the athlete's own
-// profile holds, and this app does not hold it; inventing one would put a band on the watch
-// that nobody chose. And a half-open target (`4:15/km or faster`) has no range to alert on,
-// so the step goes out with its duration and no alert rather than with a bound made up for
-// its missing end. The step still runs; the watch simply does not beep at it.
+// Two whole classes of target get no alert rather than a guessed one. A bound written as a
+// percentage — 85% of max HR, 95% of FTP — is a number only the athlete's own profile
+// holds, and this app does not hold it. And a half-open target (`4:15/km or faster`) names
+// one end only, which WorkoutKit has no shape for: `SpeedThresholdAlert` and its power and
+// cadence siblings carry a single `target` and no side, so there is no way to say whether
+// that number is the floor or the ceiling, and Apple does not document which one the watch
+// reads it as. A guess there is worse than silence — half the guesses beep the whole way
+// through a recovery that was written with no floor on purpose.
+//
+// Neither target is lost. `WorkoutKitSync` writes one it cannot alert on into the step's
+// name, which the watch shows. The step still runs; the watch simply does not beep at it.
 
 import Foundation
 import WorkoutKit

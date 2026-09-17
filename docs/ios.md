@@ -38,12 +38,21 @@ written. There is one resolver, in `src/resolve.ts`, and re-implementing it in S
 would be a second set of rules for what a workout may say. That route exists for this
 app and for anything else that wants to schedule a plan rather than render it.
 
-**Two kinds of target are dropped rather than guessed at.** A bound written as a
-percentage — `85%` of max heart rate, `95%` of FTP — is a number only the athlete's own
-profile holds, and the app does not hold it. And a half-open target, `4:15/km or faster`,
-has no range to alert against. In both cases the step goes to the watch with its duration
-and no alert, which is the honest reading: the step still runs, the watch simply does not
-beep at it. Inventing the missing end would put a band on the watch that nobody chose.
+**Two kinds of target get no alert.** A bound written as a percentage — `85%` of max heart
+rate, `95%` of FTP — is a number only the athlete's own profile holds, and the app does not
+hold it. And a half-open target, `4:15/km or faster`, names one end only, which WorkoutKit
+has no shape for: `SpeedThresholdAlert`, `PowerThresholdAlert` and `CadenceThresholdAlert`
+each carry a single `target` and no side, and Apple does not say which side the watch reads
+it as — so `slower than 7:45/km` and `faster than 7:45/km` would go out as the same alert.
+Guessing there is worse than silence, because half the guesses beep the whole way through a
+recovery that was written with no floor on purpose.
+
+**What cannot be alerted on is named instead.** A step carries one alert and one line of
+text, and `WorkoutStep.displayName` is the line the Workout app and the Fitness app already
+show. So a target that did not become an alert — a half-open bound, a percentage, or the
+second of two targets, which WorkoutKit has nowhere to put — is appended to the step's name
+in the same words the workout reads in on the phone: `Easy @ slower than 7:45/km`. The step
+still runs and the watch still does not beep at it, but the athlete can see what it was for.
 
 A repeat inside a repeat is flattened, because `IntervalBlock` does not nest and the plan
 format allows two levels. The reps are all there; only the grouping is lost.

@@ -133,9 +133,28 @@ enum WorkoutKitSync {
     }
 
     private static func step(_ effort: PlanEffort) -> WorkoutStep {
-        var step = WorkoutStep(goal: goal(effort.duration), alert: PlanAlerts.alert(for: effort.target))
-        step.displayName = effort.name
+        let alert = PlanAlerts.alert(for: effort.target)
+        var step = WorkoutStep(goal: goal(effort.duration), alert: alert)
+        step.displayName = name(effort, alerted: alert != nil)
         return step
+    }
+
+    /// A step carries one alert and one line of text, and a plan step can hold more target
+    /// than that: a bound `PlanAlerts` will not invent an end for, and a second target,
+    /// which WorkoutKit has nowhere to put. Whatever did not become an alert is written
+    /// into the name the watch already shows — `Easy @ slower than 7:45/km` — in the same
+    /// words the workout reads in on the phone. Nothing is alerted on that the plan did not
+    /// ask for; the athlete simply gets to see what the step was for.
+    private static func name(_ effort: PlanEffort, alerted: Bool) -> String? {
+        var unalerted: [PlanTarget] = alerted ? [] : [effort.target]
+        if let secondary = effort.secondaryTarget { unalerted.append(secondary) }
+
+        let described = unalerted.compactMap { Formats.describe($0) }
+        guard !described.isEmpty else { return effort.name }
+
+        let targets = described.joined(separator: " + ")
+        guard let name = effort.name else { return targets }
+        return "\(name) @ \(targets)"
     }
 
     private static func goal(_ duration: PlanDuration) -> WorkoutGoal {
