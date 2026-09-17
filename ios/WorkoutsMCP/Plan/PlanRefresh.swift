@@ -76,6 +76,10 @@ enum PlanRefresh {
     /// tries again.
     private static func sync() async -> Bool {
         guard let client = StoredSession.load()?.client else { return false }
+        // iOS grants a turn when it suits iOS, which can be sooner than the four hours asked
+        // for and can be twice in a morning the app was opened in. A sync that recent has
+        // nothing to add, and reading the plan to find that out is the round trip being saved.
+        guard PlanSync.isStale else { return true }
 
         let window = PlanSync.window
         guard let workouts = try? await client.workouts(from: window.from, to: window.to) else { return false }

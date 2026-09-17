@@ -22,6 +22,10 @@ struct PlannedWorkout: Decodable, Identifiable, Hashable {
     /// The recorded session's totals. The laps behind them are their own read — see
     /// `WorkoutsClient.stats(for:)` and docs/stats.md.
     let stats: StatsSummary?
+    /// When the server last wrote this row. The sync keeps it against what it put on the
+    /// watch, so an unchanged workout is not sent again — see `PlanPlacement`. Optional
+    /// because a deployment older than that is answered by syncing everything, as before.
+    let updatedAt: String?
 
     /// How this workout is addressed, everywhere: in a URL, in a FIT file, in a scheduled plan.
     var key: String { "\(date)/\(id)" }

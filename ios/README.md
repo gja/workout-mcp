@@ -113,8 +113,9 @@ Three tabs.
 **Planned.** At the top, where the plan stands with Apple Fitness — one line, *Synced to
 Apple Fitness · 8 planned workouts · 2 minutes ago*, and tapping it syncs again. The time is
 coarse on purpose: *just now*, then minutes, then hours. A sync five seconds ago and one
-twenty seconds ago are the same fact. Opening the app syncs on its own if the last one was
-over half an hour ago, so the line is true rather than merely reassuring.
+twenty seconds ago are the same fact. Opening the app syncs on its own when the last one was
+over four hours ago, or when the plan it just read is not the one that reached the watch, so
+the line is true rather than merely reassuring.
 
 Under it, what is coming, in the order it will be run, and a tap gets the steps — the plan
 as the server resolves it, repeats kept, each step with its duration and the band it is
@@ -128,8 +129,9 @@ it was planned to be beside what it did, and how much of the lap was inside the 
 on a lap opens that lap in full: heart rate average, max and min, pace, power, cadence, the
 ground under it, the target with the time spent above and below, and the quarters. None of
 it is computed on the phone; it is `GET /api/workouts/:date/:id/stats`, the same document
-the dashboard reads. Under all of it, where Health has the session: *Generate .fit*, which
-builds the file on the phone, and *Upload to WorkoutsMCP*, which posts it.
+the dashboard reads. Under all of it, where Health has the session, one button: *Share .fit*,
+which writes the file on the phone and opens the share sheet — with *Export to WorkoutsMCP*
+in it beside AirDrop, Files and Mail.
 
 Which planned workout a session was is shown as a fact with a link to the plan, and is not
 a field to edit. It comes from the plan id the watch recorded, or from the one workout of
@@ -157,8 +159,8 @@ is marked done, and **the file itself is not kept**. See
 
 ## Shipping it to TestFlight
 
-Needs an **Apple Developer Program** membership. Everything below is done once except the
-last three steps, which are every build.
+Needs an **Apple Developer Program** membership. Everything below is done once except
+*Every build*, which is the one that repeats.
 
 ### Once, on Apple's side
 
@@ -189,41 +191,49 @@ lists what this machine actually has.
 Then run it on a real iPhone (⌘R with the phone selected), which is the only place
 HealthKit has data and `WorkoutScheduler` does anything.
 
+### Onto the phone without Xcode
+
+```bash
+scripts/ios-install.sh                           # prints the phones it can see
+scripts/ios-install.sh 00008120-XXXXXXXXXXXXXXXX # builds, installs, launches
+```
+
+Nothing about signing is passed to it. `CODE_SIGN_STYLE = Automatic`, a committed
+`DEVELOPMENT_TEAM` and `-allowProvisioningUpdates` between them mean the identity comes out
+of the login keychain and the profile is fetched for you.
+
+The phone needs Developer Mode on and this Mac trusted; a wireless-paired phone works the
+same way. Over SSH, unlock the keychain first — `security unlock-keychain
+~/Library/Keychains/login.keychain-db` — or codesign fails with `errSecInternalComponent`
+rather than saying what is wrong.
+
 ### Every build
 
-1. **Bump the build number.** App Store Connect refuses a build number it has already seen
-   for a version. `CURRENT_PROJECT_VERSION` is the build, `MARKETING_VERSION` the version:
+```bash
+scripts/ios-upload.sh
+```
 
-   ```bash
-   cd ios && agvtool next-version -all
-   ```
+Bumps the build number, archives, and uploads to App Store Connect. Or the same three by
+hand: `cd ios && agvtool next-version -all`, *Product › Archive* with *Any iOS Device
+(arm64)* selected, then *Window › Organizer › Distribute App › TestFlight & App Store*.
 
-2. **Archive.** In Xcode, choose *Any iOS Device (arm64)* and *Product › Archive*. Or:
+**No App Store Connect API key is involved.** With no `-authenticationKey*` arguments,
+`xcodebuild` authenticates as the Apple ID Xcode is signed in as — *Xcode › Settings ›
+Accounts* — whose session lives in the login keychain, which is why a keychain prompt comes
+up the first time. It is the same prompt archiving from Xcode raises, and *Always Allow*
+answers it once. Signing is the keychain's too: the *Apple Distribution* identity is found
+there, and nothing secret is passed on the command line or kept in this repository.
 
-   ```bash
-   xcodebuild -project ios/WorkoutsMCP.xcodeproj -scheme WorkoutsMCP \
-     -destination 'generic/platform=iOS' \
-     -archivePath build/WorkoutsMCP.xcarchive \
-     -allowProvisioningUpdates archive
-   ```
+An API key is worth having only where no one is at the keyboard to answer that prompt — CI.
+It is a `.p8` file plus its key id and issuer id, from *App Store Connect › Users and Access
+› Integrations*, passed as `-authenticationKeyPath`, `-authenticationKeyID` and
+`-authenticationKeyIssuerID`. **A `.p8` is a secret**: `*.p8` is gitignored here, and a home
+directory is a better place for it than a checkout.
 
-3. **Upload.** *Window › Organizer*, select the archive, *Distribute App › TestFlight &
-   App Store › Upload*. From the command line it is two steps and an
-   [App Store Connect API key](https://appstoreconnect.apple.com/access/integrations/api):
-
-   ```bash
-   xcodebuild -exportArchive \
-     -archivePath build/WorkoutsMCP.xcarchive \
-     -exportOptionsPlist ios/ExportOptions.plist \
-     -exportPath build/export \
-     -allowProvisioningUpdates \
-     -authenticationKeyPath "$PWD/AuthKey_XXXXXXXXXX.p8" \
-     -authenticationKeyID XXXXXXXXXX \
-     -authenticationKeyIssuerID 00000000-0000-0000-0000-000000000000
-   ```
-
-   with an `ExportOptions.plist` of `method` = `app-store-connect`, `destination` = `upload`
-   and your `teamID`. **That `.p8` key is a secret: keep it outside this repository.**
+The build number is bumped first because App Store Connect refuses one it has already seen
+for a version, and finding that out costs a whole archive. `agvtool` writes it into the
+project file, so it is a change to commit. `scripts/ios-upload.sh --no-bump` re-runs an
+upload that failed after the bump.
 
 Processing takes five to thirty minutes, then the build shows up under *TestFlight*.
 

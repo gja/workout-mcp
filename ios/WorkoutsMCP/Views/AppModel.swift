@@ -68,9 +68,6 @@ final class AppModel: ObservableObject {
     private let recentDays = 7
     private let plannedDays = 14
 
-    /// How stale a sync has to be before opening the app does one on its own.
-    private let resyncAfter: TimeInterval = 30 * 60
-
     init() {
         // Whatever last reached the watch, including a turn iOS granted `PlanRefresh` in the
         // night: the status line is about the watch, not about this run of the app.
@@ -88,15 +85,22 @@ final class AppModel: ObservableObject {
     /// The same workouts under the headings the Planned tab reads them in: the rest of this
     /// week, next week, and whatever the fortnight reaches past that.
     ///
-    /// A week is the athlete's own — `Calendar.current` decides whether one starts on a Monday
-    /// or a Sunday — because "next week" is something they say rather than a count of seven
-    /// days from today. The far group has no name of its own for the same reason: it is
-    /// whatever the server happens to hold beyond the two weeks anybody is thinking in.
+    /// A week runs **Monday to Sunday**, whatever the phone's locale says a week begins on.
+    /// It is a training week rather than a calendar one: the long run is on a Sunday, and a
+    /// Sunday filed under *Next week* on a Saturday evening — which is what `Calendar.current`
+    /// does in a locale whose week starts then — is the very next session shown as the one
+    /// after that. The grouping exists because "next week" is something an athlete says
+    /// rather than a count of seven days from today, and this is the week they mean; it is
+    /// also the week `src/client/dates.ts` groups the dashboard by, so the two screens break
+    /// a fortnight in the same place. The far group has no name of its own for the same
+    /// reason: it is whatever the server happens to hold beyond the two weeks anybody is
+    /// thinking in.
     ///
     /// An empty group is left out rather than shown empty. `missed` is its own list above
     /// these, because a session behind is a decision to make and not part of the week ahead.
     var plannedWeeks: [PlannedWeek] {
-        let calendar = Calendar.current
+        var calendar = Calendar.current
+        calendar.firstWeekday = 2 // Monday, whatever the locale's own answer would be.
         let now = Date()
         let weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? now
         let boundary = { (weeks: Int) -> String in
@@ -163,16 +167,18 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Opening the app syncs, unless it already did recently: the status line claims the plan
-    /// is on the watch, so it has to have put it there.
+    /// Opening the app syncs, unless the watch already holds this plan: the status line
+    /// claims it is there, so it has to have put it there.
+    ///
+    /// Both halves of that are `PlanSync`'s to answer — four hours since the last sync, or a
+    /// plan that is not the one that was placed — and the second is why an edit made ten
+    /// minutes ago still reaches the watch on opening the app.
     func refreshAndSyncIfStale(using client: WorkoutsClient?) async {
         await refresh(using: client)
 
-        switch sync {
-        case .synced(let at, _) where Date().timeIntervalSince(at) < resyncAfter: return
-        case .syncing: return
-        default: await syncToAppleFitness(using: client)
-        }
+        if case .syncing = sync { return }
+        guard PlanSync.isStale || PlanSync.hasChanged(PlanSync.due(in: workouts)) else { return }
+        await syncToAppleFitness(using: client)
     }
 
     // --- Out to Apple -------------------------------------------------------------------------

@@ -167,6 +167,24 @@ describe('workout CRUD', () => {
     expect(await (await call(`/api/workouts/${created.date}/${created.id}.json`)).json()).not.toHaveProperty('tags');
   });
 
+  // The iPhone app keeps this against what it put on the watch, and skips a workout whose
+  // plan cannot have moved since. See "What a sync sends" in docs/ios.md.
+  it('says on a listing when each workout was last written, and moves it on a rewrite', async () => {
+    const { date, id } = await createIntervals();
+    const listed = async () =>
+      ((await (await call('/api/workouts.json')).json()) as { workouts: { updated_at: string }[] }).workouts[0]
+        .updated_at;
+
+    const first = await listed();
+    expect(first).toEqual(expect.any(String));
+
+    await call(`/api/workouts/${date}/${id}.json`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...INTERVALS, name: 'Renamed' }),
+    });
+    expect(await listed()).not.toBe(first);
+  });
+
   it('reads a workout back by date and id', async () => {
     const { date, id } = await createIntervals();
     const response = await call(`/api/workouts/${date}/${id}.json`);

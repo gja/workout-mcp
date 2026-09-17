@@ -11,10 +11,12 @@ struct ApiError: LocalizedError {
     var isUnauthorized: Bool { status == 401 }
 }
 
-struct WorkoutsClient {
+/// `Sendable` because a sync reads several plans at once: the client itself is a URL and a
+/// closure over a stored token, and nothing here is mutated by a call.
+struct WorkoutsClient: Sendable {
     let server: URL
     /// Handed a fresh access token per call, because the stored one may have just been refreshed.
-    let token: () async throws -> String
+    let token: @Sendable () async throws -> String
 
     func me() async throws -> Account {
         try await get("/api/me")
