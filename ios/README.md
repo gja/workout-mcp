@@ -159,8 +159,8 @@ is marked done, and **the file itself is not kept**. See
 
 ## Shipping it to TestFlight
 
-Needs an **Apple Developer Program** membership. Everything below is done once except the
-last three steps, which are every build.
+Needs an **Apple Developer Program** membership. Everything below is done once except
+*Every build*, which is the one that repeats.
 
 ### Once, on Apple's side
 
@@ -193,22 +193,14 @@ HealthKit has data and `WorkoutScheduler` does anything.
 
 ### Onto the phone without Xcode
 
-The identity comes out of the login keychain and the profile is fetched for you, which is
-all `CODE_SIGN_STYLE = Automatic`, a committed `DEVELOPMENT_TEAM` and
-`-allowProvisioningUpdates` between them mean. Nothing is passed on the command line.
-
 ```bash
-xcrun devicectl list devices                     # once: the phone's identifier
-DEVICE=00008120-XXXXXXXXXXXXXXXX
-
-xcodebuild -project ios/WorkoutsMCP.xcodeproj -scheme WorkoutsMCP \
-  -configuration Debug -destination "id=$DEVICE" \
-  -derivedDataPath build/ios -allowProvisioningUpdates build
-
-xcrun devicectl device install app --device "$DEVICE" \
-  build/ios/Build/Products/Debug-iphoneos/WorkoutsMCP.app
-xcrun devicectl device process launch --device "$DEVICE" com.workouts-mcp.ios
+scripts/ios-install.sh                           # prints the phones it can see
+scripts/ios-install.sh 00008120-XXXXXXXXXXXXXXXX # builds, installs, launches
 ```
+
+Nothing about signing is passed to it. `CODE_SIGN_STYLE = Automatic`, a committed
+`DEVELOPMENT_TEAM` and `-allowProvisioningUpdates` between them mean the identity comes out
+of the login keychain and the profile is fetched for you.
 
 The phone needs Developer Mode on and this Mac trusted; a wireless-paired phone works the
 same way. Over SSH, unlock the keychain first — `security unlock-keychain
@@ -217,63 +209,31 @@ rather than saying what is wrong.
 
 ### Every build
 
-1. **Bump the build number.** App Store Connect refuses a build number it has already seen
-   for a version. `CURRENT_PROJECT_VERSION` is the build, `MARKETING_VERSION` the version:
+```bash
+scripts/ios-upload.sh
+```
 
-   ```bash
-   cd ios && agvtool next-version -all
-   ```
+Bumps the build number, archives, and uploads to App Store Connect. Or the same three by
+hand: `cd ios && agvtool next-version -all`, *Product › Archive* with *Any iOS Device
+(arm64)* selected, then *Window › Organizer › Distribute App › TestFlight & App Store*.
 
-2. **Archive.** In Xcode, choose *Any iOS Device (arm64)* and *Product › Archive*. Or:
+**No App Store Connect API key is involved.** With no `-authenticationKey*` arguments,
+`xcodebuild` authenticates as the Apple ID Xcode is signed in as — *Xcode › Settings ›
+Accounts* — whose session lives in the login keychain, which is why a keychain prompt comes
+up the first time. It is the same prompt archiving from Xcode raises, and *Always Allow*
+answers it once. Signing is the keychain's too: the *Apple Distribution* identity is found
+there, and nothing secret is passed on the command line or kept in this repository.
 
-   ```bash
-   xcodebuild -project ios/WorkoutsMCP.xcodeproj -scheme WorkoutsMCP \
-     -destination 'generic/platform=iOS' \
-     -archivePath build/WorkoutsMCP.xcarchive \
-     -allowProvisioningUpdates archive
-   ```
+An API key is worth having only where no one is at the keyboard to answer that prompt — CI.
+It is a `.p8` file plus its key id and issuer id, from *App Store Connect › Users and Access
+› Integrations*, passed as `-authenticationKeyPath`, `-authenticationKeyID` and
+`-authenticationKeyIssuerID`. **A `.p8` is a secret**: `*.p8` is gitignored here, and a home
+directory is a better place for it than a checkout.
 
-3. **Upload.** *Window › Organizer*, select the archive, *Distribute App › TestFlight &
-   App Store › Upload*. From the command line, one more step and an
-   [App Store Connect API key](https://appstoreconnect.apple.com/access/integrations/api).
-   Write `ios/ExportOptions.plist` once — it is gitignored, and `destination` is what makes
-   the export upload rather than leave an `.ipa` behind:
-
-   ```xml
-   <?xml version="1.0" encoding="UTF-8"?>
-   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-   <plist version="1.0"><dict>
-     <key>method</key><string>app-store-connect</string>
-     <key>destination</key><string>upload</string>
-     <key>teamID</key><string>JM23328UQQ</string>
-     <key>signingStyle</key><string>automatic</string>
-   </dict></plist>
-   ```
-
-   ```bash
-   xcodebuild -exportArchive \
-     -archivePath build/WorkoutsMCP.xcarchive \
-     -exportOptionsPlist ios/ExportOptions.plist \
-     -exportPath build/export \
-     -allowProvisioningUpdates \
-     -authenticationKeyPath ~/private_keys/AuthKey_XXXXXXXXXX.p8 \
-     -authenticationKeyID XXXXXXXXXX \
-     -authenticationKeyIssuerID 00000000-0000-0000-0000-000000000000
-   ```
-
-   **That `.p8` key is a secret: keep it outside this repository** — `*.p8` is gitignored,
-   but a home directory is the better place. The signing itself takes nothing from the
-   command line: the *Apple Distribution* identity comes out of the login keychain, and the
-   key above authenticates to App Store Connect, not to the certificate.
-
-   To upload with no `.p8` at all, set `destination` to `export` and post the `.ipa` with an
-   app-specific password kept in the keychain
-   (`security add-generic-password -s AC_PASSWORD -a you@example.com -w`):
-
-   ```bash
-   xcrun altool --upload-app -t ios -f build/export/WorkoutsMCP.ipa \
-     -u you@example.com -p "@keychain:AC_PASSWORD"
-   ```
+The build number is bumped first because App Store Connect refuses one it has already seen
+for a version, and finding that out costs a whole archive. `agvtool` writes it into the
+project file, so it is a change to commit. `scripts/ios-upload.sh --no-bump` re-runs an
+upload that failed after the bump.
 
 Processing takes five to thirty minutes, then the build shows up under *TestFlight*.
 
