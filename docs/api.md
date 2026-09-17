@@ -15,6 +15,7 @@ session cookie set at login.
 | `GET /api/me` | Who you are, and the retention window |
 | `GET /api/tokens` | List API tokens |
 | `POST /api/tokens` | `{name}` — mint an API token, returned once |
+| `POST /api/app-token` | `{name}` — the same, for a native app holding an OAuth grant rather than a cookie; needs the `app-token` scope |
 | `DELETE /api/tokens/:prefix` | Revoke one |
 | `GET /api/connections` | List OAuth grants (connected MCP clients) |
 | `DELETE /api/connections/:id` | Disconnect one |
@@ -22,6 +23,8 @@ session cookie set at login.
 | `POST /api/workouts` | Create; returns the id and URLs |
 | `GET /api/workouts/:date/:id.json` | Read one |
 | `GET /api/workouts/:date/:id/stats` | What was actually recorded against it, laps and all; 404 until a session comes back |
+| `GET /api/workouts/:date/:id/plan` | The plan resolved — one duration and its targets a step, repeats kept — for a client that schedules it |
+| `POST /api/workouts/:date/:id/recording` | The recorded FIT file itself as the body; read for its stats, marks the session done, keeps nothing |
 | `PUT /api/workouts/:date/:id.json` | Replace one; change `date` to move it |
 | `DELETE /api/workouts/:date/:id.json` | Delete one |
 | `POST /api/workouts/:date/:id/complete` | Mark it done; `{completed_at}` optional, defaults to now |
@@ -83,12 +86,35 @@ declared once.
 deriving it from its own local midnight would disagree at the edges and drop a
 workout the server legitimately returned.
 
+`/api/app-token` is the one path under `/api/` the session cookie does not
+reach: it is registered on the OAuth provider, which understands bearer tokens
+and nothing else. It exists so an app that has just done the browser round trip
+can trade its grant for the credential the rest of this table takes. See
+["A native app signs in through the browser"](auth.md#a-native-app-signs-in-through-the-browser-and-ends-up-with-a-token).
+
 ## Authentication before existence
 
 Under `/api/` and `/export/`, an unknown or wrongly-addressed path is answered
 the way a known one would be: **401 before 404 or 405**, so a caller without a
 credential cannot map the API by reading status codes back. Everywhere else, a
 path the routing table does not claim is the dashboard.
+
+## Posting a recording
+
+`POST /api/workouts/:date/:id/recording` takes the FIT file as the request body,
+not as JSON and not as a multipart part: a client holding a recording holds
+bytes, and base64 would spend a third of a Worker's budget on wrapping them.
+`?activity_id=` is the caller's own name for the file — a HealthKit workout
+UUID, say — and is stored beside the numbers so the same session uploaded twice
+is recognisable as one.
+
+The file is decoded, reduced to the stats in [stats.md](stats.md) and dropped;
+nothing stores it. The session is marked done at the moment the recording ended,
+unless it already carried a completion, which is left where it was. A body that
+is not a readable FIT file is a 400 naming what was wrong with it rather than a
+stored `source_unreadable` — there is no pass behind an upload to retry it — and
+one over 8 MiB is a 413, answered off `Content-Length` where the client declared
+one so the bytes are never buffered.
 
 ## FIT downloads
 

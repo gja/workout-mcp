@@ -257,6 +257,32 @@ than reported as fact. On the session:
 And on a lap: `short_lap`, where quarters were suppressed, and `extra_lap`, where
 the lap is past the end of the plan and matched to no step.
 
+## A recording posted rather than fetched
+
+`POST /api/workouts/:date/:id/recording` is the other way in, for an athlete
+whose watch never reaches a platform this server can read. The body is the FIT
+file; it goes through the same `statsFrom`, is stored against the same column,
+and the bytes are dropped — the reduction is the point of the route, not a
+side effect of it. The [iOS app](ios.md) posts one it built out of Apple Health.
+
+It differs from the sync in three ways, all of them because somebody is waiting
+on the answer:
+
+- **The completion comes with it.** A file that decodes says the session
+  happened, so the workout is marked done at the moment the recording ended.
+  One already marked done keeps the time it was marked at: an upload is evidence
+  that it happened, not a correction of when.
+- **A file that cannot be read is answered, not stored.** `source_unreadable`
+  exists to stop an hourly pass fetching an unservable file for a week. There is
+  no pass behind an upload — there is a caller, holding the file — so the reason
+  goes back as a 400 and nothing is written.
+- **The source is `upload`**, with `activity_id` whatever the caller named the
+  file. Which matters where a platform is connected too: the sync reads a
+  recording whose `activity_id` is not the one stored, so the platform's own copy
+  of the same session will overwrite these numbers on the pass after it. That is
+  the right way round — the platform holds the file this server can go back to —
+  but it does mean an upload is not the last word for an athlete who has both.
+
 ## When it runs, and once
 
 The webhook is the path: `ACTIVITY_ANALYZED` arrives within a minute of a
@@ -306,8 +332,9 @@ its totals and the flag saying why, rather than a row per lap with nothing to
 compare it to.
 
 It is a column on the workout, so it ages out with the retention window, is
-carried when a workout moves day, and goes when the workout is deleted. The
-platform sync is the only writer, and a caller cannot set it.
+carried when a workout moves day, and goes when the workout is deleted. Two
+things write it — the platform sync, and an upload — and neither is the caller
+handing over numbers: both hand over a file, and the numbers are read here.
 
 **A plan is frozen once a session has been recorded against it.** The mapping
 names steps by position, so rewriting the steps underneath it leaves a
