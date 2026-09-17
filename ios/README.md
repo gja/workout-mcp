@@ -99,9 +99,14 @@ The home screen is three things.
 
 **Where the plan stands.** One line — *Synced to Apple Fitness · 8 planned workouts · 2 min
 ago* — and tapping it syncs again. Opening the app syncs on its own if the last one was
-over half an hour ago, so the line is true rather than merely reassuring. Syncing sends
-every workout still to come, and takes off the watch anything this app put there that the
-plan no longer has.
+over half an hour ago, so the line is true rather than merely reassuring.
+
+What goes to the watch is **two days back to seven days ahead**, minus anything already
+done. Back as well as forward because a day missed is a session still worth doing, and a
+past-dated one is scheduled for the next whole hour so it is reachable today. Seven ahead
+rather than the fourteen the server holds, because the far end of a fortnight has not
+settled yet. Anything this app put on the watch that is no longer in that window — done,
+older than two days, or deleted upstream — comes off.
 
 **The last 7 days**, from Health: every run and ride, with the planned workout it matches
 and a tick where the server already has it. Tap one for *Generate .fit*, which builds the

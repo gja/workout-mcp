@@ -31,6 +31,15 @@ final class HomeModel: ObservableObject {
     private let recentDays = 7
     private let plannedDays = 14
 
+    /// How much of that goes to the watch.
+    ///
+    /// Two days back as well as forward, because a day missed is a session still worth doing
+    /// and it should not need the app to get it back. Seven ahead rather than the fourteen
+    /// the server holds, because the far end of a fortnight is a plan that has not settled
+    /// yet, and a watch full of it is a list to scroll past.
+    private let scheduleFrom = -2
+    private let scheduleTo = 7
+
     /// When a scheduled workout lands on the watch. Early enough to be there before a dawn run.
     private let scheduledHour = 5
 
@@ -86,7 +95,7 @@ final class HomeModel: ObservableObject {
 
     // --- Out to Apple -------------------------------------------------------------------------
 
-    /// Everything still to come, onto the watch. Run whole rather than per workout, because
+    /// The near part of the plan, onto the watch. Run whole rather than per workout, because
     /// what the athlete wants to know is whether their plan is there, not which parts of it.
     func syncToAppleFitness(using client: WorkoutsClient?) async {
         guard let client else { return }
@@ -100,17 +109,16 @@ final class HomeModel: ObservableObject {
             sync = .failed("could not read your plan")
             return
         }
-        let today = WorkoutDate.string(Date())
-        let due = workouts.filter { $0.date >= today && !$0.isDone }
+        let due = workouts.filter { $0.date >= day(scheduleFrom) && $0.date <= day(scheduleTo) && !$0.isDone }
 
         sync = .syncing(done: 0, of: due.count)
         await WorkoutKitSync.authorize()
 
         var placed = 0
-        for workout in due {
+        for (slot, workout) in due.enumerated() {
             do {
                 let plan = try await client.plan(for: workout)
-                try await WorkoutKitSync.schedule(plan, at: scheduledTime(for: workout))
+                try await WorkoutKitSync.schedule(plan, at: scheduledTime(for: workout, slot: slot))
                 placed += 1
                 sync = .syncing(done: placed, of: due.count)
             } catch {
@@ -128,13 +136,28 @@ final class HomeModel: ObservableObject {
         sync = .synced(at: at, count: placed)
     }
 
-    /// Early on the day it is planned for — but never in the past, which is where the small
-    /// hours of this morning are by the time anybody opens the app, and where the scheduler
-    /// would have nothing to show for it.
-    private func scheduledTime(for workout: PlannedWorkout) -> Date {
-        let day = workout.day ?? Date()
-        let early = Calendar.current.date(bySettingHour: scheduledHour, minute: 0, second: 0, of: day) ?? day
-        return max(early, Date().addingTimeInterval(60))
+    private func day(_ offset: Int) -> String {
+        WorkoutDate.string(Calendar.current.date(byAdding: .day, value: offset, to: Date()) ?? Date())
+    }
+
+    /// Early on the day it is planned for, and never in the past — which is where this
+    /// morning is by the time anybody opens the app, and where the scheduler has nothing to
+    /// show for it. A day already gone is scheduled for the next whole hour instead, which is
+    /// what makes a session missed on Sunday reachable on Tuesday.
+    ///
+    /// The next *whole* hour rather than a minute from now, so a resync ten minutes later
+    /// lands on the same time and the watch is not rewritten for nothing. And a minute apart
+    /// per workout, so two missed days are two entries rather than one time carrying both.
+    private func scheduledTime(for workout: PlannedWorkout, slot: Int) -> Date {
+        let calendar = Calendar.current
+        let planned = workout.day ?? Date()
+        let early = calendar.date(bySettingHour: scheduledHour, minute: 0, second: 0, of: planned) ?? planned
+
+        var hour = calendar.dateComponents([.year, .month, .day, .hour], from: Date())
+        hour.hour = (hour.hour ?? 0) + 1
+        let soon = calendar.date(from: hour) ?? Date()
+
+        return max(early, soon).addingTimeInterval(Double(60 * slot))
     }
 
     // --- Back from Apple -------------------------------------------------------------------

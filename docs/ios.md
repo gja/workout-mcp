@@ -111,10 +111,18 @@ Fitness · 8 planned workouts · 2 min ago* — and tapping it syncs again. Open
 syncs on its own when the last one was over half an hour ago, because a status line that
 is merely the last thing that happened is worse than none.
 
-A sync sends every workout still to come and then **prunes**: anything this app put on the
-watch that the plan no longer has comes off, so the two really do agree rather than
-accumulating. Plans the athlete follows from elsewhere are not this app's to touch, and are
-left alone — only ids in this app's own index are removed.
+A sync sends **two days back to seven days ahead**, minus anything already done, and then
+**prunes**: whatever this app put on the watch outside that window comes off, so the two
+really do agree rather than accumulating. Plans the athlete follows from elsewhere are not
+this app's to touch, and are left alone — only ids in this app's own index are removed.
+
+Back as well as forward because a missed day is a session still worth doing, and needing
+the app to get it back is a worse answer than it being there already. A past-dated workout
+is scheduled for the next whole hour rather than the hour it was planned for, since the
+scheduler has nothing to show for a time that has gone — the next *whole* hour so that
+resyncing ten minutes later lands on the same time and does not rewrite the watch for
+nothing. Seven ahead rather than the fourteen the server holds: the far end of a fortnight
+is a plan still being edited, and putting it on the watch is a list to scroll past.
 
 Below it is the last seven days of runs and rides out of Health, each with the planned
 workout it matches and a tick where the server already has it, and below that the way out.
