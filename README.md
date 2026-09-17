@@ -1,3 +1,5 @@
+<img src="public/logo.svg" alt="" width="72" align="right">
+
 # workout-mcp
 
 Plan structured workouts over MCP or a plain REST API, then export them as
