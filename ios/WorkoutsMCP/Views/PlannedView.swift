@@ -32,13 +32,18 @@ struct PlannedView: View {
                     }
                 }
 
-                Section("Next 14 days") {
-                    if model.upcoming.isEmpty {
+                if model.upcoming.isEmpty {
+                    Section("This week") {
                         Text(model.loading ? "Loading…" : "Nothing planned.")
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(model.upcoming) { workout in
-                        NavigationLink(value: workout) { PlannedRow(workout: workout) }
+                }
+
+                ForEach(model.plannedWeeks) { week in
+                    Section(week.title) {
+                        ForEach(week.workouts) { workout in
+                            NavigationLink(value: workout) { PlannedRow(workout: workout) }
+                        }
                     }
                 }
             }

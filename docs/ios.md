@@ -95,6 +95,13 @@ The upload does not need it — `POST /api/workouts/:date/:id/recording` names t
 in its path — and that is the point: the file is self-describing wherever else it ends up,
 without the server having to trust something inside it over the route it arrived on.
 
+The file is named `yyyy-mm-dd-<id>-<name>.fit`, which is what `src/recordings/` calls the
+same session when it comes back out of an archive and what `src/drive/` calls it in a
+connected drive. One session reaching an athlete by three routes should be recognisable as
+one file without opening any of them, so the app runs the server's own `safe()` rules on the
+name rather than nearly running them. The id is HealthKit's, which is also what the upload
+travels under as `activity_id`, so both ends mean the same id by it.
+
 Matching a recorded session to the plan it was for is tried two ways, in order: the plan
 id the watch recorded, looked up in an index the app wrote when it scheduled the workout;
 and the one workout of that sport planned for that day, where there is exactly one.
@@ -127,14 +134,27 @@ happened is worse than none. It sits above the plan rather than in Settings beca
 fact about the plan underneath it — "is this on my watch" is read in the same glance as
 "what is on Saturday", not on a screen the athlete goes looking for.
 
-Under it, what is coming, in the order it will be run, and a tap gets the steps: the plan as
+Under it, what is coming, and a tap gets the steps: the plan as
 `GET /api/workouts/:date/:id/plan` resolves it, one duration and up to two targets a step,
 repeats kept. It is the same route the sync schedules from, so the screen and the watch are
 reading the same answer rather than two renderings of the same steps.
 
-Ahead of it, where there is one, is a **Missed** section: planned, in the past, still not
-done. Not a scolding — those are exactly the sessions a sync reaches two days back for, so
-they are on the watch and can still be done.
+It is grouped the way the athlete already thinks about it — **Missed**, **This week**,
+**Next week** — rather than as one list fourteen days long. A fortnight in date order asks
+somebody to work out where this Sunday stops and the next one starts every time they open
+the app, which is the one question a week heading answers for free. The weeks are the
+athlete's own: `Calendar.current` decides whether one begins on a Monday or a Sunday, because
+"next week" is something they say rather than seven days counted from today. Anything the
+server holds past the second week is **Later**, which is a small group by design — the plan
+runs a fortnight and two weeks rarely leave much over.
+
+**Missed** is planned, in the past, still not done, and it sits first. Not a scolding —
+those are exactly the sessions a sync reaches two days back for, so they are on the watch
+and can still be done. It is its own list rather than part of the week because a session
+behind is a decision to make, and the week ahead is not.
+
+An empty group is left out rather than shown empty, so a heading on that screen is always a
+promise that there is something under it.
 
 Completed workouts are not here. They are a session now, and sessions are the next tab.
 
@@ -198,6 +218,25 @@ The day-and-sport fallback is deliberately not used there. It is a good guess, a
 guess is the right thing to offer somebody who is looking at it and the wrong thing to act
 on unattended — a session filed against a workout nobody chose is a completion to undo and a
 page of stats to distrust. Those wait in the Executed tab.
+
+The plan travels the other way with the app shut too, and nothing wakes the app for it: a
+workout added on the server is a change no device here hears about. So the app asks iOS for
+a background refresh every four hours — `BGAppRefreshTask`, registered in the app's own
+initialiser because `BGTaskScheduler` takes a handler only before launching finishes — and
+reads the plan when it is granted one. Four hours is a floor and not a promise: iOS decides
+when these actually run, from how often the app is opened and what the battery is doing. That
+is the right shape for it, because a plan written this morning should reach the watch today
+without anybody opening anything, and none of it is urgent to the minute.
+
+A turn asks for the next one before it does any work, since iOS holds one request per
+identifier and never repeats one on its own — a turn that is cut short and did not re-arm
+would be the last there ever was. Signed out, or a server that cannot be reached, is not
+recorded anywhere: there is nobody to tell, and the next turn tries again.
+
+What that turn runs is `Plan/PlanSync.swift`, which is what the athlete's own tap runs too.
+It holds the window, the scheduled times and the prune, and the model on the screen is left
+with the counting-out a status line needs. A background sync that placed workouts by rules
+of its own would be a watch that changed depending on which of the two last ran.
 
 ## Signing in
 

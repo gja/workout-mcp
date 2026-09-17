@@ -253,7 +253,9 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = "com.workouts-mcp.ios.plan-refresh";
 				INFOPLIST_KEY_CFBundleDisplayName = WorkoutsMCP;
+				INFOPLIST_KEY_UIBackgroundModes = fetch;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "WorkoutsMCP reads your recorded runs and rides so it can build a FIT file from them and upload it to your own server.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "WorkoutsMCP never writes anything to Health. It only reads the runs and rides you have already recorded.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -282,7 +284,9 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = "com.workouts-mcp.ios.plan-refresh";
 				INFOPLIST_KEY_CFBundleDisplayName = WorkoutsMCP;
+				INFOPLIST_KEY_UIBackgroundModes = fetch;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "WorkoutsMCP reads your recorded runs and rides so it can build a FIT file from them and upload it to your own server.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "WorkoutsMCP never writes anything to Health. It only reads the runs and rides you have already recorded.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
