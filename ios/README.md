@@ -44,7 +44,12 @@ Xcode resolves the one package dependency on first open. Then, once:
    resource. Background delivery also has to be on the App ID; automatic signing adds it.
 3. Run it **on a real iPhone**. The simulator has no Health data worth reading and
    `WorkoutScheduler` does nothing there, so almost none of this app can be exercised in
-   it.
+   it. The phone needs **Developer Mode** on — *Settings › Privacy & Security › Developer
+   Mode*, which asks for a restart — and iOS 18 or newer.
+
+On first launch it asks for the server (`workouts-mcp.com` is filled in), then for Health
+and for permission to schedule workouts. Both permission sheets are the system's, and
+declining either leaves the app running with that half switched off rather than broken.
 
 ## Dependencies
 
