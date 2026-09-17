@@ -214,6 +214,15 @@ final class AppModel: ObservableObject {
     func refreshAndSyncIfStale(using client: WorkoutsClient?) async {
         await refresh(using: client)
 
+        // Whatever the background never got to. A wake is what should have uploaded the
+        // session already, and `.immediate` delivery is a request rather than a promise —
+        // Low Power Mode delays it, a force-quit stops it entirely, and there is nobody in a
+        // background launch to say so. Opening the app is the moment that is certain to
+        // happen, so it catches up on the same terms a wake uses: only sessions the watch
+        // itself named, only ones the server has no recording for. Nothing is guessed at
+        // here that would not be guessed at unattended.
+        if await BackgroundSync.uploadWhatIsCertain() == .uploaded { await refresh(using: client) }
+
         if case .syncing = sync { return }
         guard PlanSync.isStale || PlanSync.hasChanged(PlanSync.due(in: workouts)) else { return }
         await syncToAppleFitness(using: client)
