@@ -138,9 +138,10 @@ a field to edit. It comes from the plan id the watch recorded, or from the one w
 that sport planned for that day — and where it is neither, the session says so rather than
 offering a menu to guess from.
 
-**Settings.** Who is signed in, which deployment this build talks to, **Log out**, and
-whether Health can wake the app, when it last did and what came of it, and how many sessions
-have gone up without anybody tapping *Export*.
+**Settings.** Who is signed in, which deployment this build talks to, **Log out**, and a
+**Sync log** sheet: whether Health can wake the app, when it last ran with nobody looking and
+what came of it, how many sessions have gone up without anybody tapping *Export*, and the
+events behind all three.
 
 What goes to the watch is **two days back to seven days ahead**, minus anything already
 done. Back as well as forward because a day missed is a session still worth doing, and a

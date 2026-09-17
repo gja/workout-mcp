@@ -29,10 +29,10 @@ enum BackgroundSync {
         if observer == nil {
             let query = HKObserverQuery(sampleType: .workoutType(), predicate: nil) { _, completion, error in
                 guard error == nil else {
-                    // Still acknowledged. HealthKit backs off an observer that stops answering,
-                    // and a failed read is not a reason to stop being told about the next one.
-                    WakeLog.woke(.unreadable)
+                    // Acknowledged first: HealthKit backs off an observer that stops
+                    // answering, and writing it down can follow.
                     completion()
+                    SyncLog.record(.wake, SyncLog.Outcome.unreadable.rawValue)
                     return
                 }
                 Task { @MainActor in await answer(completion) }
@@ -61,12 +61,12 @@ enum BackgroundSync {
             do {
                 try await HealthAccess.store.enableBackgroundDelivery(for: .workoutType(), frequency: .immediate)
                 deliveryEnabled = true
-                WakeLog.deliveryEnabled()
+                SyncLog.deliveryEnabled()
             } catch {
                 // Left false on purpose, so the next launch — or the next grant of Health
                 // access — asks again. Swallowed, this failure reports itself as an app that
                 // simply never wakes, which is why it is also written down.
-                WakeLog.deliveryRefused(error)
+                SyncLog.deliveryRefused(error)
             }
         }
     }
@@ -79,7 +79,7 @@ enum BackgroundSync {
         wake.begin()
 
         let outcome = await uploadWhatIsCertain()
-        WakeLog.woke(outcome)
+        SyncLog.record(.wake, outcome.rawValue)
         wake.done()
     }
 
@@ -91,7 +91,6 @@ enum BackgroundSync {
     private final class Wake {
         private var acknowledge: (() -> Void)?
         private var assertion = UIBackgroundTaskIdentifier.invalid
-
         init(_ acknowledge: @escaping () -> Void) {
             self.acknowledge = acknowledge
         }
@@ -101,7 +100,7 @@ enum BackgroundSync {
                 // UIKit calls an expiration handler on the main thread, which is where this
                 // object lives. This is the last moment there is to answer.
                 MainActor.assumeIsolated {
-                    WakeLog.woke(.ranOut)
+                    SyncLog.record(.wake, SyncLog.Outcome.ranOut.rawValue)
                     self.done()
                 }
             }
@@ -125,7 +124,7 @@ enum BackgroundSync {
     /// Not private, and not only for a wake: `PlanRefresh` and opening the app run it too,
     /// because `.immediate` delivery is a request rather than a guarantee.
     @discardableResult
-    static func uploadWhatIsCertain() async -> WakeLog.Outcome {
+    static func uploadWhatIsCertain() async -> SyncLog.Outcome {
         guard let client = StoredSession.load()?.client else { return .signedOut }
 
         let from = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
@@ -157,14 +156,16 @@ enum BackgroundSync {
                     activityID: activity.uuid.uuidString
                 )
                 uploaded += 1
+                SyncLog.record(.upload, "\(workout.name) went up")
             } catch {
                 // Continue, not return: one session that cannot be read or sent must not
                 // hide every session behind it for as long as it stays stuck.
+                SyncLog.record(.upload, "\(workout.name) would not go up: \(error.localizedDescription)")
                 refused = true
             }
         }
 
-        if uploaded > 0 { WakeLog.uploaded(uploaded) }
+        if uploaded > 0 { SyncLog.uploaded(uploaded) }
         if refused { return .failed }
         return uploaded > 0 ? .uploaded : .nothing
     }

@@ -105,6 +105,7 @@ enum PlanSync {
         let plans = try await client.plans(for: stale.map(\.workout))
 
         var count = 0
+        var written = 0
         for slot in wanted {
             if let plan = plans[slot.workout.key] {
                 try await WorkoutKitSync.schedule(
@@ -114,6 +115,7 @@ enum PlanSync {
                     replacing: onWatch
                 )
                 PlanPlacement.remember(slot.workout, at: slot.time)
+                written += 1
             }
             count += 1
             placed(count)
@@ -127,6 +129,10 @@ enum PlanSync {
             await WorkoutKitSync.pruneTo(keys: keys, among: onWatch)
             PlanPlacement.keep(keys)
         }
+
+        // `written`, not `count`: the latter counts the whole window so a caller can show
+        // progress, and most of it is skipped.
+        SyncLog.record(.plan, written == 0 ? "plan already on the watch" : "wrote \(written) to the watch")
 
         let at = Date()
         UserDefaults.standard.set(at, forKey: syncedAtKey)
