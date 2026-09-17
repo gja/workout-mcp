@@ -161,6 +161,12 @@ type RecordedActivity = Activity & {
 const localDay = (activity: RecordedActivity): string =>
   (activity.start_date_local ?? activity.start_date ?? '').slice(0, 10);
 
+/** Whether a row says a session happened at all; see "A placeholder is not a session" in recordings.md. */
+const hasSubstance = (activity: RecordedActivity): boolean =>
+  Boolean(activity.name?.trim() || activity.type?.trim()) ||
+  number(activity.distance) !== null ||
+  number(activity.moving_time) !== null;
+
 /** Their note box, emptied of whitespace: blank and absent both mean nothing was said. */
 const comment = (activity: Activity): string | null => activity.description?.trim() || null;
 
@@ -307,6 +313,8 @@ export const intervals: Platform = {
     for (const activity of activities) {
       const date = localDay(activity);
       if (!activity.id || !date) continue;
+      // A row with no name, no type and neither figure is a placeholder, not a session.
+      if (!hasSubstance(activity)) continue;
       recorded.push({
         remote_id: String(activity.id),
         date,
