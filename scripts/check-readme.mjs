@@ -1,8 +1,8 @@
-// Enforces the README's own rule: one entry per docs/ file, 50-100 words each.
+// Enforces the README's own rule: one entry per docs/ file, 25-50 words each.
 import { readdirSync, readFileSync } from 'node:fs';
 
-const MIN = 50;
-const MAX = 100;
+const MIN = 25;
+const MAX = 50;
 
 const readme = readFileSync('README.md', 'utf8').split('\n');
 const entries = new Map();

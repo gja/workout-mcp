@@ -1,7 +1,7 @@
 # HTTP API
 
-Authenticate with `Authorization: Bearer <token>` or, from a browser, the
-session cookie set at login.
+Authenticate with `Authorization: Bearer <token>` or, from a browser, the session cookie
+set at login.
 
 | Route | Does |
 | --- | --- |
@@ -46,99 +46,79 @@ session cookie set at login.
 | `POST /webhooks/intervals` | intervals.icu's own callback; theirs to call, not yours |
 | `GET /downloads/completed-workouts.zip?claims=&signature=` | Those files as one ZIP. No auth: the signature is the credential |
 
-`:integration` is a training platform's id (`intervals`). One read covers the
-lot, and each Setup panel takes its own slice. A platform has no `PUT` body
-because it is connected by an OAuth round — the two `/auth/intervals/connect*`
-routes above — so that path answers 400 and says so.
+`:integration` is a training platform's id (`intervals`). A platform has no `PUT` body
+because it is connected by an OAuth round — the two `/auth/intervals/connect*` routes —
+so that path answers 400 and says so. Syncing is under `/api/sync` rather than
+`/api/config` because telling an integration to run now is not a setting; nothing has to
+call it, it is the dashboard's "Sync now" button.
 
-Two routes sit outside `/api/` without being the dashboard, and both
-deliberately, because both carry their own authentication and so must not meet
-`withUser`:
-
-- `/webhooks/intervals` is authenticated by the secrets intervals.icu sends
-  rather than by a credential of ours. See [integrations.md](integrations.md).
-- `/downloads/completed-workouts.zip` is authenticated by its own signature,
-  which names the athlete and the range and expires after four hours. The point
-  of it is to be followable by something holding no account at all — an
-  assistant, a browser, `curl`. See [recordings.md](recordings.md).
-
-Everything else outside `/api/` is the dashboard.
-
-Syncing is under `/api/sync`, not `/api/config`: configuring an integration and
-telling it to run now are different things, and only the first is a setting.
-Nothing has to call it — every integration syncs on its own schedule (see
-[integrations.md](integrations.md)) — it is the
-dashboard's "Sync now" and "Copy now" buttons, for when waiting for the next
-pass is not what you want.
-
-A date may hold several workouts; each gets its own short id.
-
-`/api/workout-plans` is asked for every plan at once rather than one at a time,
-because the client that wants them wants a week of them: a route per workout was
-a request, an authentication and a read for each, and a watch app syncing a
-fortnight spent nearly all of its time waiting out round trips. `plan-ids` is a
-comma-separated list of `YYYY-MM-DD-<id>` — the same spelling as `/export`, and
-the pair rather than the short id alone, because an id is only unique within its
-date. At most fifty, which is every workout an account can hold. Duplicates are
-answered once.
-
-A plan that is not there is named in `missing` rather than failing the request.
-Between the listing a client scheduled from and the plans it asks for, a workout
-may have been deleted or moved to another day, and that is the answer to the
-question — one workout gone should not cost the caller the rest of the week.
-
-`:kind` is one of `workout-library`, `current-plan`, `scheduling-instructions`
-and `workout-zones`. Three of the four are also writable over MCP; the library
-is not, and `/api/context/workout-library` is the only way to change it. See
+`:kind` is one of `workout-library`, `current-plan`, `scheduling-instructions` and
+`workout-zones`. Three are writable over MCP; the library is not. See
 [context.md](context.md).
 
-`.json` is a second spelling of any `/api/` path, for a browser or a `curl`
-that wants to name the format. It is stripped before routing, so each route is
-declared once.
+`.json` is a second spelling of any `/api/` path, stripped before routing, so each route
+is declared once.
 
-`/api/me` returns the retention window because it is computed in UTC: a client
-deriving it from its own local midnight would disagree at the edges and drop a
-workout the server legitimately returned.
+A date may hold several workouts, each with its own short id.
 
-`/api/app-token` is the one path under `/api/` the session cookie does not
-reach: it is registered on the OAuth provider, which understands bearer tokens
-and nothing else. It exists so an app that has just done the browser round trip
-can trade its grant for the credential the rest of this table takes. See
+## The routes outside `/api/`
+
+Two carry their own authentication, and so must not meet `withUser`:
+`/webhooks/intervals`, authenticated by the secrets intervals.icu sends (see
+[integrations.md](integrations.md)), and
+`/downloads/completed-workouts.zip`, authenticated by a signature naming the athlete and
+the range, expiring after four hours — the point of it is to be followable by something
+holding no account at all (see [recordings.md](recordings.md)). Everything else outside
+`/api/` is the dashboard.
+
+`/api/app-token` is the one path under `/api/` the session cookie does not reach: it is
+registered on the OAuth provider, which understands bearer tokens and nothing else. It
+exists so an app that has just done the browser round trip can trade its grant for the
+credential the rest of this table takes. See
 ["A native app signs in through the browser"](auth.md#a-native-app-signs-in-through-the-browser-and-ends-up-with-a-token).
 
 ## Authentication before existence
 
-Under `/api/` and `/export/`, an unknown or wrongly-addressed path is answered
-the way a known one would be: **401 before 404 or 405**, so a caller without a
-credential cannot map the API by reading status codes back. Everywhere else, a
-path the routing table does not claim is the dashboard.
+Under `/api/` and `/export/`, an unknown path is answered the way a known one would be:
+**401 before 404 or 405**, so a caller without a credential cannot map the API by reading
+status codes back.
+
+## Reading a week of plans at once
+
+`/api/workout-plans` takes every plan in one call because the client that wants them
+wants a week: a route per workout was a request, an authentication and a read each, and a
+watch app syncing a fortnight spent nearly all its time on round trips. `plan-ids` is a
+comma-separated list of `YYYY-MM-DD-<id>` — the pair, because an id is only unique within
+its date — at most fifty, duplicates answered once.
+
+A plan that is not there is named in `missing` rather than failing the request: between
+the listing a client scheduled from and the plans it asks for, a workout may have been
+deleted or moved, and one workout gone should not cost the caller the rest of the week.
+
+`/api/me` returns the retention window because it is computed in UTC; a client deriving
+it from local midnight would disagree at the edges.
 
 ## Posting a recording
 
-`POST /api/workouts/:date/:id/recording` takes the FIT file as the request body,
-not as JSON and not as a multipart part: a client holding a recording holds
-bytes, and base64 would spend a third of a Worker's budget on wrapping them.
-`?activity_id=` is the caller's own name for the file — a HealthKit workout
-UUID, say — and is stored beside the numbers so the same session uploaded twice
-is recognisable as one.
+`POST /api/workouts/:date/:id/recording` takes the FIT file as the request body, not JSON
+and not multipart: base64 would spend a third of a Worker's budget on wrapping it.
+`?activity_id=` is the caller's own name for the file, stored beside the numbers so the
+same session uploaded twice is recognisable as one.
 
-The file is decoded, reduced to the stats in [stats.md](stats.md) and dropped;
-nothing stores it. The session is marked done at the moment the recording ended,
-unless it already carried a completion, which is left where it was. A body that
-is not a readable FIT file is a 400 naming what was wrong with it rather than a
-stored `source_unreadable` — there is no pass behind an upload to retry it — and
-one over 8 MiB is a 413, answered off `Content-Length` where the client declared
-one so the bytes are never buffered.
+The file is decoded, reduced to the stats in [stats.md](stats.md) and dropped. The session
+is marked done at the moment the recording ended unless it already carried a completion.
+An unreadable body is a 400 naming what was wrong rather than a stored `source_unreadable`
+— there is no pass behind an upload to retry it — and one over 8 MiB is a 413, answered
+off `Content-Length` so the bytes are never buffered.
 
 ## FIT downloads
 
-`/export` also accepts `?token=wk_...` as a query parameter, because a watch or
-a plain link cannot set an `Authorization` header. That does put the token in
-URLs and server logs — prefer the header where you can, as the dashboard does.
-The dashboard fetches the bytes and hands them to the browser as a blob, so its
-session credential never lands in a URL or a history entry.
+`/export` also accepts `?token=wk_...`, because a watch or a plain link cannot set a
+header. That puts the token in URLs and logs — prefer the header where you can. The
+dashboard fetches the bytes and hands them over as a blob, so its session credential never
+lands in a URL.
 
 ## CORS
 
-Open (`Access-Control-Allow-Origin: *`), which is safe here because
-authentication is a bearer token rather than a cookie.
+Open (`Access-Control-Allow-Origin: *`), which is safe here because authentication is a
+bearer token rather than a cookie.

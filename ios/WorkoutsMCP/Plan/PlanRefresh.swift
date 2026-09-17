@@ -1,20 +1,12 @@
-// Pulling the plan in on a schedule, so what the watch holds is current without the app
-// having been opened.
+// Pulling the plan in on a schedule, so the watch is current without the app having been
+// opened. The other half of `Health/BackgroundSync.swift`: nothing wakes this one, since a
+// workout added on the server is a change no device here hears about, so it asks iOS for a
+// turn every few hours.
 //
-// This is the other half of `Health/BackgroundSync.swift`. That one is woken: HealthKit
-// launches this app when a session is saved, and the session goes up. Nothing wakes this
-// one — a workout added to the plan on the server is a change no device here hears about —
-// so it asks iOS for a turn every few hours instead and reads the plan when it gets one.
-//
-// What it does with a turn is the same `PlanSync` the athlete's own tap runs. A background
-// sync that placed workouts by different rules would be a watch that changed depending on
-// which of the two last ran.
-//
-// A turn also carries the other direction, as a backstop rather than as its job: a wake is
-// what should upload a session, and `.immediate` delivery is a request rather than a
-// promise, so the turn that already exists runs `BackgroundSync.uploadWhatIsCertain()` on
-// its way past. Every few hours is a poor substitute for a wake and a good substitute for
-// nothing, which is what a missed wake used to leave.
+// What it does with a turn is the same `PlanSync` a tap runs — different rules would be a
+// watch that changed depending on which last ran — and it also runs
+// `BackgroundSync.uploadWhatIsCertain()` on its way past, as a backstop for a wake that
+// never arrived.
 
 import BackgroundTasks
 import Foundation
@@ -24,13 +16,9 @@ enum PlanRefresh {
     /// iOS refuses to register a task the bundle has not declared, and refuses at launch.
     static let identifier = "com.workouts-mcp.ios.plan-refresh"
 
-    /// The soonest we would like a turn.
-    ///
-    /// A floor, not a promise. iOS decides when a background refresh actually runs, from how
-    /// often the app is opened and what the battery and the network are doing, and four hours
-    /// is a request for "a few times a day" rather than a slot at four on the dot. That is the
-    /// right shape for this: a plan written this morning should reach the watch today without
-    /// the athlete opening anything, and nothing here is urgent to the minute.
+    /// A floor, not a promise: iOS decides when a background refresh actually runs, and four
+    /// hours is a request for "a few times a day". A plan written this morning should reach
+    /// the watch today; nothing here is urgent to the minute.
     static let interval: TimeInterval = 4 * 60 * 60
 
     private static var registered = false
@@ -68,13 +56,10 @@ enum PlanRefresh {
         schedule()
 
         let work = Task {
-            // The session first, and unconditionally. HealthKit's wake is the fast path for
-            // a recording and this is the slow one behind it: `.immediate` delivery is a
-            // request rather than a promise, and a wake that Low Power Mode delayed, that
-            // ran out of time, or that a force-quit stopped iOS from sending at all leaves a
-            // session on the phone with nothing else due to look at it. It is skipped by the
-            // staleness check below on purpose — that check is about the plan going out, and
-            // a sync ten minutes ago is exactly the state a session finishing arrives in.
+            // The session first, and unconditionally: this is the slow path behind
+            // HealthKit's wake, which `.immediate` delivery does not promise. Deliberately
+            // ahead of the staleness check below, which is about the plan going out — a sync
+            // ten minutes ago is exactly the state a session finishing arrives in.
             await BackgroundSync.uploadWhatIsCertain()
 
             let placed = await sync()
@@ -85,15 +70,14 @@ enum PlanRefresh {
         task.expirationHandler = { work.cancel() }
     }
 
-    /// The plan, read and placed. Signed out, or a server that cannot be reached, is not a
-    /// failure worth recording anywhere: there is nobody here to tell, and saying so would
-    /// only make the status line report a turn the athlete never asked for. The next one
-    /// tries again.
+    /// The plan, read and placed. Signed out, or a server that cannot be reached, is not
+    /// recorded anywhere: there is nobody here to tell, and the status line would end up
+    /// reporting a turn the athlete never asked for.
     private static func sync() async -> Bool {
         guard let client = StoredSession.load()?.client else { return false }
-        // iOS grants a turn when it suits iOS, which can be sooner than the four hours asked
-        // for and can be twice in a morning the app was opened in. A sync that recent has
-        // nothing to add, and reading the plan to find that out is the round trip being saved.
+        // iOS grants a turn when it suits iOS, sometimes twice in a morning. A sync that
+        // recent has nothing to add, and reading the plan to find out is the round trip
+        // being saved.
         guard PlanSync.isStale else { return true }
 
         let window = PlanSync.window

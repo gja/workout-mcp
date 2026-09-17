@@ -1,11 +1,8 @@
 // An `HKWorkout` read back out as a second-by-second recording, which is the shape a FIT
-// activity file wants and the shape Health does not hand over.
-//
-// HealthKit stores a workout as a dozen series that agree on nothing: a route of irregular
-// locations, heart rates every few seconds, distances as sums over intervals of their own.
-// This walks a one-second timeline from the start of the session and fills each second from
-// whichever series covers it, leaving a second nothing covers empty — never zero, which
-// downstream would read as a measurement.
+// activity file wants and the shape Health does not hand over. HealthKit stores a workout
+// as a dozen series that agree on nothing, so this walks a one-second timeline and fills
+// each second from whichever series covers it — leaving a second nothing covers empty,
+// never zero, which downstream would read as a measurement.
 
 import CoreLocation
 import FITSwiftSDK
@@ -20,8 +17,7 @@ enum SessionReader {
     private static let slopeWindow = 5
 
     /// How fast altitude may move before the fix is changing its mind rather than the athlete
-    /// climbing. Nobody runs or rides up ten metres a second, and nothing that does is a
-    /// measurement — a chairlift would not clear it either, and neither is this file's to read.
+    /// climbing. Nothing that clears ten metres a second is a measurement.
     private static let maxClimbRateMS = 10.0
 
     static func read(_ workout: HKWorkout, as workoutKey: String?) async throws -> RecordedSession {
@@ -179,18 +175,13 @@ enum SessionReader {
 
     /// The altitude a GPS reported before it had settled, taken back out.
     ///
-    /// A cold start can spend its first fixes hundreds of metres from where it is and then
-    /// step to the truth in a single sample. One recording here opens at 212 m, is at 904 m
-    /// two seconds later, and stays there for the rest of the hour — and the 3 m gate that
-    /// keeps drift out of a climb is built for drift, so it reads that step as 693 m of
-    /// ascent. Everything derived from altitude is wrong behind it: the session's gain, the
-    /// grade, the climb rate, and every lap figure the server works out from the records.
+    /// A cold start can spend its first fixes hundreds of metres out and then step to the
+    /// truth in one sample — one recording opens at 212 m, is at 904 m two seconds later,
+    /// and stays there for the hour, which the 3 m drift gate reads as 693 m of ascent.
     ///
-    /// So the trace is cut wherever it moves faster than an athlete could, and only the
-    /// longest run of readings is kept. Dropping rather than mending is the honest answer:
-    /// altitude is optional in a FIT record, and a second without one says nothing was
-    /// measured, which is true, where a repaired number would be one nobody stood at. A
-    /// recording whose altitude never does anything impossible is one run and loses nothing.
+    /// So the trace is cut wherever it moves faster than an athlete could and only the
+    /// longest run is kept. Dropping rather than mending is the honest answer: altitude is
+    /// optional in a FIT record, so a second without one says nothing was measured.
     private static func dropUnsettledAltitude(_ samples: inout [RecordedSample]) {
         let measured = samples.indices.filter { samples[$0].altitude != nil }
         guard measured.count > 1 else { return }

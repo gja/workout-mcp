@@ -8,11 +8,8 @@
 import SwiftUI
 import UIKit
 
-/// Posting the file to the server, offered as a share target.
-///
-/// It is a share target and nothing else, because that is where somebody who has just
-/// watched a file appear is already looking, and a second button behind the sheet would be
-/// two ways to do one thing. A sheet dismissed by accident costs a tap on *Share* again.
+/// Posting the file to the server, offered as a share target and nothing else: a second
+/// button behind the sheet would be two ways to do one thing.
 final class UploadActivity: UIActivity {
     private let title: String
     private let upload: () -> Void
@@ -46,16 +43,13 @@ final class UploadActivity: UIActivity {
     }
 }
 
-/// A written file, while the sheet sharing it is up. `.sheet(item:)` wants something
-/// identifiable, and this is also the whole lifetime the app gives one: the URL is not held
-/// after the sheet closes, so the next share writes the file again against whatever workout
-/// the session is matched to by then.
+/// A written file, while the sheet sharing it is up — also the whole lifetime the app gives
+/// one, so the next share writes it again against whatever workout the session matches by
+/// then.
 ///
-/// The bytes stay in the temporary directory rather than being deleted on dismissal. A share
-/// target copies asynchronously — AirDrop and Mail are still reading after the sheet is gone
-/// — and pulling the file out from under them would fail the share to save a few hundred
-/// kilobytes that iOS reclaims on its own. The name is settled by the session and the workout
-/// it was for, so sharing the same session twice overwrites rather than accumulates.
+/// The bytes stay in the temporary directory rather than being deleted on dismissal: a share
+/// target copies asynchronously, and pulling the file out from under AirDrop would fail the
+/// share. The name is settled by the session, so sharing twice overwrites.
 struct BuiltFit: Identifiable {
     let url: URL
 

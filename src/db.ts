@@ -72,12 +72,7 @@ type WorkoutRow = {
   updated_at: string;
 };
 
-/**
- * The columns every read needs, in one place.
- *
- * The laps are dropped in SQL rather than after parsing: they are the bulk of the
- * stats and nothing that reads a workout wants them. `getStats` is what asks.
- */
+/** The laps are dropped in SQL, not after parsing: they are the bulk of the stats and only `getStats` wants them. */
 const WORKOUT_COLUMNS =
   'id, date, name, sport, sub_sport, notes, tags, external_id, steps, completed_at, comment, ' +
   "json_remove(stats, '$.laps') AS stats, updated_at";
@@ -90,7 +85,6 @@ export function newId(length = 8): string {
   return Array.from(bytes, (b) => ID_ALPHABET[b % ID_ALPHABET.length]).join('');
 }
 
-/** The window of dates we keep, inclusive. */
 export function retentionWindow(now: Date = new Date()): { from: string; to: string } {
   const day = today(now);
   return { from: shiftDate(day, -RETENTION_DAYS_PAST), to: shiftDate(day, RETENTION_DAYS_FUTURE) };
@@ -162,17 +156,10 @@ export async function getWorkout(env: Env, userId: string, date: string, id: str
 }
 
 /**
- * Several workouts by their `(date, id)` keys, in one read.
- *
- * One statement rather than one a key: a client scheduling a week of the plan wants
- * every row at once, and a round trip a workout is what `/api/workout-plans` exists to
- * stop being. A key outside the read window is simply absent, exactly as `getWorkout`
- * answers null for one.
- *
- * Asked by date and narrowed to the ids here rather than as a bound pair per key: D1
- * takes at most 100 bound parameters, and two a key runs out before the fifty workouts
- * an account may hold. The window is two dozen days wide, so the dates cannot, and this
- * stays one query at any size. What it over-reads is a day's other workouts.
+ * Several workouts in one read — a round trip a workout is what `/api/workout-plans`
+ * exists to stop being. Asked by date and narrowed to the ids here rather than as a bound
+ * pair per key, because D1 takes at most 100 bound parameters and two a key runs out
+ * before the fifty workouts an account may hold. What it over-reads is a day's others.
  */
 export async function getWorkouts(
   env: Env,
@@ -260,19 +247,13 @@ export async function putWorkout(
   assertRetainable(input.date);
 
   /**
-   * Rewriting a workout does not un-do the session: the completion comes across, and so
-   * do the stats read off it.
+   * A rewrite carries the completion and its stats across, but not a changed *plan* under
+   * them: a lap mapped to a step that no longer exists is a confident answer about a step
+   * that never ran, so once a session is recorded the steps are refused. Everything else
+   * still moves; un-complete it first to change the plan.
    *
-   * What may not come across is a changed *plan* under them. A lap mapped to "Threshold,
-   * rep 2" of a plan that has since been rewritten is a confident answer about a step
-   * that no longer exists, so once a session has been recorded the steps are history and
-   * are refused. Everything else about the workout — its name, its notes, its tags, the
-   * day it sits on — still moves. Un-complete it first to change the plan itself, which
-   * is the honest order: the session was not this workout after all.
-   *
-   * The steps are compared even so, for the workout that was un-completed while its
-   * stats stayed: there the mapping is dropped and the next pass reads the recording
-   * again, against the plan as it now stands.
+   * The steps are compared even so, for a workout un-completed while its stats stayed:
+   * there the mapping is dropped and the next pass reads the recording again.
    */
   let completedAt = input.completed_at ?? null;
   let comment = input.comment ?? null;
@@ -289,8 +270,8 @@ export async function putWorkout(
       );
     }
     if (input.completed_at === undefined) completedAt = stored.completed_at;
-    // Carried whatever became of the plan: what the athlete said about the session they
-    // did is theirs, and rewriting the steps under it does not make it untrue.
+    // Carried whatever became of the plan: rewriting the steps does not make the
+    // athlete's own words about the session untrue.
     if (input.comment === undefined) comment = stored.comment;
     stats = samePlan ? stored.stats : null;
   };
@@ -379,11 +360,9 @@ export async function setCompleted(
 }
 
 /**
- * The athlete's note on how the session went. Its own write, like the completion.
- *
- * Null clears it. `updated_at` is deliberately left alone: it is what the platform
- * sync compares a plan against, and a note about a session is not a changed plan —
- * bumping it would push the unchanged workout back out on the next run.
+ * Its own write, like the completion; null clears it. `updated_at` is deliberately left
+ * alone — it is what the platform sync compares a plan against, and bumping it would push
+ * the unchanged workout back out on the next run.
  */
 export async function setComment(
   env: Env,
@@ -435,7 +414,6 @@ export async function deleteWorkout(env: Env, userId: string, date: string, id: 
   return (result.meta.changes ?? 0) > 0;
 }
 
-/** How many workouts an athlete has inside the window, for the cap. */
 export async function countInWindow(env: Env, userId: string, now: Date = new Date()): Promise<number> {
   const { from, to } = retentionWindow(now);
   const row = await env.DB.prepare(

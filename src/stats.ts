@@ -19,13 +19,7 @@ const PAUSE_MULTIPLE = 4;
 /** A stop this long is worth telling the reader about. */
 const LONG_PAUSE_S = 120;
 
-/**
- * How far a barometric altitude has to move before it counts as climbing.
- *
- * Summing every rise in an unsmoothed trace turns sensor drift into hundreds of metres,
- * so a rise is only taken once it clears the noise, and from wherever it was last taken
- * from. Three metres is what the platforms that do this settle on.
- */
+/** Summing an unsmoothed trace turns sensor drift into hundreds of metres of climbing. */
 const ELEVATION_NOISE_M = 3;
 
 /** The window a normalized-power average rolls over, as Coggan defined it. */
@@ -124,7 +118,6 @@ export type SessionStats = {
   calories: number | null;
 };
 
-/** What is stored against a workout once the platform has the recording. */
 export type WorkoutStats = {
   platform: string;
   activity_id: string;
@@ -168,13 +161,8 @@ const iso = (value: unknown): string | null => {
   return milliseconds === null ? null : new Date(milliseconds).toISOString();
 };
 
-/**
- * What counts as a pause in this recording, rather than in the abstract.
- *
- * A watch on smart recording writes a sample every ten or fifteen seconds, and calling
- * each of those gaps a stop leaves every lap with no moving time at all and no quarters
- * to show for it. So the device's own cadence sets the bar, with a floor under it.
- */
+// The device's own cadence sets the bar: smart recording writes a sample every ten or
+// fifteen seconds, and calling each of those a stop leaves every lap with no moving time.
 function pauseGapOf(gaps: number[]): number {
   if (gaps.length === 0) return PAUSE_GAP_S;
   const sorted = [...gaps].sort((left, right) => left - right);
@@ -190,7 +178,6 @@ const cadenceOf = (value: number | null, sport: string | null): number | null =>
 
 export class StatsError extends Error {}
 
-/** One sample, reduced to what any of the figures below need. */
 type Sample = {
   time: number;
   /** Moving seconds this sample stands for: the gap back to the last one, pauses dropped. */
@@ -256,13 +243,10 @@ const ROLE_BY_INTENSITY: Record<string, Role> = {
 };
 
 /**
- * How far a lap may be off its step's length, asked twice for two different reasons.
- *
- * Whether to map at all is decided on the tight bar: a lap press missed halfway through
- * throws every later lap against the wrong step, and only a strict reading catches that.
- * Whether a mapping made is a *good* one is reported on the loose one, because `low` is
- * for genuine ambiguity — a cooldown run 844 m of a planned kilometre is the ordinary
- * shape of a session ending, and a field that fires on that gets ignored.
+ * Two bars. *Whether* to map at all takes the tight one, because only a strict reading
+ * catches a mapping that has drifted. *How well* a mapping lines up is reported on the
+ * loose one, since a cooldown run 844 m of a planned kilometre is an ordinary session
+ * ending and a field that fires on that gets ignored.
  */
 const TOLERANCE = {
   mapping: { share_s: 0.25, floor_s: 20, share_m: 0.1, floor_m: 50 },
@@ -291,28 +275,19 @@ const within = (planned: PlannedStep, lap: LapStats, tolerance: Tolerance): bool
 const matches = (planned: PlannedStep, lap: LapStats): boolean => within(planned, lap, TOLERANCE.mapping);
 
 /**
- * Which planned step each lap was, or nothing at all.
- *
- * Paired in order, with both ends free to move, because the ends are where a real
- * session differs from the plan: one stopped early — aborted, or the cooldown
- * skipped — leaves the last steps with no lap at all, and one that carried on past
- * the end — a jog home, the file closing — leaves a lap with no step. Neither is a
- * reason to withhold the reps in the middle, which are the part anybody is asking
- * about, so the one lap past the end is held out rather than counted against them.
- *
- * What *is* withheld is a mapping that has drifted. A lap press missed halfway
- * through puts every later lap against the wrong step, and a mapping shifted by one
- * is worse than none: it reads as a confident, wrong verdict. So the pairing is
- * accepted on the weight of the evidence — most pairs have to be the length they
- * were written — rather than on the counts agreeing.
+ * Which planned step each lap was. Paired in order with both ends free to move, since a
+ * real session differs from the plan at its ends; a mapping that has *drifted* is
+ * withheld entirely, because shifted by one it reads as a confident, wrong verdict. So
+ * the pairing is accepted on the weight of the evidence rather than on counts agreeing.
+ * See docs/stats.md.
  */
 function alignToPlan(planned: PlannedStep[], laps: LapStats[]): Array<PlannedStep | undefined> {
   const last = planned.length - 1;
   const none: Array<PlannedStep | undefined> = laps.map(() => undefined);
   if (last < 0) return none;
 
-  // Held out before anything is weighed: it is nobody's step, and counted as a pair
-  // that failed it can outvote the session around it. See docs/stats.md.
+  // Held out before anything is weighed: counted as a pair that failed, one lap can
+  // outvote the session around it.
   const considered = tailBeyondPlan(planned, laps) ? laps.slice(0, -1) : laps;
 
   let best: Array<PlannedStep | undefined> = considered.map(() => undefined);
@@ -327,8 +302,7 @@ function alignToPlan(planned: PlannedStep[], laps: LapStats[]): Array<PlannedSte
     const paired = attempt.filter((step) => step !== undefined).length;
     const lining = attempt.filter((step, index) => Boolean(step && matches(step, considered[index]))).length;
 
-    // An offset claims some of the recording is junk, which takes more than one lap
-    // happening to be the right length to believe.
+    // An offset claims some of the recording is junk, so it takes more evidence to win.
     if (lining >= (offset === 0 ? 1 : 2) && lining * 2 > paired && lining > bestScore) {
       best = attempt;
       bestScore = lining;
@@ -338,17 +312,10 @@ function alignToPlan(planned: PlannedStep[], laps: LapStats[]): Array<PlannedSte
 }
 
 /**
- * One lap more than the plan has steps, and what that last lap is.
- *
- * `stop` is the scrap a watch closes the file with when the athlete presses stop: seconds
- * long, no execution in it, not training. `extra` is real work past the end of the plan —
- * a jog home, a few more minutes spinning.
- *
- * Only a lap the plan has no step left for can be either. A session that ends *short* of
- * its plan ends on a real step run badly — 120 m of a planned kilometre — and that lap is
- * the cooldown however little of it was done, which is the thing the loose confidence bar
- * exists to report. The exception to `stop` is a last step itself that short — strides —
- * where a lap of the same length is that step again rather than the file closing.
+ * One lap more than the plan has steps: `stop` is the scrap a watch closes the file with,
+ * `extra` is real work past the end of the plan. Only a lap the plan has no step left for
+ * can be either — a session that ends short ends on a real step run badly. The exception
+ * is a last step itself that short (strides), where the lap is that step again.
  */
 function tailBeyondPlan(planned: PlannedStep[], laps: LapStats[]): 'stop' | 'extra' | null {
   const tail = laps[laps.length - 1];
@@ -388,12 +355,8 @@ const mean = (values: Array<number | null>): number | null => {
   return Math.round(recorded.reduce((sum, value) => sum + value, 0) / recorded.length);
 };
 
-/**
- * The lowest and highest a metric got, over what was actually recorded.
- *
- * A summary message is meant to carry these and often does not — a platform that builds
- * its FIT out of streams leaves half of them empty — so the stream answers instead.
- */
+// A summary message is meant to carry these and a FIT built out of streams often does
+// not, so the stream answers instead.
 function spanOf(samples: Sample[], metric: Metric): { low: number | null; high: number | null } {
   let low: number | null = null;
   let high: number | null = null;
@@ -408,11 +371,9 @@ function spanOf(samples: Sample[], metric: Metric): { low: number | null; high: 
 }
 
 /**
- * What the ground did across a run of samples.
- *
- * `net` is the end minus the start, which is one subtraction and so immune to the noise
- * that makes `gain` and `loss` the hard ones: those count a move only once it clears
- * `ELEVATION_NOISE_M` from wherever the last one was counted from.
+ * `net` is the end minus the start — one subtraction, so immune to the noise that makes
+ * `gain` and `loss` the hard ones, which count a move only once it clears
+ * `ELEVATION_NOISE_M` from wherever the last was counted from.
  */
 function climbOf(samples: Sample[]): { net: number | null; gain: number | null; loss: number | null } {
   const climbed = samples.filter((sample): sample is Sample & { altitude: number } => sample.altitude !== null);
@@ -452,13 +413,9 @@ function workOf(samples: Sample[]): number | null {
 }
 
 /**
- * Normalized power: a rolling 30-second average, raised to the fourth, averaged, rooted.
- *
- * The number a ride is actually judged by, and the one most often missing from a file
- * built out of streams rather than written by the head unit. Coggan's method, computed
- * per sample rather than per second — a watch on smart recording has no per-second to
- * compute over — and refused outright for anything shorter than the window itself,
- * where it would mean nothing.
+ * Coggan's method: a rolling 30-second average, raised to the fourth, averaged, rooted.
+ * Computed per sample rather than per second, since smart recording has no per-second to
+ * compute over, and refused for anything shorter than the window itself.
  */
 function normalizedPowerOf(samples: Sample[]): number | null {
   const powered = samples.filter((sample) => sample.power_w !== null);
@@ -587,7 +544,6 @@ function sessionOf(
 
 // --- The whole payload -------------------------------------------------------
 
-/** Everything worth keeping out of one recorded FIT file, mapped against the plan it was for. */
 export function statsFrom(
   bytes: Uint8Array,
   workout: Workout,
@@ -605,8 +561,8 @@ export function statsFrom(
   const records = messages.recordMesgs ?? [];
   const flags: string[] = [];
 
-  // Read twice: how often this device wrote a record decides what a pause is, and that
-  // has to be known before the first sample's weight can be.
+  // Read twice: what counts as a pause depends on how often this device wrote a record,
+  // which has to be known before the first sample's weight can be.
   const times = records.map((record) => at(record.timestamp));
   const gaps: number[] = [];
   for (const [index, time] of times.entries()) {
@@ -654,8 +610,8 @@ export function statsFrom(
   const planned = flattenPlan(workout);
   const lapMesgs = messages.lapMesgs ?? [];
 
-  // Where one lap's records stop. Not its own timestamp: that is the moment the lap
-  // ended, which the next lap's first record shares, so the split is made on starts.
+  // Split on starts, not on a lap's own timestamp: that is the moment it ended, which
+  // the next lap's first record shares.
   const endOf = (index: number): number => {
     const next = at(lapMesgs[index + 1]?.startTime);
     if (next !== null) return next;

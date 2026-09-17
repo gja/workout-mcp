@@ -2,110 +2,57 @@
 
 # workout-mcp
 
-**Plan, execute and analyze your workouts with AI.** Over MCP or a plain REST
-API: the plan goes out to a watch as a Garmin **FIT** workout file, and the
-session recorded against it comes back as numbers. One Cloudflare Worker, a D1
-database, and a static dashboard, all on the free tier. Sign in with Google or
-Apple; connect intervals.icu and the plan syncs both ways: the sessions you
-record come back as stats against the workout they were for, your note on how
-each one went travels between the two, and the files themselves are
-downloadable as a zip to analyse wherever you like.
+**Plan, execute and analyze your workouts with AI.** Over MCP or a plain REST API: the plan
+goes out to a watch as a Garmin **FIT** workout file, and the session recorded against it
+comes back as numbers. One Cloudflare Worker, a D1 database and a static dashboard, all on
+the free tier. Sign in with Google or Apple; connect intervals.icu and the plan syncs both
+ways.
 
-Running at **[workouts-mcp.com](https://workouts-mcp.com)**, and there is an iPhone app in
-[`ios/`](ios/) too: it sends the plan to Apple Fitness through WorkoutKit, and sends the
-recorded session back as a FIT file.
+Running at **[workouts-mcp.com](https://workouts-mcp.com)**, with an iPhone app in
+[`ios/`](ios/) that sends the plan to Apple Fitness through WorkoutKit and the recorded
+session back as a FIT file.
 
-All of it is open source under the MIT licence — the Worker, the dashboard and the iOS
-app — and **nothing secret is checked in**. The server's credentials are Wrangler secrets
-(see [docs/deployment.md](docs/deployment.md)); the app holds none at all, because it
-registers itself as a public OAuth client and keeps what it gets in the phone's keychain.
+MIT licensed, and **nothing secret is checked in**: the server's credentials are Wrangler
+secrets (see [docs/deployment.md](docs/deployment.md)); the app holds none at all, because
+it registers itself as a public OAuth client and keeps what it gets in the keychain.
 
-New here? Start with [docs/deployment.md](docs/deployment.md) to get it
-running, then [docs/workouts.md](docs/workouts.md) to write one.
+New here? Start with [docs/deployment.md](docs/deployment.md) to get it running, then
+[docs/workouts.md](docs/workouts.md) to write one.
 
 ---
 
 ## Coding standards
 
-These are the rules this repo is kept to. They are short on purpose; the rest
-is in `docs/`.
+**Comments are one line.** Two when the point genuinely needs it. If it wants a paragraph
+it is not a comment — it is a section in `docs/`, and the code gets a one-liner pointing at
+it.
 
-### Comments are one line
+**A comment earns its line by saying what the code cannot**: a *why* where the obvious
+approach is wrong, an *external contract* a wire format or API imposes, or a *deliberate
+omission*. Delete everything else. Naming a function well beats describing it.
 
-A comment is one line. Two is fine when the point genuinely needs it — a
-subtle ordering constraint, an attack it closes off — but that is the ceiling.
-If it wants a paragraph, it is not a comment: it is a section in a `docs/`
-file, and the code gets a one-liner pointing at it.
+**Rationale lives in `docs/`.** Review should push a paragraph out of a comment and into a
+doc, never the other way round.
 
-```ts
-// Read before the delete below, which would take the completion with it.
-if (existing) await carryFrom(existing.date, existing.id);
-```
+**Every doc gets a 25-50 word entry below, and no more.** `npm run check:readme` enforces
+it; CI runs it beside the typecheck. Nothing else goes in this README.
 
-### Comments say only non-obvious things
+**No N+1 — not in SQL, and not over HTTP.** A loop issuing one query or one request per
+item is a bug, not a shape to live with. Read the whole set in one statement; give clients
+a route that takes the whole set. Fanning out in parallel is not a fix — it hides the
+latency and still pays for every call. Fix it where you find it.
 
-Do not restate the code. A comment earns its line by saying something the
-reader cannot get from the code in front of them:
+**One door for writes.** Every change to a workout goes through `src/plan.ts`, whatever
+door it came in by. See [docs/architecture.md](docs/architecture.md).
 
-- **why**, when the obvious approach is wrong — an ordering constraint, a
-  race, a workaround for someone else's bug;
-- **an external contract** — what a wire format, a third-party API or a spec
-  requires;
-- **a deliberate omission** — something that looks missing but is not.
+**Validate by resolving.** One set of rules for what a workout may say, in
+`src/resolve.ts`, not one per entry point.
 
-Delete anything else. `/** The user id. */` above `userId` is noise; a JSDoc
-block that repeats the signature is noise. Naming a function well is worth more
-than describing it.
+**Errors name the field.** `steps[1].target_pace_km[0]: "nope" is not a valid duration`,
+not `bad request`.
 
-### Rationale lives in `docs/`
-
-Design decisions, trade-offs, the history of why something was reversed, and
-anything a new contributor needs before touching a module: those go in a
-markdown file under `docs/`, and are linked from the module's one-line header
-when the link helps. Code review should push a paragraph out of a comment and
-into a doc, not the other way round.
-
-### Every doc gets 50-100 words here, and no more
-
-Each file in `docs/` is listed below with a description of **50 to 100 words**.
-Not fewer, because a one-line label says nothing useful about which file to
-open. Not more, because this README is an index, and an index that grows into
-prose stops being read. Adding a doc means adding one entry within that limit;
-if an entry needs more room, the extra belongs in the doc itself. Nothing else
-goes in this README.
-
-`npm run check:readme` enforces it — every `docs/*.md` must have an entry, and
-every entry must be within the limit. CI runs it alongside the typecheck, so a
-doc added without an entry, or an entry that has quietly grown, fails the
-build.
-
-### No N+1 — not in SQL, and not over HTTP
-
-A loop that issues one query, or one request, per item is a bug to fix rather
-than a shape to live with. Look for it whenever you touch code that handles a
-collection: a `for` over rows with an `await` inside it, a task group that opens
-one request a workout, a route addressed by a single id that a client is only
-ever going to call in a batch. Read the whole set in one statement, and give a
-client a route that takes the whole set — `/api/workout-plans?plan-ids=` is
-exactly that, and what it replaced was a round trip, an authentication and a
-read for every workout a sync had to place. Fanning the calls out in parallel is
-not a fix: it hides the latency and still pays for every one of them.
-
-Fix it where you find it. A batched read is not a refactor to schedule for
-later; it is what the code should have said, and the N is a plan that gets
-longer the more the athlete trains.
-
-### Other conventions
-
-- **One door for writes.** Every change to a workout goes through
-  `src/plan.ts`, whatever door it came in by. See
-  [docs/architecture.md](docs/architecture.md).
-- **Validate by resolving.** There is one set of rules for what a workout may
-  say, in `src/resolve.ts`, not one per entry point.
-- **Errors name the field.** `steps[1].target_pace_km[0]: "nope" is not a valid
-  duration`, not `bad request`.
-- **TypeScript is strict**, and `tsc --noEmit` runs in CI alongside the tests.
-  There is no linter; keep to the style of the file you are in.
+**TypeScript is strict**, and `tsc --noEmit` runs in CI. There is no linter; keep to the
+style of the file you are in.
 
 ---
 
@@ -113,144 +60,93 @@ longer the more the athlete trains.
 
 ### [docs/deployment.md](docs/deployment.md)
 
-Getting a copy running: creating the D1 database and KV namespace, applying
-migrations, and deploying. Lists every secret and what needs it, and explains
-why the resource ids are committed rather than hidden. Covers local
-development, the two cron schedules and what each pass does, and what the whole
-thing costs on Cloudflare's free tier — including why there is no third-party
-auth vendor in the stack despite several of them having usable free plans.
+Getting a copy running: the D1 database, the KV namespace, migrations, secrets and what
+needs each. Covers local development, the three cron schedules, and what the whole thing
+costs on Cloudflare's free tier.
 
 ### [docs/workouts.md](docs/workouts.md)
 
-The plan format, and the reference you will keep open while writing one. Every
-duration and target field, how ranges work and why an open end is written `-`,
-how zone ranges become percentage bands and which zone model they assume, and
-the two-target rule FIT imposes. Also the workout's own fields, `external_id`
-for safe re-syncing, marking a session done and saying how it went as verbs of
-their own, and exactly what gets stored versus what is derived at export time.
+The plan format, and the reference to keep open while writing one. Every duration and
+target field, how ranges work, how zone ranges become percentage bands, the two-target rule
+FIT imposes, and marking a session done and saying how it went.
 
 ### [docs/mcp.md](docs/mcp.md)
 
-Connecting an assistant. Covers the OAuth 2.1 flow a browser-capable client
-does on its own, which endpoints Cloudflare's provider library owns and which
-one is ours, and the static `wk_` token path for clients that only take a
-header. Lists every tool and its read-only and destructive annotations,
-and explains why no tool result ever carries a URL — an assistant handed a link
-passes the link on instead of calling the tool.
+Connecting an assistant: the OAuth 2.1 flow, the static `wk_` token path, every tool and
+its annotations, the two protocol eras and how one header decides between them, and which
+JSON-RPC failures become which HTTP status.
 
 ### [docs/api.md](docs/api.md)
 
-The full REST surface as one table: sign-in, account and token management,
-workout CRUD, completion, training platforms, FIT export, and the MCP tools
-over plain HTTP. Explains the `.json` suffix, why `/api/me` hands back the
-retention window rather than letting a client compute it, why 401 is answered
-before 404 under the API prefixes, why `/api/workout-plans` is asked for a week
-of plans at once and names what it could not find, and the trade-off in
-accepting a token as a query parameter on FIT downloads.
+The full REST surface as one table: sign-in, tokens, workout CRUD, completion, platforms,
+FIT export and the MCP tools over plain HTTP. Explains the `.json` suffix, 401 before 404,
+and posting a recording as raw bytes.
 
 ### [docs/prompts.md](docs/prompts.md)
 
-The MCP prompt surface, which is one template: the getting-started interview
-that fills an athlete's context. Explains what the interview asks, and why the
-same body is reached three ways — a prompt the athlete picks, a tool the model
-calls, and a line on every empty context read — since a model never sees a
-prompt and a new athlete never browses for one. Says why `initialize`
-instructions were tried and dropped, and why nothing records who has been
-asked.
+The MCP prompt surface, which is one template: the getting-started interview that fills an
+athlete's context. What it asks, why the same body is reached four ways, and the band-width
+rules it writes that no schema can express.
 
 ### [docs/context.md](docs/context.md)
 
-The four markdown documents an assistant reads before it plans: the workout
-library, the current plan, the scheduling instructions and the zones. Explains
-why they are context rather than configuration, why only the library has a
-built-in document and absence is recorded as absence, why reading and writing
-them are two separate MCP tools, and why importing one markdown file takes both
-a Vite plugin and a wrangler rule. Ends with the backup archive.
+The four markdown documents an assistant reads before it plans. Why they are context rather
+than configuration, why only the library has a built-in document, why reading and writing
+them are separate tools, and the backup archive.
 
 ### [docs/auth.md](docs/auth.md)
 
-Sign-in end to end. Setting up Google, Apple and intervals.icu, which is not
-OpenID Connect and so has no address to offer, why it needs two registered
-callbacks, and why it never joins an account another provider already made.
-Then the security detail: why the in-flight sign-in is remembered in both D1
-and a cookie and what attack the second half stops, why the login cookie needs
-`SameSite=None`, why ID tokens are not signature-checked, and how sessions and
-`wk_` API tokens are stored.
+Sign-in end to end: setting up Google, Apple and intervals.icu, why accounts are never
+linked across providers, why the in-flight sign-in is remembered in both D1 and a cookie,
+and how sessions and `wk_` API tokens are stored.
 
 ### [docs/integrations.md](docs/integrations.md)
 
-Training platforms, of which intervals.icu is the first. Connecting by OAuth,
-why the token is encrypted rather than hashed, and what happens when the secret
-is rotated away. Then the sync semantics worth knowing before changing any of
-it: pushes are upserts keyed on something stable, a platform failure never
-fails your write, completions arrive by webhook with an hourly poll behind
-them, which event to trust and why the body is never believed for more than
-the athlete it names.
+Training platforms, of which intervals.icu is the first. Connecting by OAuth, why the token
+is encrypted rather than hashed, and the sync semantics: upserts on a stable key, a
+platform failure never failing your write, and completions by webhook.
 
 ### [docs/recordings.md](docs/recordings.md)
 
-Asking for the sessions you actually recorded, over a date range on one
-platform, and getting back a signed link that streams them as a ZIP of FIT
-files. Why the link carries no credential and lives outside `/api/`, what it
-costs to be a four-hour bearer token, and why a fortnight and forty sessions are
-the caps — a Worker's subrequest budget, not storage. Then the streaming ZIP
-itself, stored rather than deflated to spend no CPU, and the manifest it writes
-last.
+Asking for the sessions you actually recorded and getting a signed link that streams them
+as a ZIP of FIT files. Why the link carries no credential, what it costs to be a four-hour
+bearer token, and why forty sessions is the cap.
 
 ### [docs/stats.md](docs/stats.md)
 
-What the athlete actually did, read off the recorded FIT file once and stored
-with the workout, so a weekly review needs no second download. Covers the
-payload — session totals, one lap per segment, four quarters each, the target
-band a lap was run against — and the rules that keep it honest: the mapping is
-withheld rather than guessed when laps and plan do not line up, missing data is
-null and never zero, and the record stream itself is deliberately not kept.
+What the athlete actually did, read off the recorded FIT file once and stored with the
+workout. The payload — session totals, laps, quarters, target bands — and the rules that
+keep it honest: withheld mappings, nulls that are never zero.
 
 ### [docs/database.md](docs/database.md)
 
-D1 and the schema. How migrations are written and tested, and why the steps are
-a TEXT column with a `json_valid` check rather than a JSON type SQLite does not
-have. Then the retention window: 7 days back and 14 ahead, enforced on writes
-and on every read, with a day of slack for timezones. Explains why nothing
-sweeps old workouts any more, and the write-ordering rules a change here must
-keep.
+D1 and the schema: how migrations are written and tested, why the steps are TEXT with a
+`json_valid` check, the 7/14-day retention window and how it is enforced, and the
+write-ordering rules a change here must keep.
 
 ### [docs/architecture.md](docs/architecture.md)
 
-The module map and how a request moves through it: the OAuth provider wrapping
-everything, the routing table, and `withUser` as the single place a credential
-becomes an athlete. Explains why every write funnels through `src/plan.ts`, how
-the platform layer is kept ignorant of any particular platform, and the small
-router's rules. Read this before adding a route, a module, or a second training
-platform.
+The module map and how a request moves through it: the OAuth provider wrapping everything,
+the routing table, and `withUser`. Read this before adding a route, a module, or a second
+training platform.
 
 ### [docs/fit.md](docs/fit.md)
 
-What you need to know before touching `src/fit.ts`. The Garmin SDK writes
-parent fields only, so the encoder applies the profile's scaling itself. FIT
-stores steps flat, so nested repeats are flattened with the repeat emitted
-after its children. An open range end is an absent field, not a zero. And the
-encoder's 500 MB buffer request has to be clamped or production workerd refuses
-it outright.
+What you need before touching `src/fit.ts`: the SDK writes parent fields only, nested
+repeats are flattened with the repeat after its children, an open range end is filled
+rather than omitted, and the encoder's buffer has to be clamped.
 
 ### [docs/ios.md](docs/ios.md)
 
-The iPhone app in `ios/`, and why it has no watch app: the plan is scheduled through
-WorkoutKit, so Apple's own Workout app runs it. Covers how a resolved plan becomes a
-`CustomWorkout`, which two kinds of target are dropped rather than guessed at, how
-HealthKit's disagreeing series become one second-by-second recording, and what Garmin's
-Swift SDK then writes — including the two figures computed the way this server computes
-them, and the developer field carrying the workout id.
+The iPhone app in `ios/`, and why it has no watch app. How a resolved plan becomes a
+`CustomWorkout`, which targets are dropped rather than guessed at, how HealthKit's series
+become one recording, and what the background upload path needs to stay alive.
 
 ### [docs/testing.md](docs/testing.md)
 
-How the suite is put together and why. Tests run inside `workerd`, on the same
-runtime that serves production, which is the only place some of the encoder
-bugs reproduce at all. FIT files are asserted by decoding them again with
-Garmin's own decoder. Google, Apple and intervals.icu are stood in for by an
-auxiliary Worker that Miniflare routes outbound traffic to, so the real sign-in
-path runs offline. Lists what each suite covers, and how an archive is read
-back by a ZIP reader written the way a real one works.
+How the suite is put together and why. Tests run inside `workerd`; FIT files are asserted
+by decoding them again with Garmin's own decoder; the outside world is an auxiliary Worker
+Miniflare routes outbound traffic to. Lists what each suite covers.
 
 ---
 
@@ -259,7 +155,6 @@ back by a ZIP reader written the way a real one works.
 MIT — see [LICENSE](LICENSE).
 
 This project depends on [`@garmin/fitsdk`](https://github.com/garmin/fit-javascript-sdk),
-which Garmin ships under the **Flexible and Interoperable Data Transfer (FIT)
-Protocol License**, not an OSI licence. Nothing from the SDK is vendored here —
-it is an ordinary npm dependency — but if you redistribute a build, read
-Garmin's terms first.
+which Garmin ships under the **Flexible and Interoperable Data Transfer (FIT) Protocol
+License**, not an OSI licence. Nothing from the SDK is vendored here, but if you
+redistribute a build, read Garmin's terms first.

@@ -1,23 +1,17 @@
 # Signing in
 
-There are no passwords and no email to send: identity comes from Google, Apple
-or intervals.icu. Each provider appears on the sign-in page only when its
-variables are set, so **Google alone is a complete setup** — Apple is optional
-and needs a paid developer account, and intervals.icu needs an OAuth client
-they approve by hand.
-
-Google and Apple are ordinary OpenID Connect authorization-code flows, handled
-by [`arctic`](https://arcticjs.dev), which also builds the ES256 client-secret
-JWT Apple wants in place of a static secret. intervals.icu is not OIDC and is
-hand-rolled next to them. `src/identity.ts` owns all three; `src/auth.ts` turns
-the resulting identity into a session or an API token.
+No passwords and no email: identity comes from Google, Apple or intervals.icu. Each
+provider appears only when its variables are set, so **Google alone is a complete
+setup**. Google and Apple are ordinary OIDC authorization-code flows on
+[`arctic`](https://arcticjs.dev), which also builds the ES256 client-secret JWT Apple
+wants. `src/identity.ts` owns all three; `src/auth.ts` turns the result into a session or
+an API token.
 
 ## Google
 
-In the Google Cloud console, create an OAuth 2.0 Client ID of type *Web
-application* and add `https://<your-worker>/auth/google/callback` as an
-authorized redirect URI (plus `http://localhost:8787/auth/google/callback` for
-local work — Google allows loopback). Then:
+An OAuth 2.0 Client ID of type *Web application*, with
+`https://<your-worker>/auth/google/callback` as a redirect URI (plus the localhost one —
+Google allows loopback).
 
 ```bash
 npx wrangler secret put GOOGLE_CLIENT_ID
@@ -26,10 +20,8 @@ npx wrangler secret put GOOGLE_CLIENT_SECRET
 
 ## Apple
 
-Sign in with Apple needs an Apple Developer Program membership, which is paid.
-You need a Services ID, a Team ID, and a private key (a `.p8` file) with its
-Key ID. Apple will not redirect to `localhost`, so this one only works on your
-real domain.
+Needs a paid developer membership: a Services ID, a Team ID, and a `.p8` key with its Key
+ID. Apple will not redirect to `localhost`, so this only works on a real domain.
 
 ```bash
 npx wrangler secret put APPLE_CLIENT_ID     # the Services ID, e.g. com.example.workouts
@@ -38,111 +30,61 @@ npx wrangler secret put APPLE_KEY_ID
 npx wrangler secret put APPLE_PRIVATE_KEY   # the .p8 contents, base64 or PEM
 ```
 
-The key is stored as base64 PKCS#8; the PEM armour is stripped on read.
+Stored as base64 PKCS#8; PEM armour is stripped on read.
 
 ## intervals.icu
 
-The same client serves both the sign-in button and connecting the platform, so
-one registration covers both. It is not self-service: email them for an OAuth
-app, and they hand back a client id and secret. See
-[integrations.md](integrations.md) for the registration and the webhook.
+One registration serves both the sign-in button and connecting the platform. Not
+self-service — email them for an OAuth app. See [integrations.md](integrations.md).
 
 ```bash
 npx wrangler secret put INTERVALS_CLIENT_ID
 npx wrangler secret put INTERVALS_CLIENT_SECRET
 ```
 
-Two redirect URIs have to be registered, because the flow ends somewhere
-different depending on why it started:
+Two redirect URIs, because the redirect URI is part of the token exchange and so a code
+issued for a sign-in cannot be spent on a connect: `/auth/intervals/callback` mints a
+session, `/auth/intervals/connect-callback` touches none. The state row carries the
+athlete a connect belongs to, and the callback insists it matches the session.
 
-| Registered URI | What finishes there |
-| --- | --- |
-| `/auth/intervals/callback` | A sign-in: a session is minted |
-| `/auth/intervals/connect-callback` | A connection: no session is touched |
+**It is not OIDC.** No `id_token` and no email — their token response carries
+`athlete: {id, name}`, and that id is the `subject`. So an intervals.icu account has no
+address at all, which is why nothing here authorizes on one. No `expires_in` and no
+refresh token either, so the access token goes in the encrypted platform-credential
+column with no refresh machinery; a withdrawn grant simply starts answering 401.
 
-Two callbacks rather than one with a flag, because the redirect URI is sent to
-their token endpoint as part of the exchange: a code issued for one cannot be
-spent at the other, so the separation is enforced upstream rather than by our
-own bookkeeping. The state row carries the athlete a connect belongs to, and
-the callback insists it matches the session that arrives with it — a connect
-link followed in a browser signed in as somebody else attaches the token to
-nobody.
-
-### It is not OpenID Connect
-
-There is no `id_token` and no email. Their token response carries
-`athlete: {id, name}`, and that athlete id is the `subject` an account is keyed
-by. So an intervals.icu account has **no address at all**, which is why nothing
-here authorizes on one.
-
-The response also has no `expires_in` and no refresh token, so the access token
-goes in the same encrypted column a platform credential always did, with no
-refresh machinery. A grant the athlete withdraws from their settings simply
-starts answering 401, which lands on the connection as a standing error.
-
-### Signing in leaves you connected
-
-The sign-in *is* an authorization, and it hands us the same token the connect
-flow would, so asking for a second round would be theatre. Nothing is pushed at
-that moment: the account a sign-in lands in is keyed on that athlete, so on a
-first sign-in it is empty, and on a later one the calendar is already in step.
-
-If `CREDENTIALS_SECRET` is unset there is nowhere safe to put the token, and the
-sign-in still succeeds — it is simply not connected.
+**Signing in leaves you connected**: the sign-in *is* the authorization, and hands us the
+same token a connect would. With `CREDENTIALS_SECRET` unset the sign-in still succeeds,
+just unconnected.
 
 ## Separate accounts, never linked
 
-An account is keyed by *(provider, subject)*, so signing in with Google and then
-with Apple makes two separate accounts, each with its own workouts. Apple's
-private relay hands out a different address anyway, so there is no reliable way
-to link them.
-
-intervals.icu is **deliberately** the same. Signing in with it does not join an
-account that already has that athlete connected, even though the athlete id
-would match. Two reasons, and the second is the one that decided it:
-
-- an account here is *(provider, subject)*, and quietly making one provider's
-  subject resolve to another's account is a second identity model hiding inside
-  the first;
-- a connection is not proof of ownership in the direction that would be needed.
-
-So one athlete can legitimately be connected to two of our users, and anything
-keyed on the upstream account has to expect that — which is why the webhook
-fans out to every connection it matches rather than assuming one.
+An account is keyed by *(provider, subject)*, so Google and Apple make two accounts.
+intervals.icu is deliberately the same even though the athlete id would match: making one
+provider's subject resolve to another's account is a second identity model hiding inside
+the first, and a connection is not proof of ownership. So one athlete can legitimately be
+connected to two of our users, which is why the webhook fans out to every match.
 
 ## State handling
 
-The in-flight sign-in is remembered in **two** places, and the callback insists
-on both.
+The in-flight sign-in is remembered in **two** places and the callback insists on both.
 
-- A **row in D1**, holding the PKCE verifier, the return path, and — for a
-  connect rather than a sign-in — the athlete it belongs to. Not a cookie,
-  because Apple posts its callback cross-site, where a `SameSite=Lax` cookie
-  would not be sent. Single use, with a ten-minute life; whatever the outcome,
-  the row is deleted as soon as it is read.
-- A **cookie in the browser**, holding the same state value. The D1 row proves
-  the callback belongs to a sign-in *this server* started; it does not prove it
-  belongs to *this browser's* sign-in. Without the second half an attacker can
-  start a sign-in of their own and walk a victim through its callback, landing
-  the victim in the attacker's account with their workouts along with it.
+- A **row in D1** with the PKCE verifier, the return path and (for a connect) the athlete.
+  Not a cookie, because Apple posts its callback cross-site where `SameSite=Lax` would not
+  be sent. Single use, ten minutes, deleted as soon as it is read.
+- A **cookie** with the same state value. The row proves the callback belongs to a sign-in
+  *this server* started; the cookie proves it belongs to *this browser's*. Without the
+  second, an attacker starts a sign-in, walks a victim through its callback, and lands the
+  victim in the attacker's account.
 
-The login cookie is `SameSite=None` where the connection is secure, because
-Apple's cross-site POST would not carry anything stricter. Browsers only accept
-`None` alongside `Secure`, so plain http — localhost, where Apple cannot be
-used anyway — falls back to `Lax`, which is enough for Google's top-level
-redirect.
+The login cookie is `SameSite=None` where the connection is secure, because Apple's
+cross-site POST would not carry anything stricter; plain http falls back to `Lax`.
+`return_to` is only honoured for a same-origin path.
 
-A `return_to` is only honoured when it is a same-origin path, so the sign-in
-flow cannot be turned into an open redirect.
-
-## ID tokens are not signature-checked
-
-They do not need to be. The token arrives over TLS from the provider's own
-token endpoint, in response to a request authenticated with our client secret,
-which [OpenID Connect Core
-3.1.3.7](https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation)
-allows explicitly. The issuer, audience and expiry are checked anyway, since
-they cost nothing and catch a misconfigured client.
+ID tokens are **not** signature-checked. They arrive over TLS from the provider's own
+token endpoint against our client secret, which [OIDC Core
+3.1.3.7](https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation) allows.
+Issuer, audience and expiry are checked anyway.
 
 ## Sessions and API tokens
 
@@ -152,57 +94,22 @@ they cost nothing and catch a misconfigured client.
 | API token (`wk_...`) | SHA-256 hash in D1 | Until revoked |
 | OAuth access/refresh tokens | The provider's, in KV | The provider's |
 
-Nothing is stored in the clear. The dashboard only ever shows a token prefix,
-and the full value is returned exactly once, when it is minted.
-
-The session cookie is `SameSite=Lax` rather than `Strict`, because the OAuth
-consent page is reached by a top-level navigation from the MCP client. `Secure`
-is dropped over plain http so the cookie also works on localhost.
-
-A training platform's access token is the one credential that cannot be hashed,
-because it has to be replayed on every push. See
-[integrations.md](integrations.md).
-
-## OAuth, for MCP clients
-
-An MCP client gets its own grant rather than a pasted token. That half is
-[`@cloudflare/workers-oauth-provider`](https://github.com/cloudflare/workers-oauth-provider),
-which owns everything except the consent page — see [mcp.md](mcp.md).
+The full token value is returned exactly once; the dashboard shows a prefix. The session
+cookie is `SameSite=Lax` rather than `Strict`, because the OAuth consent page is reached
+by a top-level navigation from the MCP client. A platform's access token is the one
+credential that cannot be hashed — see [integrations.md](integrations.md).
 
 ## A native app signs in through the browser, and ends up with a token
 
-The provider validates OAuth tokens on the routes it owns and nowhere else, so
-an access token reaches `/mcp` and would be a 401 against `/api/`. `withUser`
-resolves a session cookie or a `wk_` token, and an access token is neither.
-That is fine for an MCP client, which only ever calls `/mcp`, and no use at all
-to an app that wants the REST API — which is what the [iOS app](ios.md) is.
+The provider validates OAuth tokens only on its own routes, so an access token reaches
+`/mcp` and is a 401 against `/api/`. Fine for an MCP client, no use to the
+[iOS app](ios.md).
 
-`POST /api/app-token` closes that gap in one route. It is registered as an API
-route on the provider, so the grant is checked by the library that issued it,
-and it answers with a freshly minted `wk_` token. An app does the ordinary
-authorization-code round trip with PKCE, trades the grant once, throws the grant
-away, and holds the same credential every other REST caller holds.
+`POST /api/app-token` is registered as an API route on the provider, so the grant is
+checked by the library that issued it, and answers with a freshly minted `wk_` token. An
+app does the ordinary PKCE round trip, trades the grant once, and holds what every other
+REST caller holds — no second handshake to invent, and it is revocable under *API tokens*.
 
-**Behind a scope of its own**, `app-token`, because the credential it hands back
-outlives the grant it came from: disconnecting the app on the dashboard would no
-longer take its access away. That is a real escalation for a client that only
-asked to read a plan, and exactly the kind that arrives by accident — so a client
-that wants it asks for it by name, the consent page shows what was asked for, and
-a grant carrying only `workouts` is refused with a 403. Which is what every MCP
-client got before this route existed.
-
-The granted scopes travel on the grant's props, which is the only reason the
-route can tell. Nothing else reads them: `/mcp` is reached by both scopes and by
-a `wk_` token, and neither is more privileged there.
-
-Which is the point of doing it this way rather than the two alternatives. Asking
-the athlete to paste a token is a sign-in flow nobody enjoys, and inventing a
-second browser handshake that redirects a token back to the app means writing an
-auth protocol. This writes none: the round trip is the one MCP clients already
-do, and the credential is the one the dashboard already lists and revokes. A
-token issued this way appears under *API tokens* with the app's name, and
-revoking it there signs the app out.
-
-It is the only route under `/api/` that a session cookie does **not** reach, for
-the same reason: the provider owns it, and the provider only understands bearer
-tokens.
+**Behind a scope of its own**, `app-token`, because the token outlives the grant: a grant
+carrying only `workouts` is refused with a 403, so a client that wants it asks by name and
+the consent page shows it. Nothing else reads the granted scopes.

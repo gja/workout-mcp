@@ -48,7 +48,6 @@ const range = (description: string, doc: string = RANGE_DOC) => ({
   ],
 });
 
-/** JSON Schema for a workout's steps, referenced by create and update. */
 export const STEP_SCHEMA = {
   type: 'array',
   minItems: 1,
@@ -194,24 +193,14 @@ const readsContext = (kind: context.ContextKind) => {
 };
 
 /**
- * **Keep every `description` to about 50 words, and one line where it fits.**
+ * **Keep every `description` to about 50 words, and one line where it fits.** This array
+ * is serialised in full on every `tools/list`, so it is context an assistant pays for
+ * before it has decided to call anything.
  *
- * This array is serialised in full on every `tools/list`, so it is context an
- * assistant pays for before it has decided to call anything. Prose that only
- * restates the tool's name, or explains what the result obviously is, is paid for
- * every session and read by nobody.
- *
- * So say the one thing a caller cannot work out from the name and the schema, and
- * stop. Worth the words: an order of calls that is not obvious (read the context
- * documents before writing a session), a unit or a sentinel that would be
- * misread (pace is seconds per km; a missing figure is null, never 0), a limit
- * that will be hit (the retention window, the range cap), and a constraint that
- * protects the athlete (their comment is their words, not a summary of yours).
- * Not worth them: which other tool to call next, what a field plainly named
- * `date` holds, or a second telling of what the annotations already say.
- *
- * The annotations are advisory — they shape how a client asks, not what the server
- * allows.
+ * Say the one thing a caller cannot work out from the name and the schema, and stop.
+ * Worth the words: a non-obvious order of calls, a unit or sentinel that would be misread,
+ * a limit that will be hit, a constraint that protects the athlete. Not worth them: which
+ * tool to call next, what a field named `date` holds, or a retelling of the annotations.
  */
 export const TOOLS = [
   {
@@ -436,7 +425,6 @@ export const TOOLS = [
 
 export type ToolName = (typeof TOOLS)[number]['name'];
 
-/** Thrown for tool-level problems that are the caller's fault. */
 export class ToolError extends Error {}
 
 const asObject = (args: unknown): Record<string, unknown> =>
@@ -454,12 +442,7 @@ const urls = (workout: Workout, baseUrl: string) => ({
   json_url: `${baseUrl}/api/workouts/${workout.date}/${workout.id}.json`,
 });
 
-/**
- * The stored fields, steps and all, plus the derived summary and totals.
- *
- * A recorded session comes with it as `stats`, but only its totals: the workout row
- * carries no more than that, and `get_workout_stats` is where the laps live.
- */
+/** The stored fields plus the derived totals. `stats` carries session totals only; the laps live in `get_workout_stats`. */
 export function present(workout: Workout, baseUrl?: string) {
   return {
     ...workout,
@@ -476,10 +459,9 @@ export function presentBrief(workout: Workout, baseUrl?: string) {
 }
 
 /**
- * `origin` is only ever used to build a link a caller can follow. Most tools
- * want nothing to do with it — see "No tool result carries a URL" in
- * docs/mcp.md — and `list_recorded_workouts` is the documented exception,
- * because what it points at is signed rather than credential-bound.
+ * Only ever used to build a link a caller can follow, which `list_recorded_workouts` is
+ * the one tool to return — see docs/mcp.md — because what it points at is signed rather
+ * than credential-bound.
  */
 export async function callTool(
   name: string,

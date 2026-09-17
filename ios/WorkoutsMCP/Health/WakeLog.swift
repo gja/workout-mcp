@@ -1,18 +1,12 @@
 // Whether the background half is alive, written down where somebody can look.
 //
-// A wake that never arrives and a wake that arrives and finds nothing to do are the same
-// silence from outside the app, and there is nobody in a background launch to tell either
-// way. That silence is most of what makes this hard to trust: the only evidence an athlete
-// has is a session that is not on the server, which is equally consistent with HealthKit
-// never having woken us, with the wake having been cut short, and with the session simply
-// not being one this app will upload unattended.
-//
-// So each half writes one line. `Settings` reads them back, and the question stops being a
-// guess.
+// A session missing from the server is equally consistent with HealthKit never having woken
+// us, a wake that was cut short, and a session this app will not upload unattended — and
+// there is nobody in a background launch to tell either way. So each half writes one line
+// and Settings reads them back.
 //
 // `UserDefaults` rather than a log file: a wake happens in a process that is gone by the
-// time anybody asks, which takes the console with it, and this is four short values rather
-// than a file to write, rotate and read.
+// time anybody asks, and this is four short values.
 
 import Foundation
 
@@ -65,13 +59,10 @@ enum WakeLog {
         defaults.set(outcome.rawValue, forKey: wokeSaidKey)
     }
 
-    /// Counted separately from the outcome above, and never reset: one session that went up
-    /// without anybody tapping *Export*, ever, is the whole proof this path works, where an
-    /// outcome is only the last one.
-    ///
-    /// Counts a wake, a `PlanRefresh` turn and the catch-up on opening the app alike — they
-    /// run the same rules, and what this is here to answer is whether those rules ever fire.
-    /// Which of the three it was is what `lastWake` is for: only a wake writes that.
+    /// Never reset: one session that went up without anybody tapping *Export*, ever, is the
+    /// whole proof this path works, where an outcome is only the last one. Counts a wake, a
+    /// `PlanRefresh` turn and the catch-up on opening the app alike, since they run the same
+    /// rules; `lastWake` is what says which.
     static func uploaded(_ count: Int) {
         defaults.set(defaults.integer(forKey: uploadedKey) + count, forKey: uploadedKey)
     }

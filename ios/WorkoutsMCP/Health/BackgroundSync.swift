@@ -1,32 +1,18 @@
-// Waking when a session is saved, and uploading the ones there is no doubt about.
+// Waking when a session is saved, and uploading the ones there is no doubt about. See
+// "And with the app shut" in docs/ios.md.
 //
-// HealthKit will launch this app in the background when a workout lands, which is the only
-// way a recording reaches the server without the athlete opening anything. It needs the
-// `com.apple.developer.healthkit.background-delivery` entitlement, which is in
-// `WorkoutsMCP.entitlements`, and an observer registered on every launch — including the
-// background ones, which is why `start()` is called from the app's own initialiser rather
-// than from a view. HealthKit remembers that delivery was enabled for the type across
-// process restarts; it does not remember the callback, so that has to be re-executed every
-// launch.
+// Being woken is three things that fail on different days. The **observer** needs the
+// `healthkit.background-delivery` entitlement and re-registering every launch — including
+// background ones, hence `start()` from the app's initialiser: HealthKit remembers that
+// delivery was enabled for the type across restarts, but not the callback. **Delivery**
+// has to be enabled separately, and is refused for a type nobody has authorised yet, so
+// `enableDelivery()` is re-tried rather than attempted once. And every **wake** has to be
+// answered, or HealthKit reads the observer as not coping and stops waking the app — which
+// is what `Wake` below exists for.
 //
-// It also needs delivery actually enabled, which is a separate thing that fails separately:
-// HealthKit refuses it for a type nobody has authorised yet, and the initialiser runs before
-// anybody has been asked. So `enableDelivery()` is its own step, re-tried rather than
-// attempted once — see the note on it.
-//
-// And it needs every wake answered. HealthKit hands the observer a completion block and
-// treats an observer that does not call it as one that is not coping: it backs off how
-// eagerly it wakes the app and then stops. The work here — a listing, the session read out
-// of Health, a FIT file written and posted — can outlast what iOS grants a background
-// launch, so the acknowledgement is owned by `Wake` below and made exactly once, when the
-// work finishes or when iOS says the launch is over, whichever comes first. Held until
-// after the upload and no further, it was one slow round trip away from turning itself off
-// silently, which is indistinguishable from never having been woken at all.
-//
-// What it does on waking is deliberately narrow. A session is uploaded only where the watch
-// itself named the plan it was run against; the day-and-sport fallback the home screen uses
-// is a guess, and a guess is fine when the athlete is looking at it and wrong when it files
-// a session against a workout nobody chose. Everything else waits in the list.
+// What it does on waking is deliberately narrow: only where the watch itself named the
+// plan. The day-and-sport fallback is a guess, fine when the athlete is looking at it and
+// wrong when it files a session against a workout nobody chose.
 
 import Foundation
 import HealthKit
@@ -59,24 +45,15 @@ enum BackgroundSync {
         enableDelivery()
     }
 
-    /// Asking HealthKit to launch this app when a workout lands — the half that makes a wake
-    /// happen at all, as opposed to the observer above, which is what answers one.
+    /// What makes a wake happen at all, as against the observer, which answers one.
     ///
-    /// Separate from the observer, and re-tried, because the two fail on different days.
-    /// `enableBackgroundDelivery` throws for a type the athlete has not authorised, and on a
-    /// first install that is every launch before they have been asked: `start()` runs in the
-    /// app's initialiser and `HealthAccess.request()` runs from the first screen that needs
-    /// it, so the very first launch asks in that order every time. Registering the observer
-    /// once is right — it is cheap and it cannot fail that way. Giving up on delivery after
-    /// one attempt was what left the app never woken, until some later cold launch happened
-    /// to re-run this with authorization already granted.
-    ///
+    /// Re-tried, because `enableBackgroundDelivery` throws for a type the athlete has not
+    /// authorised — and on a first install that is every launch before they have been asked.
     /// So it is called again wherever authorization has just been granted, and the flag is
-    /// set only on success: a failure leaves it false so the next caller tries once more.
+    /// set only on success.
     ///
-    /// `.immediate` is a request rather than a promise. Low Power Mode, a watch that has not
-    /// synced the session over yet, and the system's own view of what this app is worth
-    /// waking all delay it, which is why `PlanRefresh` carries a backstop.
+    /// `.immediate` is a request rather than a promise: Low Power Mode and a watch that has
+    /// not synced the session over both delay it, hence `PlanRefresh`'s backstop.
     static func enableDelivery() {
         guard HKHealthStore.isHealthDataAvailable(), !deliveryEnabled else { return }
 
@@ -86,21 +63,16 @@ enum BackgroundSync {
                 deliveryEnabled = true
                 WakeLog.deliveryEnabled()
             } catch {
-                // Left false on purpose. There is nobody to tell in a background launch, and
-                // the next launch — or the next time the athlete grants Health access — asks
-                // again. What this used to do was swallow the error with nothing left to
-                // re-try from, which is a failure that reports itself as an app that simply
-                // never wakes. It is written down now for the same reason.
+                // Left false on purpose, so the next launch — or the next grant of Health
+                // access — asks again. Swallowed, this failure reports itself as an app that
+                // simply never wakes, which is why it is also written down.
                 WakeLog.deliveryRefused(error)
             }
         }
     }
 
-    /// One wake, answered once.
-    ///
-    /// The acknowledgement is what keeps the next wake coming, and the work is what the wake
-    /// was for; this is the only place that knows both, so it is the only place that can
-    /// promise the first happens whether or not the second finishes.
+    /// One wake, answered once: the acknowledgement is what keeps the next wake coming, and
+    /// this is the only place that knows both it and the work.
     @MainActor
     private static func answer(_ completion: @escaping () -> Void) async {
         let wake = Wake(completion)
@@ -111,12 +83,10 @@ enum BackgroundSync {
         wake.done()
     }
 
-    /// The acknowledgement HealthKit is owed, and the assertion that buys time to earn it.
-    ///
     /// Answering the moment the callback returns would cut the upload off; answering only
     /// after it would, on the launch where iOS runs out of patience first, never answer at
     /// all. So the work runs under a background-task assertion, and whichever comes first —
-    /// the work finishing, or iOS saying the launch is over — acknowledges and releases it.
+    /// the work finishing, or the launch ending — acknowledges and releases it.
     @MainActor
     private final class Wake {
         private var acknowledge: (() -> Void)?
@@ -149,15 +119,11 @@ enum BackgroundSync {
     }
 
     /// Only the sessions the watch itself matched to a plan, and only the ones the server has
-    /// not already read. A completion is what says it has: `isDone` comes back true on the
-    /// listing once a recording has been ingested, so nothing needs a ledger of its own —
-    /// and a session that failed to upload is simply still not done, so the next run picks it
-    /// up rather than having been marked past before it was sent.
+    /// not already read — `isDone` on the listing is what says so, so nothing needs a ledger
+    /// and a failed upload is simply still not done.
     ///
-    /// Not private, and not only for a wake. `PlanRefresh` runs this too, and so does opening
-    /// the app: `.immediate` delivery is a request rather than a guarantee, and a wake that
-    /// iOS delays, cuts short or — after a force-quit — never sends at all would otherwise
-    /// leave the session sitting on the phone with nothing due to look at it again.
+    /// Not private, and not only for a wake: `PlanRefresh` and opening the app run it too,
+    /// because `.immediate` delivery is a request rather than a guarantee.
     @discardableResult
     static func uploadWhatIsCertain() async -> WakeLog.Outcome {
         guard let client = StoredSession.load()?.client else { return .signedOut }
@@ -192,10 +158,8 @@ enum BackgroundSync {
                 )
                 uploaded += 1
             } catch {
-                // The next run tries again, and the rest of this list is still worth trying:
-                // one session that cannot be read or sent is not a reason to leave the one
-                // behind it unsent too. This used to return, so a single stuck session hid
-                // every session after it for as long as it stayed stuck.
+                // Continue, not return: one session that cannot be read or sent must not
+                // hide every session behind it for as long as it stays stuck.
                 refused = true
             }
         }

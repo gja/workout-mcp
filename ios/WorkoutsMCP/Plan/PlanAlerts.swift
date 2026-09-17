@@ -1,29 +1,21 @@
 // A planned target as a watch alert.
 //
-// An end the plan left open is filled rather than dropped. WorkoutKit does have one-sided
-// alerts, but they carry no side: `SpeedThresholdAlert` and its power and cadence siblings
-// hold a single `target` and nothing to say whether that number is the floor or the
-// ceiling, and Apple does not document which the watch reads it as — `slower than 7:45/km`
-// and `faster than 7:45/km` would go out as the same alert. A range alert says which way
-// round it is, so the open end gets a stand-in from `Open` below, chosen past anything a
-// session records so the athlete is never held to it.
+// An end the plan left open is filled rather than dropped. WorkoutKit's one-sided alerts
+// hold a single `target` and no side, and Apple does not document which the watch reads it
+// as, so `slower than 7:45/km` and `faster than 7:45/km` would go out identically. A range
+// alert says which way round it is, so the open end gets a stand-in from `Open` below.
 //
-// A bound written as a percentage — 85% of max HR, 95% of FTP — is the one thing still
-// dropped, and for a different reason: there the number itself is missing rather than the
-// end, and converting it needs the athlete's own profile, which this app does not hold. A
-// target that gets no alert is not lost — `WorkoutKitSync` writes it into the step's name,
-// which the watch shows.
+// A percentage bound is the one thing still dropped, for a different reason: there the
+// number itself is missing, and converting it needs a profile this app does not hold. A
+// target with no alert is not lost — `WorkoutKitSync` writes it into the step's name.
 
 import Foundation
 import WorkoutKit
 
 enum PlanAlerts {
-    /// What an open end becomes: an ordinary figure past anything a session reaches, so the
-    /// bound the athlete is held to is the one they named. Past what a session reaches, and
-    /// no further — an hour a kilometre or a minute a kilometre is outside what a watch has
-    /// a dial for, and a figure the watch cannot show is worse than a wide band. None of
-    /// them is zero either, which reads as no target rather than no floor in more than one
-    /// place downstream.
+    /// What an open end becomes: past anything a session reaches and no further, because a
+    /// figure outside what the watch has a dial for is worse than a wide band. None is zero,
+    /// which reads as no target rather than no floor.
     private enum Open {
         /// 20:00/km and 2:00/km, as metres a second, the unit the plan arrives in — slower
         /// than a walk, and faster than the mile record.

@@ -12,33 +12,22 @@ import { zipStream } from './zip';
 import type { ZipEntry } from './zip';
 
 /**
- * Sessions in one archive.
- *
- * One list call plus one download each, against the Worker's 50-subrequest
- * ceiling on the free plan, with the rest left as headroom. A range holding
- * more is not refused — it is answered with the oldest of them and a count of
- * what was left out, so a caller narrows the range rather than starting again.
+ * Sessions in one archive: one list call plus one download each, against the Worker's
+ * 50-subrequest ceiling. A range holding more is answered with the oldest of them and a
+ * count of what was left out, rather than refused.
  */
 export const MAX_RECORDINGS = 40;
 
 /**
- * The widest range a single link may cover, as a caller counts it.
- *
- * Not a storage limit — nothing is stored — but the range that keeps a request
- * comfortably inside `MAX_RECORDINGS` above: a fortnight of training is rarely
- * forty sessions, so the cap almost never bites and an archive is almost always
- * the whole answer. A caller wanting a month asks twice, which is cheap; a
- * caller silently handed two thirds of a month is not.
+ * The widest range a link may cover: the range that keeps a request inside
+ * `MAX_RECORDINGS`, so an archive is almost always the whole answer. Asking twice for a
+ * month is cheap; being silently handed two thirds of one is not.
  */
 export const MAX_RANGE_DAYS = 14;
 
 /**
- * One day of slack on top, for the same reason `READ_SLACK_DAYS` exists.
- *
- * A fortnight named by its own edges — `from` a fortnight ago, `to` today — is
- * fifteen days once both ends are counted. Refusing that would make every
- * caller discover an off-by-one before their first successful call, so the
- * check allows it and everything we say still says fourteen.
+ * A fortnight named by its own edges is fifteen days once both ends are counted, so the
+ * check allows one more than everything we say says.
  */
 export const RANGE_SLACK_DAYS = 1;
 
@@ -46,10 +35,9 @@ export const RANGE_SLACK_DAYS = 1;
 export const LINK_TTL_SECONDS = 4 * 60 * 60;
 
 /**
- * Where a signed link lives: outside `/api/`, because it carries no credential
- * of its own — and ending in a plain, fixed `.zip`, so anything that names a
- * download after its path gets `completed-workouts.zip` rather than a hundred
- * characters of base64. The claims and the signature ride in the query instead.
+ * Outside `/api/`, because it carries no credential of its own, and ending in a plain
+ * fixed `.zip`, so anything naming a download after its path gets a readable name. The
+ * claims and the signature ride in the query.
  */
 export const DOWNLOAD_PATH = '/downloads/completed-workouts.zip';
 
@@ -66,13 +54,7 @@ export const safe = (value: string, limit: number): string =>
     .replace(/^[-.]+|[-.]+$/g, '')
     .slice(0, limit) || 'workout';
 
-/**
- * `yyyy-mm-dd-<id>-<name>.fit`.
- *
- * The same name in the archive as in a connected drive, on purpose: the two are
- * the same file arriving by different routes, and an athlete who uses both
- * should be able to tell that without opening either.
- */
+/** `yyyy-mm-dd-<id>-<name>.fit` — the same name here as in a connected drive, on purpose. */
 export const fileName = (recorded: Recorded): string =>
   `${recorded.date}-${safe(recorded.remote_id, 40)}-${safe(recorded.name, 80)}.fit`;
 
@@ -107,12 +89,9 @@ const parseSports = (value: unknown): Sport[] | null => {
 };
 
 /**
- * Read a query off whatever asked — tool arguments or a query string — and
- * refuse it here rather than half way through an archive.
- *
- * `platform` is required though there is only one to name. The alternative is a
- * link whose meaning changes when a second platform is connected, and a caller
- * that never had to say which sessions it meant.
+ * Read a query off tool arguments or a query string, refused here rather than half way
+ * through an archive. `platform` is required though there is only one to name: otherwise
+ * its meaning changes the day a second is connected.
  */
 export function parseQuery(raw: {
   platform?: unknown;
@@ -163,12 +142,9 @@ const sourceFor = async (env: Env, userId: string, platform: PlatformId): Promis
 };
 
 /**
- * Everything the athlete recorded in the range, filtered and capped.
- *
- * Oldest first, then by the platform's own id, because the archive resolves the
- * query a second time when the link is followed: the same query has to pick the
- * same sessions in the same order, or the listing a caller was shown is not the
- * one they download.
+ * Oldest first, then by the platform's own id, because the archive resolves the query a
+ * second time when the link is followed and has to pick the same sessions in the same
+ * order.
  */
 export async function search(env: Env, userId: string, query: Query): Promise<Search> {
   const source = await sourceFor(env, userId, query.platform);
@@ -188,20 +164,10 @@ export async function search(env: Env, userId: string, query: Query): Promise<Se
 // --- The signed link ---------------------------------------------------------
 
 /**
- * Why the link is signed rather than stored.
- *
- * It has to work with no credential on it: the point is to hand it to something
- * that will fetch the files — an assistant, a browser, `curl` — without handing
- * over an account. A row in the database would do that too, but this project
- * keeps nothing about a session anywhere, and a table of "who asked for what,
- * when" is exactly the history it does not want. So the query travels inside
- * the link, an HMAC says it was us who wrote it, and the server remembers
- * nothing at all.
- *
- * What that costs: a link is a bearer credential for its four hours. Anyone
- * holding it can fetch that athlete's files for that range, and it cannot be
- * called back — only outlived, or broken by disconnecting the platform, which
- * takes the token the files are fetched with. Treat it like the download it is.
+ * Signed rather than stored: the link has to work with no credential on it, and a table
+ * of "who asked for what, when" is history this project does not keep. The cost is that
+ * a link is a bearer credential for its four hours — it cannot be called back, only
+ * outlived or broken by disconnecting the platform.
  */
 export class LinksUnavailable extends Error {
   constructor() {
@@ -212,11 +178,8 @@ export class LinksUnavailable extends Error {
 export const linksConfigured = (env: Env): boolean => Boolean(env.CREDENTIALS_SECRET);
 
 /**
- * The signing key, derived from the passphrase rather than being it.
- *
- * Domain-separated from the key `src/platforms/store.ts` derives for encrypting
- * tokens, out of the same secret: one passphrase, two keys, and neither usable
- * in the other's place even though both start life as the same bytes.
+ * Domain-separated from the key `src/platforms/store.ts` derives out of the same secret,
+ * so neither is usable in the other's place.
  */
 const LABEL = 'workout-mcp/recording-download/v1';
 
@@ -291,12 +254,7 @@ export type Opened = { userId: string; query: Query; expiresAt: string };
 /** Why a link did not open, in the words the response gives back. */
 export class LinkRejected extends Error {}
 
-/**
- * Read a link back, or say why not.
- *
- * The signature is checked before anything inside is looked at, let alone
- * trusted: every field — the athlete included — is the caller's until it holds.
- */
+/** The signature is checked first: every field, the athlete included, is the caller's until it holds. */
 export async function openLink(
   env: Env,
   claimsParam: string | null,
@@ -326,8 +284,7 @@ export async function openLink(
     throw new LinkRejected('that is not a download link');
   }
 
-  // Signed, so this is our own doing rather than an attack: a link from a
-  // version that wrote a different shape, met by a version that cannot read it.
+  // Signed, so this is our own doing: a link from a version that wrote a different shape.
   if (claims.v !== 1 || typeof claims.u !== 'string' || typeof claims.x !== 'number') {
     throw new LinkRejected('this link was made by an older version and cannot be read');
   }
@@ -354,12 +311,7 @@ export type Session = {
   activity_type: string | null;
   distance_m: number | null;
   moving_time_s: number | null;
-  /**
-   * The activity's description upstream — the platform's text, shown as theirs.
-   *
-   * Not the workout's `comment`, and never adopted as one: a recording app writes
-   * its own line here on upload. See `syncComment` in `src/platforms/`.
-   */
+  /** The platform's text, shown as theirs — never adopted as the workout's `comment`. */
   comment: string | null;
   file: string;
 };
@@ -441,13 +393,9 @@ type Manifest = {
 const asBytes = (value: unknown): Uint8Array => new TextEncoder().encode(JSON.stringify(value, null, 2));
 
 /**
- * The entries, produced one at a time.
- *
- * A session whose file cannot be fetched is recorded in the manifest and
- * stepped over rather than failing the archive: some sessions have no file to
- * fetch at all — a manual entry, or one that arrived from Strava with no
- * streams to build a FIT from — and one of those must not cost an athlete the
- * other thirty. The manifest goes last, which is what lets it say so.
+ * A session whose file cannot be fetched is recorded in the manifest and stepped over
+ * rather than failing the archive — some have no file at all. The manifest goes last,
+ * which is what lets it say so.
  */
 async function* entries(found: Found[], query: Query, omitted: number): AsyncGenerator<ZipEntry> {
   const manifest: Manifest = {
@@ -490,13 +438,7 @@ async function* entries(found: Found[], query: Query, omitted: number): AsyncGen
 /** `yyyy-mm-dd_to_yyyy-mm-dd-intervals.zip`, so a download says what it holds. */
 export const archiveName = (query: Query): string => `${query.from}_to_${query.to}-${query.platform}.zip`;
 
-/**
- * The archive as a response, streaming.
- *
- * No `Content-Length`: the size is not known until the last file has been
- * fetched, and waiting to find out would mean holding the whole thing in memory
- * — the one thing this is built not to do.
- */
+/** No `Content-Length`: knowing it would mean holding the whole archive in memory. */
 export async function archive(env: Env, userId: string, query: Query): Promise<ReadableStream<Uint8Array>> {
   const { found, omitted } = await search(env, userId, query);
   return zipStream(entries(found, query, omitted));

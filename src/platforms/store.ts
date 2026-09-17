@@ -114,11 +114,9 @@ export async function connectionBatch(
 }
 
 /**
- * Every connection to one upstream account, which a webhook names and nothing else.
- *
- * Deliberately more than one: signing in with intervals.icu makes its own account
- * here, so the same athlete can legitimately be connected to two users. An event
- * concerns all of them. See docs/integrations.md.
+ * Deliberately more than one: signing in with intervals.icu makes its own account here,
+ * so the same athlete can legitimately be connected to two users and an event concerns
+ * all of them.
  */
 export async function connectionsForAccount(
   env: Env,
@@ -137,12 +135,8 @@ export async function connectionsForAccount(
 }
 
 /**
- * Whether somebody else here is connected to the same upstream account.
- *
- * Revoking upstream releases the grant for the *app*, not for one token of it, so
- * where one athlete is legitimately connected to two users — signing in with
- * intervals.icu makes its own account — handing the grant back on one disconnect
- * would silently 401 the other. See `disconnect` in `index.ts`.
+ * Revoking upstream releases the grant for the *app*, not one token of it, so handing it
+ * back on one disconnect would silently 401 an athlete connected to two users.
  */
 export async function accountSharedWithOthers(
   env: Env,

@@ -18,13 +18,10 @@ export type Handler<Context, Pattern extends string = string> = (
   context: Context & { params: Params<Pattern> },
 ) => Response | Promise<Response>;
 
-/** All the router needs of a context. */
 export type Routable = { path: string };
 
 export type Fallbacks<Context> = {
-  /** The path exists, but not with this method. */
   methodNotAllowed: Handler<Context>;
-  /** No route claimed the path. */
   notFound: Handler<Context>;
 };
 
@@ -81,7 +78,6 @@ export class Router<Context extends Routable> {
     return this.on(['DELETE'], pattern, handler);
   }
 
-  /** Add a group of routes declared elsewhere, so the table can span files. */
   mount(group: (router: this) => void): this {
     group(this);
     return this;

@@ -83,16 +83,12 @@ const resolvedPlan = (workout: Workout) => ({
 });
 
 /**
- * Every plan a client is about to schedule, in one round trip.
+ * Every plan a client is about to schedule, in one round trip: a route addressed by one
+ * workout cost a request, an authentication and a read each. Ids are `YYYY-MM-DD-<id>`,
+ * because the short id alone is only unique within its date.
  *
- * A watch app syncs a week at a time and wants the steps for each of them, which a route
- * addressed by one workout made a request — and an authentication, and a read — per
- * workout. Ids are `YYYY-MM-DD-<id>`, comma-separated, because a workout is keyed by the
- * pair and the short id alone is only unique within its date.
- *
- * A plan that is not there is named in `missing` rather than failing the batch: between
- * the listing a client scheduled from and this call, a workout may have been deleted or
- * moved, and that is the answer to the question rather than an error.
+ * A plan that is not there is named in `missing` rather than failing the batch — it may
+ * have been deleted or moved since the listing, which is the answer to the question.
  */
 const getWorkoutPlans: AuthedRoute = async ({ url, env, user }) => {
   const asked = [
@@ -142,10 +138,8 @@ const activityId = (raw: string | null): string => {
 };
 
 /**
- * A recording posted as itself: the bytes are read for their numbers and dropped.
- *
- * The body is the FIT file, not JSON, because an app holding one has the bytes and
- * base64 would cost a third of the Worker's budget for the privilege of wrapping them.
+ * The body is the FIT file, not JSON: an app holding one has the bytes, and base64 would
+ * cost a third of the Worker's budget to wrap them. Read for their numbers and dropped.
  */
 const recordWorkout: AuthedRoute<RecordingRoute> = async ({ request, url, env, user, params }) => {
   const date = parseDate(params.date, 'date');

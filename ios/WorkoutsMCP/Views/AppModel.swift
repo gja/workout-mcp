@@ -64,13 +64,9 @@ final class AppModel: ObservableObject {
     @Published var note: String?
     @Published var problem: String?
 
-    /// The plan id each recorded session carries, resolved once when the sessions are read.
-    ///
-    /// `HKWorkout.workoutPlan` is `get async throws`, and `suggestion(for:)` is read from a
-    /// view body — `executed` maps every activity through it — where there is nothing to
-    /// await in. So the awaiting happens at load, once per session rather than once per
-    /// render, and the lookup below is a dictionary read. A session whose plan cannot be
-    /// produced is simply absent here, which reads the same as one run without a plan.
+    /// The plan id each recorded session carries, resolved once at load: `workoutPlan` is
+    /// `get async throws` and `suggestion(for:)` is read from a view body, where there is
+    /// nothing to await in. A session whose plan cannot be produced is simply absent.
     private var planIDs: [UUID: UUID] = [:]
 
     /// What the server keeps, and what the app shows: a week back, a fortnight ahead.
@@ -91,22 +87,12 @@ final class AppModel: ObservableObject {
         return workouts.filter { !$0.isDone && $0.date >= today }
     }
 
-    /// The same workouts under the headings the Planned tab reads them in: the rest of this
-    /// week, next week, and whatever the fortnight reaches past that.
+    /// The same workouts under the headings the Planned tab reads them in.
     ///
-    /// A week runs **Monday to Sunday**, whatever the phone's locale says a week begins on.
-    /// It is a training week rather than a calendar one: the long run is on a Sunday, and a
-    /// Sunday filed under *Next week* on a Saturday evening — which is what `Calendar.current`
-    /// does in a locale whose week starts then — is the very next session shown as the one
-    /// after that. The grouping exists because "next week" is something an athlete says
-    /// rather than a count of seven days from today, and this is the week they mean; it is
-    /// also the week `src/client/dates.ts` groups the dashboard by, so the two screens break
-    /// a fortnight in the same place. The far group has no name of its own for the same
-    /// reason: it is whatever the server happens to hold beyond the two weeks anybody is
-    /// thinking in.
-    ///
-    /// An empty group is left out rather than shown empty. `missed` is its own list above
-    /// these, because a session behind is a decision to make and not part of the week ahead.
+    /// A week runs **Monday to Sunday** whatever the phone's locale says, because it is a
+    /// training week: the long run is on a Sunday, and a Sunday filed under *Next week* on a
+    /// Saturday evening is the very next session shown as the one after that. It is also the
+    /// week `src/client/dates.ts` groups the dashboard by. An empty group is left out.
     var plannedWeeks: [PlannedWeek] {
         var calendar = Calendar.current
         calendar.firstWeekday = 2 // Monday, whatever the locale's own answer would be.
@@ -151,9 +137,8 @@ final class AppModel: ObservableObject {
         workouts.first { $0.key == workout.key } ?? workout
     }
 
-    /// Every session's plan id, asked for together. Each one is a round trip to the store,
-    /// and a week of training asked one after another is a week of them before the tab can
-    /// draw. A session with no plan is left out rather than stored as a null.
+    /// Asked for together: each is a round trip to the store, and a week of them one after
+    /// another is a week of round trips before the tab can draw.
     private static func planIDs(of activities: [HKWorkout]) async -> [UUID: UUID] {
         await withTaskGroup(of: (UUID, UUID?).self) { group in
             for activity in activities {
@@ -187,16 +172,13 @@ final class AppModel: ObservableObject {
 
         do {
             try await HealthAccess.request()
-            // Authorization has just been granted, which is the thing background delivery
-            // needs and cannot have had on a first launch: `BackgroundSync.start()` runs in
-            // the app's initialiser, before anybody has been asked. Enabling it here is what
-            // makes HealthKit wake the app for the session recorded *today* rather than from
-            // whenever the app is next launched cold.
+            // Background delivery needs authorization, which `BackgroundSync.start()` in the
+            // app's initialiser cannot have had on a first launch. Enabling it here is what
+            // makes HealthKit wake the app for a session recorded today.
             BackgroundSync.enableDelivery()
 
-            // The ids are resolved before `activities` is published, so the first render
-            // already has them: assigned the other way round, every session would draw once
-            // as unplanned and again a moment later with its workout.
+            // Resolved before `activities` is published, or every session draws once as
+            // unplanned and again a moment later with its workout.
             let recorded = try await HealthAccess.recentActivities(days: recentDays)
             planIDs = await Self.planIDs(of: recorded)
             activities = recorded
@@ -205,22 +187,16 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Opening the app syncs, unless the watch already holds this plan: the status line
-    /// claims it is there, so it has to have put it there.
-    ///
-    /// Both halves of that are `PlanSync`'s to answer — four hours since the last sync, or a
-    /// plan that is not the one that was placed — and the second is why an edit made ten
-    /// minutes ago still reaches the watch on opening the app.
+    /// Opening the app syncs unless the watch already holds this plan: the status line
+    /// claims it is there, so it has to have put it there. `PlanSync` answers both halves —
+    /// four hours since the last sync, or a plan that is not the one that was placed.
     func refreshAndSyncIfStale(using client: WorkoutsClient?) async {
         await refresh(using: client)
 
-        // Whatever the background never got to. A wake is what should have uploaded the
-        // session already, and `.immediate` delivery is a request rather than a promise —
-        // Low Power Mode delays it, a force-quit stops it entirely, and there is nobody in a
-        // background launch to say so. Opening the app is the moment that is certain to
-        // happen, so it catches up on the same terms a wake uses: only sessions the watch
-        // itself named, only ones the server has no recording for. Nothing is guessed at
-        // here that would not be guessed at unattended.
+        // Whatever the background never got to: `.immediate` delivery is a request rather
+        // than a promise, and opening the app is the moment that is certain to happen. On
+        // exactly a wake's terms — only sessions the watch named, only ones the server has
+        // no recording for.
         if await BackgroundSync.uploadWhatIsCertain() == .uploaded { await refresh(using: client) }
 
         if case .syncing = sync { return }
@@ -263,13 +239,9 @@ final class AppModel: ObservableObject {
 
     // --- Back from Apple -------------------------------------------------------------------
 
-    /// Which planned workout a recorded session was, as far as this app can tell: the plan id
-    /// the watch carried, and failing that the one workout of that sport planned for that day.
-    ///
-    /// It is not a question the athlete is asked. A session the watch named is certain, a
-    /// day with one workout of that sport on it is as good as certain, and anything else is
-    /// a guess this app would be putting in front of them as a choice — with the plan, the
-    /// dashboard and the assistant all better placed to settle it than a picker here.
+    /// The plan id the watch carried, and failing that the one workout of that sport planned
+    /// for that day. Never a question the athlete is asked: anything past those two is a
+    /// guess the plan, the dashboard and the assistant are all better placed to settle.
     func suggestion(for activity: HKWorkout) -> PlannedWorkout? {
         if let id = planIDs[activity.uuid], let key = PlanLink.workoutKey(forPlan: id) {
             return workouts.first { $0.key == key }
@@ -280,14 +252,9 @@ final class AppModel: ObservableObject {
         return sameDay.count == 1 ? sameDay.first : nil
     }
 
-    /// The FIT file, written to a temporary file so it can be shared as well as uploaded.
-    ///
-    /// Encoding runs on a task of its own rather than here. This model is on the main actor
-    /// and `ActivityFit.encode` is ordinary synchronous work — a setter per field per second
-    /// of the recording, which on a long ride is a second or more of arithmetic. Called
-    /// straight from the button it holds the only thread that draws, and the screen stops
-    /// answering until the file is finished. Writing it out is the same story, in an API
-    /// that blocks rather than one that computes.
+    /// The FIT file, written out so it can be shared as well as uploaded. Encoding runs off
+    /// the main actor: `ActivityFit.encode` is synchronous work — a setter per field per
+    /// second of the recording — and would hold the only thread that draws.
     func buildFit(for activity: HKWorkout, matching workout: PlannedWorkout?) async throws -> URL {
         let recorded = try await SessionReader.read(activity, as: workout?.key)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename(for: activity, as: workout))
@@ -333,25 +300,19 @@ final class AppModel: ObservableObject {
         return workout.isDone
     }
 
-    /// `yyyy-mm-dd-<id>-<name>.fit`, which is what `src/recordings/` calls the same session
-    /// when it comes back out of an archive or lands in a connected drive. One session is one
-    /// file by three routes, and an athlete holding two of them should be able to tell that
-    /// without opening either.
-    ///
-    /// The id is the planned workout's — this server's own, the one in the URL and in the
-    /// file as `workout_mcp_id` — and not HealthKit's, which means nothing anywhere else. A
-    /// session with no workout to name is `unmatched` rather than an id of some other kind:
-    /// the slot holds one sort of thing, and a file that has nothing for it should say so.
+    /// `yyyy-mm-dd-<id>-<name>.fit`, the same name `src/recordings/` gives the session in an
+    /// archive or a connected drive, so one session is one file by three routes. The id is
+    /// the planned workout's, not HealthKit's, which means nothing anywhere else; a session
+    /// with no workout to name is `unmatched`.
     private func filename(for activity: HKWorkout, as workout: PlannedWorkout?) -> String {
         let day = WorkoutDate.string(activity.startDate)
         let name = workout?.name ?? HealthAccess.label(of: activity)
         return "\(day)-\(slug(workout?.id ?? "unmatched", 40))-\(slug(name, 80)).fit"
     }
 
-    /// `safe()` in `src/recordings/index.ts`, in Swift, because the two have to agree on what
-    /// a name is rather than nearly agree. Separators and control characters become spaces, a
-    /// run of whitespace becomes one dash, and what survives is letters, digits, dot, dash and
-    /// underscore — so a workout called `4 x 10' Tempo` is a filename on both sides.
+    /// `safe()` in `src/recordings/index.ts`, in Swift, because the two have to agree rather
+    /// than nearly agree: separators and control characters become spaces, a run of
+    /// whitespace becomes one dash, and letters, digits, dot, dash and underscore survive.
     private func slug(_ value: String, _ limit: Int) -> String {
         let allowed = CharacterSet.letters.union(.decimalDigits).union(CharacterSet(charactersIn: "._-"))
         let separated = String(value.unicodeScalars.map { scalar -> Character in

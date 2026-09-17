@@ -14,12 +14,7 @@ export type Workout = {
   external_id?: string;
   /** An ISO instant, absent while the session is still only planned. */
   completed_at?: string;
-  /**
-   * The athlete's own note on how it went, absent while they have written none.
-   *
-   * Read-only here, as the completion is: it is written by the assistant or on the
-   * connected platform, and this dashboard shows what came back.
-   */
+  /** Read-only here, as the completion is: written by the assistant or on the platform. */
   comment?: string;
   updated_at: string;
   /** Server-rendered prose. The first line is a header; the rest are the steps. */
@@ -34,7 +29,6 @@ export type Workout = {
 /** What a metric is measured in. Pace is seconds per kilometre, so lower is faster. */
 export type Metric = 'hr' | 'pace_s_km' | 'power_w' | 'cadence';
 
-/** The planned band a lap was run against, and where the lap actually sat. */
 export type LapTarget = {
   metric: Metric;
   low: number;
@@ -78,7 +72,6 @@ export type RecordedSession = {
   avg_cadence: number | null;
 };
 
-/** What a workout carries: the totals, and no laps. `getWorkoutStats` has those. */
 export type StatsSummary = {
   platform: string;
   activity_id: string;
@@ -117,7 +110,6 @@ async function request<T>(path: string, { method = 'GET', body }: RequestOptions
 
 export const getMe = (): Promise<Me> => request('/api/me');
 
-/** The signed-in athlete, or null when nobody is. */
 export const currentUser = (): Promise<Me | null> => getMe().then((me) => me, () => null);
 
 export const listProviders = (): Promise<{ providers: string[] }> => request('/auth/providers');
@@ -125,11 +117,9 @@ export const listProviders = (): Promise<{ providers: string[] }> => request('/a
 export const listWorkouts = (): Promise<{ workouts: Workout[] }> => request('/api/workouts.json');
 export const deleteWorkout = (workout: Workout): Promise<unknown> => request(workout.json_url, { method: 'DELETE' });
 
-/** The laps behind `workout.stats`, which are their own read. */
 export const getWorkoutStats = (workout: Workout): Promise<WorkoutStats> =>
   request(`/api/workouts/${workout.date}/${workout.id}/stats`);
 
-/** A training platform, and where it stands for this athlete. */
 export type Platform = {
   id: string;
   label: string;
@@ -169,7 +159,6 @@ export const disconnectPlatform = (id: string): Promise<unknown> =>
 export const syncPlatform = (id: string): Promise<SyncReport> =>
   request(`/api/sync/${id}`, { method: 'POST' });
 
-/** One of the markdown documents an assistant reads before it plans. */
 export type ContextDocument = {
   kind: string;
   label: string;
@@ -226,6 +215,5 @@ async function download(path: string, filename: string, whatFailed: string): Pro
 export const downloadFit = (workout: Workout): Promise<void> =>
   download(workout.fit_url, `${workout.date}-${workout.id}.fit`, 'export the FIT file');
 
-/** Every context document as one ZIP, so what you wrote is never only here. */
 export const downloadContextBackup = (): Promise<void> =>
   download('/api/context.zip', 'backup-context.zip', 'export your context');

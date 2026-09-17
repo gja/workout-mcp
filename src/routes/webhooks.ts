@@ -9,21 +9,10 @@ import * as platforms from '../platforms';
 import type { Router } from '../router';
 
 /**
- * The events worth reading an athlete's completions back for.
- *
- * Neither is evidence on its own — both are nudges, and what actually marks a
- * workout done is the pairing, read over the API. So taking more of them costs a
- * read and risks nothing.
- *
- * `ACTIVITY_ANALYZED` is the one to rely on: it comes after intervals.icu has had
- * the chance to pair the activity with the event we pushed, and it is debounced, so
- * one upload is one delivery rather than a burst.
- *
- * `ACTIVITY_UPLOADED` fires on arrival, usually *before* that pairing exists, so on
- * its own it often marks nothing. It is taken anyway for the cases where it does:
- * an upload that arrives already paired is done sooner, and a delivery of the other
- * that never arrives — they gave up retrying, or we were mid-deploy — has a second
- * chance that is not an hour away.
+ * Neither event is evidence: both are nudges, and the pairing read over the API is what
+ * marks a workout done, so taking more of them costs a read and risks nothing.
+ * `ACTIVITY_ANALYZED` is the one to rely on — debounced, and after the pairing exists.
+ * `ACTIVITY_UPLOADED` fires on arrival and is a second chance that is not an hour away.
  */
 const NUDGES = new Set(['ACTIVITY_ANALYZED', 'ACTIVITY_UPLOADED']);
 

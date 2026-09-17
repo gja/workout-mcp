@@ -22,29 +22,24 @@ enum PlanSyncError: LocalizedError {
 }
 
 enum WorkoutKitSync {
-    /// Asked for if it has not been given, and then insisted on. Once a sync rather than
-    /// once a workout: every call into the scheduler crosses to a system service, and the
-    /// answer cannot change in the middle of one. The asking itself is remembered by the
-    /// system and not here, so a second sync does not ask again.
+    /// Once a sync rather than once a workout: every call into the scheduler crosses to a
+    /// system service, and the answer cannot change mid-sync.
     static func requireAuthorization() async throws {
         guard await WorkoutScheduler.shared.requestAuthorization() == .authorized else {
             throw PlanSyncError.notAuthorized
         }
     }
 
-    /// What the scheduler is holding, read once. Nothing outside this file is given
-    /// WorkoutKit's own type for it, so a caller can carry the reading around and still not
-    /// know what a scheduled workout is; `ids` is all one needs to ask whether a plan it
-    /// placed is still there, and `ticked` whether it is there as done.
+    /// What the scheduler is holding, read once. Nothing outside this file sees WorkoutKit's
+    /// own type: `ids` answers whether a placed plan is still there, `ticked` whether as done.
     struct Schedule {
         fileprivate let workouts: [ScheduledWorkoutPlan]
         let ids: Set<UUID>
         let ticked: Set<UUID>
     }
 
-    /// Read once a sync and handed to everything below. Asked per workout, this was the same
-    /// question to the same system service as many times as there were workouts, and a sync
-    /// that changes nothing should ask it once.
+    /// Read once a sync and handed to everything below: asked per workout it was the same
+    /// question to the same system service as many times as there were workouts.
     static func scheduled() async -> Schedule {
         let workouts = await WorkoutScheduler.shared.scheduledWorkouts
         return Schedule(
@@ -93,13 +88,11 @@ enum WorkoutKitSync {
     // --- The plan, in Apple's shape ----------------------------------------------------
 
     /// A warmup step and a cooldown step are Apple's own slots; everything between them is a
-    /// block. A repeat becomes a block that iterates, which is the one place the two models
-    /// line up exactly.
+    /// block, and a repeat becomes a block that iterates.
     ///
-    /// `CustomWorkout.init` is not failable and does not throw. It validates what it is
-    /// given by trapping, which took the app down on a power band whose open floor had been
-    /// filled with 0 W. So everything it asserts is asked first, through the three `supports`
-    /// calls Apple put there for it: the activity here, the goal and the alert per step.
+    /// `CustomWorkout.init` is not failable and does not throw — it validates by trapping,
+    /// which took the app down on a power band whose open floor had been filled with 0 W. So
+    /// everything it asserts is asked first, through the three `supports` calls.
     static func build(_ plan: ResolvedPlan) throws -> CustomWorkout {
         let sport = Sport(activity: Sports.activityType(plan.sport), location: Sports.location(plan.subSport))
         guard CustomWorkout.supportsActivity(sport.activity) else {
@@ -166,11 +159,9 @@ enum WorkoutKitSync {
         IntervalStep(effort.isRecovery ? .recovery : .work, step: step(effort, sport))
     }
 
-    /// Every alert is put to `CustomWorkout.supportsAlert` before it is attached. WorkoutKit
-    /// takes an alert the activity has no meter for — a pace band on a rowing machine, a
-    /// power band where nothing reads watts — and only finds out at the scheduler, which
-    /// does not throw and so has nowhere to say so. Asked here, an alert that will not do is
-    /// simply not attached, and the target goes into the step's name like any other.
+    /// Put to `CustomWorkout.supportsAlert` first: WorkoutKit takes an alert the activity has
+    /// no meter for and only finds out at the scheduler, which does not throw. Asked here, an
+    /// alert that will not do is simply not attached and the target goes into the step's name.
     private static func step(_ effort: PlanEffort, _ sport: Sport) -> WorkoutStep {
         let alert = PlanAlerts.alert(for: effort.target).flatMap {
             CustomWorkout.supportsAlert($0, activity: sport.activity, location: sport.location) ? $0 : nil
@@ -180,12 +171,10 @@ enum WorkoutKitSync {
         return step
     }
 
-    /// A step carries one alert and one line of text, and a plan step can hold more target
-    /// than that: a percentage bound, which needs a profile this app does not hold, a zone
-    /// past the five the watch has, and a second target, which WorkoutKit has nowhere to
-    /// put. Whatever did not become an alert is written into the name the watch already
-    /// shows — `Spin @ 85-95 rpm` — in the same words the workout reads in on the phone, so
-    /// the athlete still sees what the step was for.
+    /// A step carries one alert and one line of text, and a plan step can hold more: a
+    /// percentage bound, a zone past the watch's five, or a second target. Whatever did not
+    /// become an alert is written into the name the watch already shows — `Spin @ 85-95 rpm`
+    /// — in the same words the workout reads in on the phone.
     private static func name(_ effort: PlanEffort, alerted: Bool) -> String? {
         var unalerted: [PlanTarget] = alerted ? [] : [effort.target]
         if let secondary = effort.secondaryTarget { unalerted.append(secondary) }
@@ -198,10 +187,8 @@ enum WorkoutKitSync {
         return "\(name) @ \(targets)"
     }
 
-    /// A distance is not a goal every activity has — nothing measures how far a strength
-    /// session went — and one that does not fit traps in `CustomWorkout.init` rather than
-    /// being refused. The step falls back to running until the lap button, which is the one
-    /// goal always available, instead of taking the app down.
+    /// A goal that does not fit traps in `CustomWorkout.init` rather than being refused, so
+    /// the step falls back to running until the lap button, which is always available.
     private static func goal(_ duration: PlanDuration, _ sport: Sport) -> WorkoutGoal {
         let goal: WorkoutGoal
         switch duration {

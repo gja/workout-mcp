@@ -1,9 +1,6 @@
-// Copying the sessions an athlete recorded on a training platform into their own
-// Google Drive. One pass over the platforms, one file each, nothing kept.
-//
-// Nothing routes here: this runs from the hourly cron in `src/index.ts` and from
-// nowhere else, for the athletes whose `drive_connections` row is already there.
-// `src/recordings/` is what a caller reaches for instead.
+// Copying the sessions an athlete recorded into their own Google Drive. Nothing routes
+// here: it runs from the hourly cron in `src/index.ts` and nowhere else, for the athletes
+// whose `drive_connections` row is already there. `src/recordings/` is the caller's door.
 
 import type { Env, User } from '../db';
 import * as platforms from '../platforms';
@@ -20,22 +17,14 @@ export { DriveError } from './google';
 export const ROOT_FOLDER = 'workouts-mcp';
 
 /**
- * How far back a run looks for sessions to copy.
- *
- * Deliberately not the retention window: that window protects the database, and
- * nothing about the session itself is stored, so it has no bearing here. This is
- * long enough that connecting a drive weeks later still catches what came before.
+ * Deliberately not the retention window, which protects the database and has no bearing
+ * here: long enough that connecting a drive weeks later still catches what came before.
  */
 export const LOOKBACK_DAYS = 30;
 
-// Each copy is a download and an upload, on top of up to six folder lookups on
-// a cold run, so a batch of three athletes at three sessions each is about forty
-// subrequests — inside the 50 a Worker gets on the free plan. The pass has its
-// own cron for exactly that reason: see "Scheduled work" in docs/deployment.md.
-//
-// Every recorded session is copied, not only the races, so the queue after a
-// drive is first connected is a month of training rather than a handful of
-// events. It clears over consecutive hourly runs, and `remaining` says so.
+// Each copy is a download and an upload, on top of up to six folder lookups on a cold
+// run, so these keep a pass inside the 50 subrequests a Worker gets on the free plan. A
+// backlog clears over consecutive hourly runs, and `remaining` says so.
 export const COPY_LIMIT = 3;
 export const COPY_BATCH = 3;
 
@@ -56,12 +45,9 @@ const pathOf = (label: string, recorded: Recorded): string =>
 export type Drive = google.Drive;
 
 /**
- * Check the service account can actually *write* to the drive before storing it.
- *
- * Reading is not enough to prove anything useful: a Viewer, or a My Drive folder
- * a service account has no quota to own files in, reads fine and then fails
- * every copy. Making the root folder is the cheapest honest test, and it is a
- * folder the first copy would have had to make anyway.
+ * Reading proves nothing: a Viewer, or a My Drive folder a service account has no quota
+ * to own files in, reads fine and then fails every copy. Making the root folder is the
+ * cheapest honest test, and one the first copy would have made anyway.
  */
 export async function configure(env: Env, user: User, pasted: string): Promise<Drive> {
   if (!google.driveConfigured(env)) throw new google.DriveUnavailable();
@@ -215,13 +201,9 @@ export async function copyNow(env: Env, user: User): Promise<CopyReport> {
         report.paths.push(path);
         report.copied += 1;
       } catch (err) {
-        // Per session, not per run: every recorded session is queued now, and some of
-        // them have no file to fetch at all — a manual entry, or one that came from
-        // Strava with no streams to build a FIT from. Aborting here would park the
-        // queue on that session for good, because it is rebuilt oldest-first every
-        // pass and would fail at the same place. `copyOne` has already handed the
-        // claim back, so it is still owed; the rest of the batch moves meanwhile,
-        // and the lookback drops the session for good after `LOOKBACK_DAYS`.
+        // Per session, not per run: some have no file to fetch at all, and the queue is
+        // rebuilt oldest-first every pass, so aborting here would park it on that session
+        // for good. The claim is already handed back, and the lookback drops it in time.
         refused = message(err);
       }
     }

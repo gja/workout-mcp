@@ -36,33 +36,27 @@ fails every copy — before storing anything.
 Each hourly run listed recorded sessions for the last `LOOKBACK_DAYS`, skipped
 those already in the `drive_copies` ledger, and relayed up to `COPY_LIMIT` of
 them straight from the platform into Drive. The ledger row was claimed *before*
-the bytes moved, so two overlapping runs could not both upload — Drive allows
-duplicate names, so that would have been two files with one orphaned.
+the bytes moved, so two overlapping runs could not both upload.
 
 Three constraints shaped it, and all three still hold:
 
-- **Only a shared drive.** A service account owns whatever it uploads and has
-  no storage quota of its own, so a folder in someone's own Drive has nothing to
-  charge the bytes to. Shared drives are a Workspace feature, which made the
-  whole integration Workspace-only — the reason it never suited a free Gmail
-  account, and a large part of why it was worth replacing.
-- **Its own cron.** `40 * * * *`, separate from the completion sweep, so it got
-  its own subrequest allowance rather than that sweep's leftovers.
+- **Only a shared drive.** A service account has no storage quota of its own, so
+  a folder in someone's own Drive has nothing to charge the bytes to. Shared
+  drives are a Workspace feature, which made the whole integration
+  Workspace-only — a large part of why it was worth replacing.
+- **Its own cron**, `40 * * * *`, so it got its own subrequest allowance rather
+  than the completion sweep's leftovers.
 - **Nothing about a session stored.** The recording was relayed inside one
   request; the ledger holds only which session went and where.
 
 ## Why it was replaced
 
 [recordings.md](../recordings.md) answers "let me look at what I did" with a
-signed ZIP download: no Workspace account, no service account, no drive to
-share, nothing to set up. That is most of what this was for, at none of the
-cost.
-
-What a drive does that the download does not is **keep** the files. The
-download is a relay — follow the link and the files come from the platform;
-delete the session upstream and it is gone. A drive is durable, and that is a
-real difference. It was not enough to justify the setup burden on the one
-account type that could use it, but it is the thing to weigh if this comes back.
+signed ZIP download: no Workspace account, no service account, nothing to set
+up. What a drive does that the download does not is **keep** the files — the
+download is a relay, so a session deleted upstream is gone. That is the thing to
+weigh if this comes back; it was not enough to justify the setup burden on the
+one account type that could use it.
 
 ## What is still here
 

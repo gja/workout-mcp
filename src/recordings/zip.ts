@@ -16,14 +16,9 @@ const END_OF_CENTRAL = 0x06054b50;
 const FLAGS = 0x0008 | 0x0800;
 
 /**
- * Stored, not deflated — and that is a decision, not a shortcut.
- *
- * CPU is the scarce thing in a Worker, not bandwidth: an archive is built
- * inside one request's budget, and deflating every byte on the way out spends
- * that budget to save very little. A FIT file is already packed binary, so it
- * gives back only a few per cent. The CRC below is the one pass that cannot be
- * skipped — a ZIP without it is one a reader calls corrupt — so it is the only
- * per-byte work here, and the copy is otherwise a straight relay.
+ * Stored, not deflated: CPU is the scarce thing in a Worker, not bandwidth, and a FIT
+ * file is already packed binary. The CRC below is the one per-byte pass that cannot be
+ * skipped, so the copy is otherwise a straight relay.
  */
 const STORED = 0;
 
@@ -187,16 +182,12 @@ const endOfCentralDirectory = (count: number, size: number, offset: number): Uin
 };
 
 /**
- * The archive as a stream, built from entries produced as they are needed.
+ * An async iterable rather than an array, because each entry is a download from someone
+ * else's server and asking for them all up front would hold every response open.
  *
- * The source is an async iterable rather than an array because each entry is a
- * download from someone else's server: asking for them all up front would mean
- * holding every response open while the first one is copied.
- *
- * Plain ZIP, not ZIP64, so nothing here may cross 4 GiB or 65,535 entries. Both
- * are thrown on rather than written wrong, because a reader meeting a truncated
- * 32-bit size reports a corrupt archive and not the reason for it. The caller
- * that fills this — `src/recordings/` — caps the count long before either bites.
+ * Plain ZIP, not ZIP64, so 4 GiB and 65,535 entries are the ceilings — thrown on rather
+ * than written wrong, since a reader meeting a truncated 32-bit size reports a corrupt
+ * archive and not the reason for it.
  */
 export function zipStream(entries: AsyncIterable<ZipEntry>): ReadableStream<Uint8Array> {
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
@@ -259,9 +250,9 @@ export function zipStream(entries: AsyncIterable<ZipEntry>): ReadableStream<Uint
     await writer.close();
   };
 
-  // Deliberately not awaited: the response goes out while this is still filling
-  // it. An abort is how a reader learns the archive stopped being trustworthy —
-  // a closed stream would look like a complete, and shorter, download.
+  // Deliberately not awaited: the response goes out while this is still filling it. An
+  // abort is how a reader learns the archive stopped being trustworthy; a closed stream
+  // would look like a complete, shorter download.
   void build().catch((err: unknown) => {
     console.error('building the ZIP failed part way through', err);
     void writer.abort(err);
