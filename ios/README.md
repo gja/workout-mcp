@@ -118,8 +118,13 @@ and this is the fastest way to a clean build:
 
 ```bash
 xcodebuild -project ios/WorkoutsMCP.xcodeproj -scheme WorkoutsMCP \
-  -destination 'platform=iOS Simulator,name=iPhone 16' build
+  -destination 'generic/platform=iOS Simulator' build
 ```
+
+`generic/` rather than a named device on purpose: naming one means `OS:latest` too, and
+that fails on a machine whose newest installed runtime is older than the newest that
+exists. `xcodebuild -showdestinations -project ios/WorkoutsMCP.xcodeproj -scheme WorkoutsMCP`
+lists what this machine actually has.
 
 Then run it on a real iPhone (⌘R with the phone selected), which is the only place
 HealthKit has data and `WorkoutScheduler` does anything.
