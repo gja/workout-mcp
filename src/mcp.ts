@@ -360,11 +360,13 @@ export async function handleMcp(request: Request, env: Env, user: User): Promise
     // transport above.
     legacy: 'reject',
     onerror: (error: Error) => void report('modern handler', error),
-    // One JSON body per POST, never a stream. Nothing here emits a message
-    // before its result, so `auto` would never upgrade anyway — saying so makes
-    // it a rule rather than a coincidence, and means the handler can be closed
-    // as soon as `fetch` resolves without cutting a response short.
-    responseMode: 'json',
+    // `responseMode` is left at `auto`, which here means one JSON body per POST
+    // and never a stream: the transport only upgrades to SSE when something is
+    // sent before the result, and nothing here sends one. Pinning it to `'json'`
+    // said the same thing, but the SDK warns once per handler — once per
+    // request, on a handler built per request — that the mode drops mid-call
+    // notifications. There are none to drop, so the rule costs a log line a
+    // request and buys nothing.
   });
 
   try {
