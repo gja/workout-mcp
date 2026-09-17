@@ -211,15 +211,23 @@ is no second-by-second heart rate anywhere to draw. What the quarters give inste
 thing an average hides — a rep that started at 6:00/km and finished at 6:40 reads as a
 clean hit until you see its four.
 
-Below all of it, where Health has the session, is *Generate .fit*, which writes the file on
-the phone, and then *Share* it.
+Below all of it, where Health has the session, is one button: **Share .fit**. It writes the
+file and opens the share sheet on the far side of it.
 
-Building the file is never what anybody wanted — it is what they had to do first — so the
-share sheet opens on its own the moment it is written, and every way out of the screen is in
-there: AirDrop, Files, Mail, and **Upload to WorkoutsMCP** as an action of this app's own
+One button rather than two, because writing the file was never a step anybody wanted — it is
+what had to happen before the thing they asked for. Every way out of the screen is then in
+the sheet: AirDrop, Files, Mail, and **Upload to WorkoutsMCP** as an action of this app's own
 beside them. That is `UIActivityViewController` with a `UIActivity` rather than SwiftUI's
 `ShareLink`, which can do neither half — it opens only when its own link is tapped, and it
 takes no actions.
+
+The file is real, on disk, in the temporary directory, because that is what a share sheet
+wants: `UIActivityViewController` takes the name and the type from a URL, and handing it raw
+bytes instead would land the session in Files and Mail as an untitled blob rather than as
+`yyyy-mm-dd-<id>-<name>.fit`. It is not deleted on dismissal — a share target copies
+asynchronously, and pulling the file out from under AirDrop would fail the share to save a
+few hundred kilobytes iOS reclaims anyway. The URL is not kept either: the next share writes
+it again, against whatever workout the session is matched to by then.
 
 The upload is in the sheet and nowhere else. A button behind it would be two ways to do one
 thing, and a sheet dismissed by accident costs a tap on *Share* rather than a lost file.

@@ -15,9 +15,11 @@ struct SessionView: View {
     @EnvironmentObject private var model: AppModel
 
     @State private var stats: WorkoutStats?
-    @State private var fit: URL?
     @State private var building = false
-    @State private var sharing = false
+    /// The file, for as long as the sheet sharing it is up. It is not kept once that closes:
+    /// the bytes are a second's work to write again, and the plan they name can change
+    /// underneath them. See `BuiltFit`.
+    @State private var sharing: BuiltFit?
     @State private var failure: String?
 
     /// The listing's copy of the planned workout, so an upload a moment ago is reflected here.
@@ -39,10 +41,8 @@ struct SessionView: View {
         .navigationTitle(done.sport)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: workout?.stats?.computedAt) { await loadStats() }
-        .sheet(isPresented: $sharing) {
-            if let fit {
-                ShareSheet(item: fit, activities: [uploadActivity].compactMap { $0 })
-            }
+        .sheet(item: $sharing) { built in
+            ShareSheet(item: built.url, activities: [uploadActivity(for: built.url)].compactMap { $0 })
         }
     }
 
@@ -150,18 +150,12 @@ struct SessionView: View {
     @ViewBuilder private var upload: some View {
         if let activity = done.activity {
             Section {
-                Button(building ? "Building…" : "Generate .fit") {
-                    Task { await build(activity) }
+                Button {
+                    Task { await share(activity) }
+                } label: {
+                    Label(building ? "Building…" : "Share .fit", systemImage: "square.and.arrow.up")
                 }
                 .disabled(building)
-
-                if let fit {
-                    Button {
-                        sharing = true
-                    } label: {
-                        Label("Share \(fit.lastPathComponent)", systemImage: "square.and.arrow.up")
-                    }
-                }
             } footer: {
                 Text(workout == nil
                     ? "The file is yours to send anywhere. Uploading needs a planned workout to file it against."
@@ -180,8 +174,8 @@ struct SessionView: View {
     /// The upload, as a share target — absent where there is no workout to file the session
     /// against, because an action that cannot say where it is sending this does not belong
     /// in a list of places to send it.
-    private var uploadActivity: UploadActivity? {
-        guard let activity = done.activity, let fit, let workout else { return nil }
+    private func uploadActivity(for fit: URL) -> UploadActivity? {
+        guard let activity = done.activity, let workout else { return nil }
 
         return UploadActivity(title: workout.isDone ? "Upload again to WorkoutsMCP" : "Upload to WorkoutsMCP") {
             Task { @MainActor in
@@ -190,19 +184,19 @@ struct SessionView: View {
         }
     }
 
-    private func build(_ activity: HKWorkout) async {
+    /// One button rather than two. Writing the file was never a step anybody wanted — it is
+    /// what had to happen before the thing they asked for — so it happens under the tap that
+    /// asks for it, and the sheet opens on the far side.
+    private func share(_ activity: HKWorkout) async {
         building = true
         defer { building = false }
 
         do {
-            fit = try await model.buildFit(for: activity, matching: workout)
+            sharing = BuiltFit(url: try await model.buildFit(for: activity, matching: workout))
             failure = nil
-            // Straight into the sheet: building a file is never the thing somebody wanted,
-            // it is what they had to do first, and every path out of here is in there.
-            sharing = true
         } catch {
             failure = error.localizedDescription
-            fit = nil
+            sharing = nil
         }
     }
 }

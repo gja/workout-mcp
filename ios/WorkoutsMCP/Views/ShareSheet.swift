@@ -46,6 +46,22 @@ final class UploadActivity: UIActivity {
     }
 }
 
+/// A written file, while the sheet sharing it is up. `.sheet(item:)` wants something
+/// identifiable, and this is also the whole lifetime the app gives one: the URL is not held
+/// after the sheet closes, so the next share writes the file again against whatever workout
+/// the session is matched to by then.
+///
+/// The bytes stay in the temporary directory rather than being deleted on dismissal. A share
+/// target copies asynchronously — AirDrop and Mail are still reading after the sheet is gone
+/// — and pulling the file out from under them would fail the share to save a few hundred
+/// kilobytes that iOS reclaims on its own. The name is settled by the session and the workout
+/// it was for, so sharing the same session twice overwrites rather than accumulates.
+struct BuiltFit: Identifiable {
+    let url: URL
+
+    var id: String { url.path }
+}
+
 /// `UIActivityViewController`, for a SwiftUI `.sheet`.
 struct ShareSheet: UIViewControllerRepresentable {
     let item: URL
