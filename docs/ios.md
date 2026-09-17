@@ -62,6 +62,26 @@ Laps come from `HKWorkoutActivity` where the watch recorded one per interval, fr
 server's lap matching copes with all three, and says `unmatched` rather than guessing when
 the mapping does not line up.
 
+### Altitude a GPS had not settled on
+
+One series is read twice, because it arrives wrong often enough to matter. A cold start can
+spend its first fixes hundreds of metres from where it is and then step to the truth in a
+single sample — a real recording here opens at 212 m, is at 904 m two seconds later, and
+stays there for the rest of the hour.
+
+Nothing downstream can tell that from a hill. The 3 m gate below keeps sensor drift out of a
+climb, and drift is what it is built for, so it reads the step as 693 m of ascent on a
+7.4 km road run. Grade, climb rate and every lap figure the server works out from the records
+are wrong behind it too.
+
+So the altitude trace is cut wherever it moves faster than an athlete could — ten metres a
+second, which nothing that is a measurement will reach — and only the longest run of readings
+is kept. The rest lose their altitude and keep everything else. Dropping rather than mending
+is the same honesty as the empty second above: a FIT record's altitude is optional, and
+leaving it out says nothing was measured, which is true, where a repaired number would be one
+nobody stood at. A recording whose altitude never does anything impossible is a single run
+and loses nothing.
+
 ## The file it writes
 
 Then it is written as a FIT activity file, on the phone, by
@@ -81,7 +101,9 @@ Two of those have a method rather than a formula, and both are computed **the wa
 server computes them** when a file leaves them out: elevation gain behind a 3 m noise gate,
 and normalized power as Coggan's rolling 30-second average. A figure the file carries wins
 over one derived here, so the two agreeing is what stops the same session reading
-differently depending on where its numbers came from.
+differently depending on where its numbers came from. The settling above is a filter on what
+goes into the gate and not a change to it — both ends still run the same arithmetic, on a
+trace the phone has already taken the impossible out of.
 
 ## The id in the file
 

@@ -19,6 +19,11 @@ enum SessionReader {
     /// Grade and climb rate over one second are noise. These are read across a few of them.
     private static let slopeWindow = 5
 
+    /// How fast altitude may move before the fix is changing its mind rather than the athlete
+    /// climbing. Nobody runs or rides up ten metres a second, and nothing that does is a
+    /// measurement — a chairlift would not clear it either, and neither is this file's to read.
+    private static let maxClimbRateMS = 10.0
+
     static func read(_ workout: HKWorkout, as workoutKey: String?) async throws -> RecordedSession {
         let sport = HealthAccess.sport(of: workout)
         let start = workout.startDate
@@ -71,6 +76,8 @@ enum SessionReader {
 
         accumulate(distances, as: .meter(), over: timeline, into: &samples) { $0.distance = $1 }
         accumulate(energy, as: .kilocalorie(), over: timeline, into: &samples) { $0.calories = $1 }
+        // Before the two below: both read altitude, and one bad fix is a wall to either.
+        dropUnsettledAltitude(&samples)
         fillSpeedFromDistance(&samples)
         fillSlope(&samples)
 
@@ -168,6 +175,53 @@ enum SessionReader {
             let seconds = samples[index].time.timeIntervalSince(samples[index - 1].time)
             if seconds > 0 { samples[index].speed = max(0, (here - before) / seconds) }
         }
+    }
+
+    /// The altitude a GPS reported before it had settled, taken back out.
+    ///
+    /// A cold start can spend its first fixes hundreds of metres from where it is and then
+    /// step to the truth in a single sample. One recording here opens at 212 m, is at 904 m
+    /// two seconds later, and stays there for the rest of the hour — and the 3 m gate that
+    /// keeps drift out of a climb is built for drift, so it reads that step as 693 m of
+    /// ascent. Everything derived from altitude is wrong behind it: the session's gain, the
+    /// grade, the climb rate, and every lap figure the server works out from the records.
+    ///
+    /// So the trace is cut wherever it moves faster than an athlete could, and only the
+    /// longest run of readings is kept. Dropping rather than mending is the honest answer:
+    /// altitude is optional in a FIT record, and a second without one says nothing was
+    /// measured, which is true, where a repaired number would be one nobody stood at. A
+    /// recording whose altitude never does anything impossible is one run and loses nothing.
+    private static func dropUnsettledAltitude(_ samples: inout [RecordedSample]) {
+        let measured = samples.indices.filter { samples[$0].altitude != nil }
+        guard measured.count > 1 else { return }
+
+        var runs: [[Int]] = [[measured[0]]]
+        for (previous, index) in zip(measured, measured.dropFirst()) {
+            let seconds = samples[index].time.timeIntervalSince(samples[previous].time)
+            let moved = abs((samples[index].altitude ?? 0) - (samples[previous].altitude ?? 0))
+
+            if seconds > 0, moved / seconds > maxClimbRateMS {
+                runs.append([index])
+            } else {
+                runs[runs.count - 1].append(index)
+            }
+        }
+        guard runs.count > 1 else { return }
+
+        // By the time it covers, not the readings in it: a watch that samples irregularly
+        // would otherwise have the densest stretch win rather than the longest.
+        var longest = runs[0]
+        var longestSpan = -1.0
+        for run in runs {
+            let span = samples[run[run.count - 1]].time.timeIntervalSince(samples[run[0]].time)
+            if span > longestSpan {
+                longestSpan = span
+                longest = run
+            }
+        }
+
+        let kept = Set(longest)
+        for index in measured where !kept.contains(index) { samples[index].altitude = nil }
     }
 
     /// Grade and climb rate, which no sensor reports: they are the altitude the route gave
