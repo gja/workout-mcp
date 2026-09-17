@@ -216,10 +216,14 @@ file and opens the share sheet on the far side of it.
 
 One button rather than two, because writing the file was never a step anybody wanted — it is
 what had to happen before the thing they asked for. Every way out of the screen is then in
-the sheet: AirDrop, Files, Mail, and **Upload to WorkoutsMCP** as an action of this app's own
+the sheet: AirDrop, Files, Mail, and **Export to WorkoutsMCP** as an action of this app's own
 beside them. That is `UIActivityViewController` with a `UIActivity` rather than SwiftUI's
 `ShareLink`, which can do neither half — it opens only when its own link is tapped, and it
 takes no actions.
+
+Nothing on the screen explains any of that. A share sheet is a thing people have used a
+thousand times, and a paragraph under the button saying it will open is a paragraph to read
+before every session for one fact learned once.
 
 The file is real, on disk, in the temporary directory, because that is what a share sheet
 wants: `UIActivityViewController` takes the name and the type from a URL, and handing it raw
@@ -229,11 +233,12 @@ asynchronously, and pulling the file out from under AirDrop would fail the share
 few hundred kilobytes iOS reclaims anyway. The URL is not kept either: the next share writes
 it again, against whatever workout the session is matched to by then.
 
-The upload is in the sheet and nowhere else. A button behind it would be two ways to do one
+The export is in the sheet and nowhere else. A button behind it would be two ways to do one
 thing, and a sheet dismissed by accident costs a tap on *Share* rather than a lost file.
 Where the session has no planned workout to be filed against, the action is not offered at
 all rather than offered and refused: a list of places to send something should only hold
-places it can go.
+places it can go. The *This was* section above has already said why, so the sheet does not
+repeat it.
 
 ### Settings
 
