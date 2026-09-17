@@ -44,7 +44,7 @@ enum WorkoutKitSync {
         // Replaced rather than added to: the id is derived from the key, so an edit upstream
         // that is re-sent lands on the same plan instead of leaving the old one on the watch.
         await remove(planID: planID)
-        try await WorkoutScheduler.shared.schedule(WorkoutPlan(.custom(custom), id: planID), at: when)
+        await WorkoutScheduler.shared.schedule(WorkoutPlan(.custom(custom), id: planID), at: when)
         PlanLink.remember(planID: planID, for: key)
     }
 

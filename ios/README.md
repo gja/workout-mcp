@@ -27,7 +27,8 @@ Wrangler secrets — see [docs/deployment.md](../docs/deployment.md).
 ## Building it
 
 Requires **Xcode 16 or newer** (the project uses a file-system synchronized group, so
-adding a Swift file is just adding a file) and a device running **iOS 17 or newer**.
+adding a Swift file is just adding a file) and a device running **iOS 18 or newer** —
+`WorkoutStep.displayName`, which is what puts a step's name on the watch, is 18.0.
 
 ```bash
 open ios/WorkoutsMCP.xcodeproj
