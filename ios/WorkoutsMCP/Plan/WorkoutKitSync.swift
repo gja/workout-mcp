@@ -140,11 +140,11 @@ enum WorkoutKitSync {
     }
 
     /// A step carries one alert and one line of text, and a plan step can hold more target
-    /// than that: a bound `PlanAlerts` will not invent an end for, and a second target,
-    /// which WorkoutKit has nowhere to put. Whatever did not become an alert is written
-    /// into the name the watch already shows — `Easy @ slower than 7:45/km` — in the same
-    /// words the workout reads in on the phone. Nothing is alerted on that the plan did not
-    /// ask for; the athlete simply gets to see what the step was for.
+    /// than that: a percentage bound, which needs a profile this app does not hold, a zone
+    /// past the five the watch has, and a second target, which WorkoutKit has nowhere to
+    /// put. Whatever did not become an alert is written into the name the watch already
+    /// shows — `Spin @ 85-95 rpm` — in the same words the workout reads in on the phone, so
+    /// the athlete still sees what the step was for.
     private static func name(_ effort: PlanEffort, alerted: Bool) -> String? {
         var unalerted: [PlanTarget] = alerted ? [] : [effort.target]
         if let secondary = effort.secondaryTarget { unalerted.append(secondary) }
