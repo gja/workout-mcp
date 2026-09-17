@@ -64,6 +64,15 @@ final class AppModel: ObservableObject {
     @Published var note: String?
     @Published var problem: String?
 
+    /// The plan id each recorded session carries, resolved once when the sessions are read.
+    ///
+    /// `HKWorkout.workoutPlan` is `get async throws`, and `suggestion(for:)` is read from a
+    /// view body — `executed` maps every activity through it — where there is nothing to
+    /// await in. So the awaiting happens at load, once per session rather than once per
+    /// render, and the lookup below is a dictionary read. A session whose plan cannot be
+    /// produced is simply absent here, which reads the same as one run without a plan.
+    private var planIDs: [UUID: UUID] = [:]
+
     /// What the server keeps, and what the app shows: a week back, a fortnight ahead.
     private let recentDays = 7
     private let plannedDays = 14
@@ -142,6 +151,23 @@ final class AppModel: ObservableObject {
         workouts.first { $0.key == workout.key } ?? workout
     }
 
+    /// Every session's plan id, asked for together. Each one is a round trip to the store,
+    /// and a week of training asked one after another is a week of them before the tab can
+    /// draw. A session with no plan is left out rather than stored as a null.
+    private static func planIDs(of activities: [HKWorkout]) async -> [UUID: UUID] {
+        await withTaskGroup(of: (UUID, UUID?).self) { group in
+            for activity in activities {
+                group.addTask { (activity.uuid, await HealthAccess.planID(of: activity)) }
+            }
+
+            var found: [UUID: UUID] = [:]
+            for await (session, plan) in group {
+                if let plan { found[session] = plan }
+            }
+            return found
+        }
+    }
+
     // --- Loading ---------------------------------------------------------------------------
 
     func refresh(using client: WorkoutsClient?) async {
@@ -167,7 +193,13 @@ final class AppModel: ObservableObject {
             // makes HealthKit wake the app for the session recorded *today* rather than from
             // whenever the app is next launched cold.
             BackgroundSync.enableDelivery()
-            activities = try await HealthAccess.recentActivities(days: recentDays)
+
+            // The ids are resolved before `activities` is published, so the first render
+            // already has them: assigned the other way round, every session would draw once
+            // as unplanned and again a moment later with its workout.
+            let recorded = try await HealthAccess.recentActivities(days: recentDays)
+            planIDs = await Self.planIDs(of: recorded)
+            activities = recorded
         } catch {
             problem = error.localizedDescription
         }
@@ -230,7 +262,7 @@ final class AppModel: ObservableObject {
     /// a guess this app would be putting in front of them as a choice — with the plan, the
     /// dashboard and the assistant all better placed to settle it than a picker here.
     func suggestion(for activity: HKWorkout) -> PlannedWorkout? {
-        if let id = HealthAccess.planID(of: activity), let key = PlanLink.workoutKey(forPlan: id) {
+        if let id = planIDs[activity.uuid], let key = PlanLink.workoutKey(forPlan: id) {
             return workouts.first { $0.key == key }
         }
         let day = WorkoutDate.string(activity.startDate)

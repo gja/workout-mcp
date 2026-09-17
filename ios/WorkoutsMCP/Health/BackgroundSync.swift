@@ -95,7 +95,7 @@ enum BackgroundSync {
               let activities = try? await HealthAccess.recentActivities(days: 2) else { return }
 
         for activity in activities {
-            guard let planID = HealthAccess.planID(of: activity),
+            guard let planID = await HealthAccess.planID(of: activity),
                   let key = PlanLink.workoutKey(forPlan: planID),
                   let workout = planned.first(where: { $0.key == key }),
                   !workout.isDone else { continue }

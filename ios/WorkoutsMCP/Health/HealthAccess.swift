@@ -77,11 +77,12 @@ enum HealthAccess {
     /// sport usually settle it anyway, and total in the background, where that fallback is
     /// deliberately not used.
     ///
-    /// The getter throws — a plan the store cannot produce is not the same as a session run
-    /// without one — but both end the same way here: nothing to match on, so nil, and the
-    /// session is shown as unplanned rather than filed against a guess.
-    static func planID(of workout: HKWorkout) -> UUID? {
-        (try? workout.workoutPlan)?.id
+    /// The getter is `async throws` — it goes back to the store, and a plan it cannot produce
+    /// is not the same as a session run without one — but both end the same way here: nothing
+    /// to match on, so nil, and the session is shown as unplanned rather than filed against a
+    /// guess. Callers that cannot await per session resolve these once; see `AppModel.planIDs`.
+    static func planID(of workout: HKWorkout) async -> UUID? {
+        (try? await workout.workoutPlan)?.id
     }
 
     static func isIndoor(_ workout: HKWorkout) -> Bool {
