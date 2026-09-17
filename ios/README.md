@@ -110,10 +110,16 @@ revoking it there signs the app out. See
 
 Three tabs.
 
-**Planned.** What is coming, in the order it will be run, and a tap gets the steps — the
-plan as the server resolves it, repeats kept, each step with its duration and the band it
-is aimed at. A **Missed** section above it lists anything planned, past and still not done,
-because those are exactly the sessions that are still on the watch.
+**Planned.** At the top, where the plan stands with Apple Fitness — one line, *Synced to
+Apple Fitness · 8 planned workouts · 2 minutes ago*, and tapping it syncs again. The time is
+coarse on purpose: *just now*, then minutes, then hours. A sync five seconds ago and one
+twenty seconds ago are the same fact. Opening the app syncs on its own if the last one was
+over half an hour ago, so the line is true rather than merely reassuring.
+
+Under it, what is coming, in the order it will be run, and a tap gets the steps — the plan
+as the server resolves it, repeats kept, each step with its duration and the band it is
+aimed at. A **Missed** section lists anything planned, past and still not done, because
+those are exactly the sessions that are still on the watch.
 
 **Executed.** Every session there is evidence of, newest first: what Health recorded on
 this phone, and what the server has already read a file for. A tick means the server has
@@ -130,12 +136,7 @@ a field to edit. It comes from the plan id the watch recorded, or from the one w
 that sport planned for that day — and where it is neither, the session says so rather than
 offering a menu to guess from.
 
-**Settings.** Where the plan stands with Apple Fitness — one line, *Synced to Apple
-Fitness · 8 planned workouts · 2 minutes ago*, and tapping it syncs again. The time is
-coarse on purpose: *just now*, then minutes, then hours. A sync five seconds ago and one
-twenty seconds ago are the same fact. Opening the app syncs on its own if the last one was
-over half an hour ago, so the line is true rather than merely reassuring. Below that, who
-is signed in, and **Log out**.
+**Settings.** Who is signed in, which deployment this build talks to, and **Log out**.
 
 What goes to the watch is **two days back to seven days ahead**, minus anything already
 done. Back as well as forward because a day missed is a session still worth doing, and a

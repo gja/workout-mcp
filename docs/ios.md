@@ -115,12 +115,19 @@ the plan, not as a field.
 
 ## Three tabs
 
-**Planned**, **Executed**, and **Settings** — the plan ahead, the sessions behind, and the
-one line that says whether the first of those actually reached the watch.
+**Planned**, **Executed**, and **Settings** — the plan ahead, the sessions behind, and who
+is signed in.
 
 ### Planned
 
-What is coming, in the order it will be run, and a tap gets the steps: the plan as
+At the top, the one line the sync exists to make true: *Synced to Apple Fitness · 8 planned
+workouts · 2 min ago*, and tapping it syncs again. Opening the app syncs on its own when the
+last one was over half an hour ago, because a status line that is merely the last thing that
+happened is worse than none. It sits above the plan rather than in Settings because it is a
+fact about the plan underneath it — "is this on my watch" is read in the same glance as
+"what is on Saturday", not on a screen the athlete goes looking for.
+
+Under it, what is coming, in the order it will be run, and a tap gets the steps: the plan as
 `GET /api/workouts/:date/:id/plan` resolves it, one duration and up to two targets a step,
 repeats kept. It is the same route the sync schedules from, so the screen and the watch are
 reading the same answer rather than two renderings of the same steps.
@@ -162,20 +169,15 @@ Below all of it, where Health has the session, are the two buttons this app star
 
 ### Settings
 
-Where the plan stands with Apple Fitness — one line, *Synced to Apple Fitness · 8 planned
-workouts · 2 min ago*, and tapping it syncs again. Opening the app syncs on its own when
-the last one was over half an hour ago, because a status line that is merely the last thing
-that happened is worse than none. Under it, who is signed in, and the way out.
+Who is signed in, which deployment this build talks to, and the way out. Nothing about the
+plan is here: everything that was is on the tab with the plan on it.
 
-It is in Settings rather than on the plan, which is where it used to be, because it is a
-fact about this app and not about this week's training: it is read once, when the athlete
-wonders whether their watch is up to date, and it is noise on every other opening of the
-app.
+### What a sync sends
 
-A sync sends **two days back to seven days ahead**, minus anything already done, and then
-**prunes**: whatever this app put on the watch outside that window comes off, so the two
-really do agree rather than accumulating. Plans the athlete follows from elsewhere are not
-this app's to touch, and are left alone — only ids in this app's own index are removed.
+**Two days back to seven days ahead**, minus anything already done, and then it **prunes**:
+whatever this app put on the watch outside that window comes off, so the two really do agree
+rather than accumulating. Plans the athlete follows from elsewhere are not this app's to
+touch, and are left alone — only ids in this app's own index are removed.
 
 Back as well as forward because a missed day is a session still worth doing, and needing
 the app to get it back is a worse answer than it being there already. A past-dated workout
