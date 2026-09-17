@@ -1,15 +1,12 @@
 // What this app has already put on the watch, so a sync can tell what is left to do.
 //
-// Everything a scheduled workout is built from comes off the server, and the server says
-// when it last wrote each workout. So a sync that remembers `updated_at` and the minute it
-// scheduled for knows, without asking anything, which workouts would land exactly as they
-// already are — and those are the ones worth not sending. A steady plan, synced again an
-// hour later, is then a listing and one read of the scheduler rather than a round trip and
-// two writes per workout.
+// Everything a scheduled workout is built from comes off the server, which says when it
+// last wrote each workout — so remembering `updated_at` and the minute scheduled for is
+// enough to know which workouts would land exactly as they already are. A steady plan
+// synced again an hour later is then a listing and one read of the scheduler.
 //
-// Remembered rather than derived, and checked against the scheduler rather than trusted on
-// its own: a plan the athlete deleted in the Workout app is gone from the watch and still
-// in here, and putting it back is the whole point of looking.
+// Checked against the scheduler rather than trusted on its own: a plan the athlete deleted
+// in the Workout app is gone from the watch and still in here.
 
 import Foundation
 
@@ -32,12 +29,9 @@ enum PlanPlacement {
         return "\(updated)@\(Int(time.timeIntervalSince1970 / 60))"
     }
 
-    /// Whether this workout can be left alone: placed as it now is, still on the watch, and
-    /// ticked there if it is done here.
-    ///
-    /// The tick is checked against the scheduler for the same reason the plan itself is —
-    /// a completion cleared in the Workout app is one this app's own record would still
-    /// claim, and putting it back is the point of looking.
+    /// Placed as it now is, still on the watch, and ticked there if it is done here. The tick
+    /// is checked against the scheduler for the same reason the plan is: a completion cleared
+    /// in the Workout app is one this app's record would still claim.
     static func holds(
         _ workout: PlannedWorkout,
         at time: Date,

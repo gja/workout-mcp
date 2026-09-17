@@ -1,9 +1,7 @@
 # Deploying
 
-Everything runs on Cloudflare's free tier: one Worker, a D1 database, a KV
-namespace and a static dashboard.
-
-## Quick start
+Everything runs on Cloudflare's free tier: one Worker, a D1 database, a KV namespace
+and a static dashboard.
 
 ```bash
 npm install
@@ -13,18 +11,14 @@ npm run db:remote                           # apply the migrations
 npm run deploy
 ```
 
-Then configure at least one sign-in provider (see [auth.md](auth.md)) and open
-the dashboard.
+Then configure at least one sign-in provider (see [auth.md](auth.md)).
 
-**Migrations are applied automatically on deploy**, by the Cloudflare Workers
-Build that runs on a push. `npm run db:remote` above is for standing the
-database up the first time, and for a schema you want in place before the code
-that reads it. A migration merged with the code that needs it does not have to
-be applied by hand, and a new column is not an ordering hazard.
+**Migrations are applied automatically on deploy**, by the Workers Build that runs on a
+push, so a migration merged with the code that reads it is not an ordering hazard.
+`npm run db:remote` is for standing the database up the first time.
 
-Both ids belong in `wrangler.jsonc` and are committed: they are resource
-identifiers scoped to your account, not secrets, and Cloudflare's build has to
-read them from the repo. A fork will need its own.
+Both ids are committed in `wrangler.jsonc`: they are account-scoped resource
+identifiers, not secrets, and Cloudflare's build reads them from the repo.
 
 ## Local development
 
@@ -33,16 +27,14 @@ npm run db:local    # migrate a local D1
 npm run dev         # everything at http://localhost:8787
 ```
 
-Google sign-in works on localhost — Google allows loopback redirect URIs. Apple
-does not, so that button is only usable on a real domain. intervals.icu does not
-support wildcard redirect URIs, and changing the registered ones means emailing
-them, so it is practical on the deployed origin only.
+Google sign-in works on localhost (loopback redirect URIs are allowed). Apple does not.
+intervals.icu supports no wildcard redirect URIs and changing the registered ones means
+emailing them, so it is practical on the deployed origin only.
 
 ## The deployed origin
 
-This is deployed at **`https://workouts-mcp.com`**. Three things are registered
-against that origin upstream and have to be changed there, not here, if it ever
-moves:
+Deployed at **`https://workouts-mcp.com`**. Three things are registered against that
+origin upstream and have to be changed there if it moves:
 
 | Registered with | Value |
 | --- | --- |
@@ -50,8 +42,7 @@ moves:
 | intervals.icu redirect URI | `https://workouts-mcp.com/auth/intervals/connect-callback` |
 | intervals.icu webhook URL | `https://workouts-mcp.com/webhooks/intervals` |
 
-Google's and Apple's redirect URIs are on the same origin and are set in their
-own consoles.
+Google's and Apple's redirect URIs are on the same origin, set in their own consoles.
 
 ## Secrets
 
@@ -63,41 +54,30 @@ own consoles.
 | `INTERVALS_WEBHOOK_SECRET` | Accepting their webhooks at all |
 | `INTERVALS_WEBHOOK_AUTHORIZATION` | The header they send with one, when you set one |
 | `CREDENTIALS_SECRET` | Connecting a training platform |
-| `GOOGLE_DRIVE_CLIENT_EMAIL`, `GOOGLE_DRIVE_PRIVATE_KEY` | The scheduled copier in `src/drive/`. Leave unset and it does nothing |
+| `GOOGLE_DRIVE_CLIENT_EMAIL`, `GOOGLE_DRIVE_PRIVATE_KEY` | The copier in `src/drive/`; unset and it does nothing |
 
-`APP_NAME` is an optional plain variable, shown on the dashboard and the
-consent page.
+`APP_NAME` is an optional plain variable, shown on the dashboard and consent page.
 
 ## Scheduled work
 
 Three crons, told apart in `src/index.ts` by which one fired.
 
-- **Hourly (`20 * * * *`)** — a backstop for the intervals.icu webhook, which
-  normally marks a session done within a minute: read completions back off the
-  connected training
-  platforms. There is no webhook to subscribe to; see
-  [integrations.md](integrations.md).
-- **Hourly (`40 * * * *`)** — the copier in `src/drive/`, for the athletes it
-  has somewhere to copy to. Its own cron rather than a second job on the pass
-  above, so it gets its own subrequest allowance instead of that sweep's
-  leftovers.
-- **Nightly (`0 3 * * *`)** — the same completion pass, plus credential
-  housekeeping (expired sessions, abandoned sign-ins, stale OAuth grants), a
-  retry of platform connections stuck on an error, and a prune of platform
-  links whose workouts are long gone.
+- **`20 * * * *`** — read completions back off the platforms; a backstop for the
+  intervals.icu webhook, which normally lands within a minute.
+- **`40 * * * *`** — the copier in `src/drive/`. Its own cron so it gets its own
+  subrequest allowance rather than the sweep's leftovers.
+- **`0 3 * * *`** — the same completion pass, plus credential housekeeping, a retry of
+  connections stuck on an error, and a prune of platform links whose workouts are gone.
 
-Workouts are deliberately never swept. See [database.md](database.md).
+Workouts are never swept. See [database.md](database.md).
 
 ## Cost
 
-Workers (100k requests/day), D1 (5 GB, 5M row reads/day), KV, static assets and
-cron triggers all fit the free plan. Encoding a 30-step workout is well under
-the 10 ms CPU limit. Google sign-in is free. The only things you pay for are
-the domain — Cloudflare Registrar sells those at cost — and, if you want the
-Apple button, an Apple Developer Program membership.
+Workers, D1, KV, static assets and cron triggers all fit the free plan; encoding a
+30-step workout is well under the 10 ms CPU limit. You pay for the domain, and for an
+Apple Developer membership if you want the Apple button.
 
-There is no auth vendor in the stack. Auth0, Clerk, WorkOS and Stytch all have
-workable free tiers, and the MCP-focused ones will host the whole authorization
-server — but each adds an account every self-hoster of this repo would also
-have to create, on top of the Google client they need anyway. The protocol work
-is Cloudflare's library and `arctic`, not ours.
+There is no auth vendor in the stack. Auth0, Clerk, WorkOS and Stytch all have workable
+free tiers, but each adds an account every self-hoster would have to create on top of
+the Google client they need anyway. The protocol work is Cloudflare's library and
+`arctic`, not ours.

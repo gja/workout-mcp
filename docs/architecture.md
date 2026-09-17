@@ -13,130 +13,74 @@ src/drive/              a scheduled copier, no routes of its own
 src/recordings/         those same sessions as one signed, streaming ZIP download
 src/identity.ts         signing in with Google or Apple
 src/auth.ts             sessions, accounts and API tokens
-src/context.ts          what an assistant reads before planning; the library default is the .md beside it
+src/context.ts          what an assistant reads before planning
 src/tools.ts            the tool surface shared by MCP and REST
 src/mcp.ts              the MCP surface, on the official SDK's handler
 src/router.ts           a small path router: `:params`, and 405 apart from 404
 src/http.ts             the context a route is given, and `withUser`
 src/routes/             one module per group of routes, each declaring its own paths
-  signin.ts             /auth/* and /api/auth/logout
-  oauth.ts              /oauth/authorize and /oauth/client: how an MCP client gets in
-  account.ts            /api/me, /api/tokens, /api/connections
-  integrations.ts       /api/config and /api/sync: training platforms
-  context.ts            /api/context: those documents, read, edited and exported
-  recordings.ts         /api/recordings, and the signed ZIP download outside the door
-  workouts.ts           /api/workouts, /api/tools and /export
-src/app.ts              the OAuth provider's defaultHandler: the table the rest mount onto
+src/app.ts              the OAuth provider's defaultHandler: the routing table
 src/index.ts            the provider itself, and the two handlers it protects
 src/client/             the React dashboard
 ```
 
 ## The request path
 
-`src/index.ts` constructs the `OAuthProvider`, which wraps everything: it
-claims the OAuth endpoints, `/mcp` and `/api/app-token`, and passes every other
-request to `src/app.ts`. Two kinds of credential reach `/mcp` — an OAuth access
-token the provider issued, and one of our own `wk_` tokens resolved by
-`resolveExternalToken` — and both arrive at the handler as the same props.
+`src/index.ts` constructs the `OAuthProvider`, which claims the OAuth endpoints,
+`/mcp` and `/api/app-token`, and passes everything else to `src/app.ts`. Both an
+OAuth access token and one of our `wk_` tokens (via `resolveExternalToken`) reach
+`/mcp` as the same props.
 
-`/api/app-token` is the one path under `/api/` that `src/app.ts` never sees, and
-so the one place a credential becomes an athlete outside `withUser`. It is there
-so a native app can trade a grant for the token the rest of the API takes; see
+`/api/app-token` is the one path under `/api/` that `src/app.ts` never sees, and so
+the one place a credential becomes an athlete outside `withUser`. See
 [auth.md](auth.md#a-native-app-signs-in-through-the-browser-and-ends-up-with-a-token).
 
-`src/app.ts` is only the routing table: it builds the router and mounts each
-group from `src/routes/`, which keeps every path next to the handler that
-answers it. A route is a single handler, and the ones declared through
-`withUser` are given the athlete they are acting for, so no handler has to read
-a cookie or a bearer token. A path the table does not claim is the dashboard —
-except under `/api/` and `/export/`; see [api.md](api.md).
-
-`src/router.ts` exists so routing reads as a table rather than a chain of
-`startsWith` checks. Patterns are paths whose segments may be `:name`,
-optionally constrained by a regular expression:
-`/api/workouts/:date(\d{4}-\d{2}-\d{2})/:id([0-9a-z]+)`. A constraint is what
-keeps a nonsense path a 404 rather than letting it reach a handler that would
-call it a bad request. A path that matches but offers no such method gets 405
-rather than falling through to 404, so "no such route" and "not that way" stay
-distinct. HEAD is served by the GET route, as the method is defined to be.
+`src/router.ts` matches patterns whose segments may be `:name`, optionally
+constrained by a regex: `/api/workouts/:date(\d{4}-\d{2}-\d{2})/:id([0-9a-z]+)`. The
+constraint is what keeps a nonsense path a 404 rather than a bad request from a
+handler. A path that matches with no such method gets 405, not 404. HEAD is served
+by the GET route.
 
 ## One door for writes
 
-Every create, replace, delete and completion goes through `src/plan.ts`,
-whether it arrived over REST or as an MCP tool call. Before that module,
-`routes/workouts.ts` and `tools.ts` each had their own copy of the same
-three-step dance — read the old row, carry the completion across, delete before
-a move — and a change to the rules meant finding both. Now the rules are there
-once, and each caller only shapes the answer: a 404 on one side, a `ToolError`
-on the other.
-
-It is also the one place the connected platforms hear about a change, which is
-what keeps them in step no matter which door the write came in through.
+Every create, replace, delete and completion goes through `src/plan.ts`, whether it
+arrived over REST or MCP — the read-old-row, carry-the-completion, delete-before-a-move
+dance lives there once, and each caller only shapes the error. It is also the one
+place the connected platforms hear about a change.
 
 ## Layering
 
-```
-routes/ + tools.ts     HTTP and MCP shapes
-      ↓
-plan.ts                the rules for a write, and who to tell
-      ↓
-db.ts                  storage, the window, the cap
-platforms/             the sync layer, then one adapter per platform
-drive/                 the scheduled copier, which nothing above it calls
-recordings/            those same recordings out as one signed ZIP download
-```
-
-Nothing above `src/platforms/` knows what intervals.icu is: `plan.ts` calls the
-sync layer, the sync layer walks the registry, and only the adapter knows what
-an event or an athlete id is. An adapter is stateless — handed the credential
-on every call, storing nothing — so the "which athlete, which row, which error"
-bookkeeping lives in `platforms/store.ts` and `platforms/index.ts` rather than
-being re-implemented per platform.
+`routes/` and `tools.ts` are HTTP and MCP shapes; `plan.ts` holds the rules for a write
+and who to tell; `db.ts` storage, the window and the cap. `platforms/` is a sync layer
+plus one adapter per platform, and nothing above it knows what intervals.icu is. An
+adapter is stateless — handed the credential on every call — so the bookkeeping lives in
+`platforms/store.ts` and `platforms/index.ts` rather than per platform. `drive/` and
+`recordings/` sit beside them and nothing above calls into `drive/`.
 
 ## What is stored, and how
 
-Nothing is stored in the clear. Session ids and API tokens are SHA-256 hashes
-in D1; OAuth grants and their tokens are the library's problem, in KV. A
-training platform's access token is the one credential that cannot be hashed,
-because it has to be replayed on every push, so it is AES-GCM encrypted under
-`CREDENTIALS_SECRET`. See [auth.md](auth.md) and
+Nothing in the clear. Session ids and API tokens are SHA-256 hashes in D1; OAuth
+grants live in KV. A platform access token has to be replayed, so it is AES-GCM
+encrypted under `CREDENTIALS_SECRET`. See [auth.md](auth.md) and
 [integrations.md](integrations.md).
 
 ## The dashboard
 
-React, built by Vite, served as static assets. It is authenticated by the
-session cookie, so `src/client/api.ts` does no token handling; every call goes
-through one `request` helper that turns a non-2xx into a thrown `Error`
-carrying the server's own message.
+React, built by Vite, served as static assets, authenticated by the session cookie — so
+`src/client/api.ts` does no token handling; one `request` helper turns a non-2xx into a
+thrown `Error` carrying the server's message.
 
-Workout dates are plain `YYYY-MM-DD` — a day on a calendar, not an instant — so
-every conversion in `src/client/dates.ts` goes through *local* midnight.
-`toISOString` would push the date back a day for anyone west of Greenwich.
+Workout dates are plain `YYYY-MM-DD`, a day rather than an instant, so every conversion
+in `src/client/dates.ts` goes through *local* midnight — `toISOString` would push the
+date back a day west of Greenwich.
 
-One page, in a fixed order: masthead, calendar, a **Setup** accordion, then the
-FAQ. Setup holds the five panels — Connect to Claude, Integrations, Context,
-API tokens, Connected apps — and each is a component that fetches its
-own slice, so opening one does not wait on the others. The accordion is
-`<details>` elements sharing a `name`, which is what makes a browser close the
-siblings: there is no open-panel state in React, and the panels still work with
-JavaScript half-loaded. The FAQ
-uses the same pair, and is behind the session like everything else: a
-first-time visitor gets the masthead, the sign-in buttons and nothing more,
-because answers about syncing and exporting read as clutter before there is an
-account to apply them to. Under it, one link: the privacy policy.
+One page: masthead, calendar, a **Setup** accordion, then the FAQ, all but the masthead
+behind the session. The accordions are `<details>` sharing a `name`, so the browser
+closes the siblings and there is no open-panel state. Each Setup panel fetches its own
+slice. Each context editor seeds its textarea from the server once and never re-seeds
+it, so a save cannot overwrite what is being typed.
 
-The Context panel is the one with editors in it, and it nests a second accordion
-of its own — one section per document, sharing their own `name` so the four
-close each other without touching the Setup group. Each editor seeds its
-textarea from the server once and never re-seeds it, so a save that answers with
-the stored document cannot overwrite what is being typed. See
-[context.md](context.md).
-
-Two Vite entries, not one: the dashboard and the OAuth consent screen. The
-privacy policy is neither — `public/privacy-policy.html` is a static file with
-its own inline styles and no script at all, copied through the build and served
-by the assets binding at `/privacy-policy`, extension and all handled there.
-`/workout/<id>` is the one page path the table does claim: it is not a file, so
-`src/app.ts` answers it with the dashboard, and the client resolves the id
-against the first list that arrives, because an id is only unique within a
-date. A workout outside the window is a note rather than an empty calendar.
+Two Vite entries: the dashboard and the OAuth consent screen. `public/privacy-policy.html`
+is a static file with no script. `/workout/<id>` is the one page path the routing table
+claims; the client resolves the id against the first list that arrives, because an id is
+only unique within a date.

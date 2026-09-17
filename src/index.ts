@@ -14,7 +14,6 @@ import { APP_TOKEN_SCOPE, SCOPE } from './routes/oauth';
 import { ToolError } from './tools';
 import { WorkoutError } from './workout';
 
-/** What `completeAuthorization` stores on the grant, and hands back here. */
 type AuthProps = { userId: string; email: string | null; scope?: string[] };
 
 /** Spelled as `wrangler.jsonc` spells them. The third is the hourly completion pass. */
@@ -22,20 +21,13 @@ const NIGHTLY = '0 3 * * *';
 const DRIVE = '40 * * * *';
 
 /**
- * A grant, traded once for the credential the REST API takes. See docs/auth.md.
- *
- * The provider validates OAuth tokens on the routes it owns and nowhere else, so an
- * access token reaches `/mcp` and would 401 against `/api/`. A native app that has just
- * signed a browser round trip therefore holds the wrong kind of credential, and its only
- * ways out were pasting a token by hand or a second auth surface invented for it. This
- * is the third: one route, owned by the provider so the grant is checked by the library
- * that issued it, handing back a `wk_` token that the athlete can see and revoke on the
- * dashboard like any other.
+ * A grant, traded once for the credential the REST API takes. An OAuth access token
+ * reaches `/mcp` and would 401 against `/api/`, so a native app fresh off a browser round
+ * trip holds the wrong kind — this route hands back a `wk_` token instead, revocable on
+ * the dashboard like any other.
  *
  * Behind its own scope, because the token outlives the grant: disconnecting the app would
- * not take back a credential minted from it. A client that wants that has to ask for it by
- * name, and the athlete approves it by name. An MCP client asking only for `workouts` is
- * refused here, which is what it was before this route existed.
+ * not take it back. A grant carrying only `workouts` is refused. See docs/auth.md.
  */
 const appTokenHandler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {

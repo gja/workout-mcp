@@ -24,10 +24,8 @@ export type Context = {
   path: string;
 };
 
-/** A route behind `withUser` also knows whose workouts it is touching. */
 export type AuthedContext = Context & { user: User };
 
-/** A handler, and one that is only reached with an athlete in hand. */
 export type Route<Pattern extends string = string> = Handler<Context, Pattern>;
 export type AuthedRoute<Pattern extends string = string> = Handler<AuthedContext, Pattern>;
 

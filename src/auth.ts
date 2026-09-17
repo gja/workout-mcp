@@ -62,7 +62,6 @@ export async function createSession(env: Env, userId: string): Promise<string> {
   return id;
 }
 
-/** One named cookie off the request, or null. */
 export function readCookie(request: Request, name: string): string | null {
   const header = request.headers.get('Cookie');
   if (!header) return null;
@@ -133,7 +132,6 @@ export async function issueToken(env: Env, userId: string, name?: string | null)
 /** Is this one of ours, rather than an OAuth access token? */
 export const isApiToken = (token: string): boolean => token.startsWith(API_TOKEN_PREFIX);
 
-/** Resolve an API token to its owner, or null if unknown. */
 export async function findTokenOwner(env: Env, token: string): Promise<User | null> {
   const hash = await sha256(token);
   const row = await env.DB.prepare(
@@ -171,7 +169,6 @@ export async function revokeToken(env: Env, userId: string, prefix: string): Pro
   return (result.meta.changes ?? 0) > 0;
 }
 
-/** Sweep expired sessions. Called by the nightly cron. */
 export async function pruneExpired(env: Env, now: Date = new Date()): Promise<number> {
   const result = await env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(iso(now)).run();
   return result.meta.changes ?? 0;

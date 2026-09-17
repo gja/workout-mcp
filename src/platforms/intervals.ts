@@ -48,15 +48,9 @@ const INDOOR_SUB_SPORTS = new Set<SubSport>([
 ]);
 
 /**
- * Their activity types placed back on our scale, for the sport filter in
- * `src/recordings/`.
- *
- * Derived from the maps above wherever it can be, so a sport added there is
- * matched here without a second edit, and listed by hand only where it cannot:
- * a sub-sport type does not say which sport it belongs to, and an athlete
- * records plenty of types we would never push. Anything still unplaced stays
- * `null` rather than becoming `generic` — "we could not tell" and "a generic
- * workout" are different answers, and only the second should match a filter.
+ * Their activity types placed back on our scale, derived from the maps above wherever it
+ * can be so a sport added there needs no second edit. Anything unplaced stays `null`
+ * rather than becoming `generic`: only the second should match a sport filter.
  */
 const SPORT_BY_TYPE = new Map<string, Sport>([
   ...Object.entries(ACTIVITY_TYPE).map(([sport, type]) => [type.toLowerCase(), sport as Sport] as const),
@@ -188,11 +182,9 @@ export const intervals: Platform = {
     'Targets are read against your intervals.icu thresholds. If a pace or a power target looks ' +
     'wrong there, set your threshold pace and FTP in their settings.',
 
-  // Upserted on `external_id`, which they match against the events this app itself
-  // created, so a re-push updates the one already there. Not `uid` and the single-event
-  // endpoint's `upsertOnUid`: `uid` is a UUID intervals.icu generates for an event, not
-  // a key we get to choose, so ours never matched and every edit left a second event
-  // behind. See "How a push works" in docs/integrations.md.
+  // Upserted on `external_id`, which they match against this app's own events. Not the
+  // single-event endpoint's `upsertOnUid`: `uid` is theirs to generate, not a key we get
+  // to choose, so every edit left a second event behind.
   async push(token, { workout, syncKey }: Outbound) {
     const saved = await readJson<Event[]>(
       await postJson(token, `/athlete/${ATHLETE}/events/bulk?upsert=true`, [
@@ -247,15 +239,10 @@ export const intervals: Platform = {
   },
 
   /**
-   * The post-workout comment, written into the activity's own description.
-   *
-   * Their `PUT /activity/{id}` takes a partial activity, so only the one field is
-   * sent and nothing else about the session is touched. An empty note is sent as an
-   * empty string rather than omitted — omitting it would leave the old one standing,
-   * and clearing is exactly what a caller sending nothing meant.
-   *
-   * Their own documentation says a Strava-sourced activity cannot be updated at all;
-   * that comes back as one of their errors and is recorded against the connection.
+   * Written into the activity's own description. `PUT /activity/{id}` takes a partial
+   * activity, so only that field is sent, and an empty note goes as an empty string
+   * rather than omitted, because clearing is what a caller sending nothing meant. A
+   * Strava-sourced activity cannot be updated at all, which comes back as their error.
    */
   async setActivityComment(token, activityId, note) {
     await putJson(token, `/activity/${encodeURIComponent(activityId)}`, { description: note ?? '' });

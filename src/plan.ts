@@ -17,7 +17,6 @@ export async function createWorkout(env: Env, user: User, input: WorkoutInput): 
   return workout;
 }
 
-/** Replace in full, keeping the id and moving it if the date changed. Null if there is none. */
 export async function replaceWorkout(
   env: Env,
   user: User,
@@ -71,12 +70,9 @@ export async function setComment(
 }
 
 /**
- * A recording handed straight to us rather than fetched off a platform.
- *
- * Read once into the same numbers the platform sync stores, and the bytes dropped:
- * nothing here ever holds the file, the record stream or the track. The session is
- * marked done at the moment the recording ended, unless it already was — an upload
- * is evidence that it happened, not a correction of when. See docs/stats.md.
+ * Read once into the same numbers the platform sync stores, and the bytes dropped. Marked
+ * done at the moment the recording ended, unless it already was: an upload is evidence
+ * that it happened, not a correction of when. See docs/stats.md.
  */
 export async function recordSession(
   env: Env,

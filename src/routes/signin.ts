@@ -71,10 +71,9 @@ const finishLogin: Route<'/auth/:provider/callback'> = async ({ request, url, en
 
   const user = await auth.upsertUser(env, who);
 
-  // Signing in with intervals.icu hands us a platform credential as a side effect, and
-  // asking for it twice would be theatre. Nothing is pushed here: the account this
-  // sign-in lands in is keyed on that athlete, so on a first sign-in it is empty, and
-  // on a later one its calendar is already in step. See docs/integrations.md.
+  // Signing in with intervals.icu hands us a platform credential as a side effect, so
+  // asking for it twice would be theatre. Nothing is pushed: the account is keyed on that
+  // athlete, so it is either empty or already in step.
   if (who.grant && platforms.credentialsConfigured(env)) {
     await platforms
       .connect(env, user, 'intervals', who.grant.accessToken, who.grant.athlete)
@@ -98,10 +97,9 @@ const finishLogin: Route<'/auth/:provider/callback'> = async ({ request, url, en
 // --- Connecting intervals.icu, whoever you signed in as ----------------------
 
 /**
- * Start the same OAuth round, but for a connection rather than a session.
- *
- * Under `/auth` so the login cookie's `Path=/auth` still reaches the callback,
- * and behind `withUser` because the token it returns with is hung on that athlete.
+ * The same OAuth round for a connection rather than a session. Under `/auth` so the login
+ * cookie's `Path=/auth` reaches the callback, and behind `withUser` because the token is
+ * hung on that athlete.
  */
 const startConnect: AuthedRoute = async ({ url, env, user }) => {
   try {

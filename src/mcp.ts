@@ -1,10 +1,5 @@
-// MCP over Streamable HTTP, in both eras, served by the official SDK.
-// `createMcpHandler` owns the wire: it routes `2026-07-28` (per-request
-// envelope) and the handshake revisions before it off the same factory,
-// validates the envelope and the mirrored headers, and stamps `resultType`,
-// `serverInfo` and the cache hints. What lives here is this server's surface —
-// the tools, the prompt, the skill — and nothing about the protocol.
-// See docs/mcp.md.
+// MCP over Streamable HTTP, in both eras. `createMcpHandler` owns the wire; what lives
+// here is this server's surface — the tools, the prompt, the skill. See docs/mcp.md.
 
 import {
   INTERNAL_ERROR,
@@ -27,10 +22,8 @@ const SERVER_INFO = { name: 'workout-mcp', version: '0.1.0' };
 const MODERN_VERSION = '2026-07-28';
 
 /**
- * The handshake revisions this server implements, newest first: `initialize`
- * counter-offers the first of these a client can take. Left unset the SDK
- * offers its own list, which reaches back to revisions nothing here has been
- * written against — a client asking for `2024-11-05` would be told yes.
+ * Newest first; `initialize` counter-offers the first a client can take. Set here because
+ * the SDK's own list reaches back to revisions nothing here has been written against.
  */
 const HANDSHAKE_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'];
 
@@ -38,10 +31,8 @@ const HANDSHAKE_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'];
 const UNSUPPORTED_PROTOCOL_VERSION = -32022;
 
 /**
- * What a caller is told about a fault that is ours, and the only thing they are
- * told. The message may hold a table name, a query, a token — none of which is
- * a client's to read, and a model handed one will try to act on it. The id is
- * what ties the answer to the log line.
+ * All a caller is told about a fault that is ours: the message may hold a table name, a
+ * query or a token. The id ties the answer to the log line.
  */
 function report(where: string, error: unknown): string {
   const id = crypto.randomUUID();
@@ -53,14 +44,9 @@ function report(where: string, error: unknown): string {
 const CACHE_HINT = { ttlMs: 300_000, cacheScope: 'public' } as const;
 
 /**
- * Advertises a tool's JSON Schema in `tools/list` without rejecting on it.
- *
- * The SDK would validate arguments first and answer in schema prose —
- * "#/steps: Items did not match schema." — in place of what `src/tools.ts`
- * writes for the model: "steps[0]: unknown field target_zone; allowed:
- * goal_km, goal_meters, ...". The schema is the contract a caller reads; the
- * parser in `src/tools.ts` is what tells it what went wrong, and it refuses
- * everything the schema does. Validating twice would only cost the message.
+ * Advertise-only: the SDK would validate first and answer in schema prose in place of
+ * what `src/tools.ts` writes for the model. The parser there refuses everything the
+ * schema does, so validating twice would only cost the message.
  */
 const advertiseOnly = (schema: Record<string, unknown>) => {
   const standard = fromJsonSchema(schema);
@@ -71,10 +57,9 @@ const advertiseOnly = (schema: Record<string, unknown>) => {
 };
 
 /**
- * `TOOLS` is compiled into the Worker and cannot change under us, so a schema is
- * converted once per isolate rather than on every request — a server is built
- * per request, and this is the only expensive part of it. Lazily, because an
- * isolate that never serves MCP should not pay for sixteen of them at startup.
+ * `TOOLS` is compiled in and cannot change under us, so a schema is converted once per
+ * isolate rather than per request — lazily, so an isolate that never serves MCP pays
+ * nothing.
  */
 const advertised = new Map<string, ReturnType<typeof advertiseOnly>>();
 const schemaFor = (tool: (typeof TOOLS)[number]) => {
@@ -87,10 +72,8 @@ const schemaFor = (tool: (typeof TOOLS)[number]) => {
 };
 
 /**
- * `cacheHints` covers only the revision's closed list of cacheable results, so
- * the two skills methods — which are an extension, not spec vocabulary — carry
- * their own. Era-gated, because the handshake revisions have no cache fields
- * and would carry these straight through to the wire.
+ * `cacheHints` covers only the revision's closed list, so the two skills methods carry
+ * their own. Era-gated: the handshake revisions have no cache fields.
  */
 const skillsCacheHint = (era: 'legacy' | 'modern') => (era === 'modern' ? CACHE_HINT : {});
 
@@ -160,9 +143,8 @@ function buildServer(env: Env, user: User, origin: string, era: 'legacy' | 'mode
     );
   }
 
-  // The Skills extension is not spec vocabulary and the SDK has no support for
-  // it, so the two methods are registered as custom ones. `params` must be a
-  // Standard Schema, hence `fromJsonSchema` over a schema written here.
+  // Not spec vocabulary, so the two methods are registered as custom ones. `params` must
+  // be a Standard Schema, hence `fromJsonSchema`.
   server.server.registerCapabilities({ extensions: { [SKILLS_EXTENSION]: {} } } as never);
 
   server.server.setRequestHandler(
@@ -195,13 +177,9 @@ function buildServer(env: Env, user: User, origin: string, era: 'legacy' | 'mode
 }
 
 /**
- * The two request headers the transport refuses on, filled in rather than
- * enforced: it wants **both** `application/json` and `text/event-stream` in
- * `Accept` (406 otherwise) and a `Content-Type` of `application/json` (415).
- * The server this replaces parsed the body regardless of either, so a client
- * that has been talking to us without them must not be dropped by a change of
- * implementation. With `enableJsonResponse` the answer is JSON either way, so
- * nothing about the exchange changes for a client that does send them.
+ * The transport refuses on `Accept` (406) and `Content-Type` (415); these are filled in
+ * rather than enforced, so a client that has been talking to us without them is not
+ * dropped by a change of implementation. The answer is JSON either way.
  */
 function withTransportPreconditions(request: Request): Request {
   const accept = request.headers.get('Accept') ?? '';
@@ -216,23 +194,16 @@ function withTransportPreconditions(request: Request): Request {
 }
 
 /**
- * The handshake era, served here rather than by the SDK's own fallback.
- *
- * Left to itself the fallback answers this era over SSE, and holds a client to
- * the revision's `Accept: text/event-stream` with a 406. Both are conformant,
- * and both would break a client that has been talking to this server in plain
- * JSON without that header — which is the failure this server has already had
- * twice. `enableJsonResponse` keeps the bodies as they are, and going through
- * the transport directly means nothing is turned away for the header. This is
- * the composition the SDK documents for keeping your own legacy lane:
- * `isLegacyRequest` in front of a `legacy: 'reject'` handler.
+ * Served here rather than by the SDK's own fallback, which answers this era over SSE and
+ * holds a client to `Accept: text/event-stream` with a 406 — breaking a client that has
+ * been talking to this server in plain JSON. The composition the SDK documents for a
+ * legacy lane: `isLegacyRequest` in front of a `legacy: 'reject'` handler.
  */
 async function handleHandshakeEra(env: Env, user: User, origin: string, request: Request): Promise<Response> {
   request = withTransportPreconditions(request);
 
-  // JSON-RPC 2.0: an array request is answered with an array, even when only one
-  // member had an id to answer. The transport unwraps a single response, so
-  // whether this was a batch has to be remembered before the body is read.
+  // An array request is answered with an array even when one member had an id. The
+  // transport unwraps a single response, so remember this before the body is read.
   let wasBatch = false;
   try {
     wasBatch = Array.isArray(await request.clone().json());
@@ -303,7 +274,6 @@ async function discoverProbe(
   }
 }
 
-/** Puts a lone response back in the array its batched request is owed. */
 async function rebatch(response: Response, wasBatch: boolean): Promise<Response> {
   if (!wasBatch || response.status !== 200) return response;
 
@@ -323,18 +293,13 @@ async function rebatch(response: Response, wasBatch: boolean): Promise<Response>
   });
 }
 
-/**
- * One server per request, either era. The factory closes over the athlete, so
- * there is nothing to memoise and nothing that has to carry an identity between
- * calls — which is what keeps this inside the Workers free plan.
- */
+/** One server per request, either era: the factory closes over the athlete, so nothing is memoised. */
 export async function handleMcp(request: Request, env: Env, user: User): Promise<Response> {
   const origin = new URL(request.url).origin;
 
-  // A version this server does not serve is refused here, naming what it does.
-  // Left to the transport it comes back as a generic `-32000`, where the era
-  // table promises `-32022` — and that is the one answer such a client can act
-  // on. Absent is not unknown: `initialize` carries no version header.
+  // Refused here, naming what is served: left to the transport it is a generic `-32000`
+  // where the era table promises `-32022`. Absent is not unknown — `initialize` carries
+  // no version header.
   const declared = request.headers.get('MCP-Protocol-Version');
   if (declared !== null && declared !== MODERN_VERSION && !HANDSHAKE_VERSIONS.includes(declared)) {
     return Response.json(
@@ -360,13 +325,9 @@ export async function handleMcp(request: Request, env: Env, user: User): Promise
     // transport above.
     legacy: 'reject',
     onerror: (error: Error) => void report('modern handler', error),
-    // `responseMode` is left at `auto`, which here means one JSON body per POST
-    // and never a stream: the transport only upgrades to SSE when something is
-    // sent before the result, and nothing here sends one. Pinning it to `'json'`
-    // said the same thing, but the SDK warns once per handler — once per
-    // request, on a handler built per request — that the mode drops mid-call
-    // notifications. There are none to drop, so the rule costs a log line a
-    // request and buys nothing.
+    // `responseMode` stays `auto`, which here is one JSON body per POST: the transport
+    // only upgrades to SSE when something is sent before the result. Pinning it to
+    // `'json'` said the same and cost a warning per request.
   });
 
   try {
@@ -392,10 +353,9 @@ const STATUS: Record<number, number> = {
 };
 
 /**
- * The SDK answers an error the handler raised in-band, with a 200. The status
- * is part of this server's contract — a 404 is how a client tells a live MCP
- * endpoint from a URL with nothing behind it — so a code that names a status
- * gets it. The errors the SDK refuses before dispatch already carry one.
+ * The SDK answers an error the handler raised in-band, with a 200. The status is part of
+ * this server's contract — a 404 is how a client tells a live MCP endpoint from a URL
+ * with nothing behind it — so a code that names a status gets it.
  */
 async function statusFromCode(response: Response): Promise<Response> {
   if (response.status !== 200) return response;

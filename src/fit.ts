@@ -12,17 +12,10 @@ const MAX_FIT_BYTES = 1024 * 1024;
 const FIT_PRODUCT_NAME = 'WorkoutsMCP';
 
 /**
- * A FIT string field holds 255 bytes, its null terminator included, and the SDK
- * throws on the whole message rather than the one field — so a long note is not a
- * truncated description, it is a workout that will not encode at all, and a 500 on
- * the export and a push that never lands. Our own limits are in characters and
- * generous by comparison (a workout's notes run to 1000), and a character is up to
- * four bytes, so even a step name inside its 60 can overflow in a non-Latin script.
- *
- * Cut to fit here rather than tightened upstream: the ceiling belongs to the file
- * format, not to the plan, and an athlete writing their brief should not be held to
- * what a watch screen can carry. The plan keeps the whole text; the file gets as
- * much of it as FIT allows, ending in an ellipsis where anything was dropped.
+ * A FIT string field holds 255 bytes, terminator included, and the SDK throws on the
+ * whole message rather than the one field. Our own limits are in characters and more
+ * generous, because the ceiling belongs to the file format rather than to the plan — so
+ * the plan keeps the whole text and the file gets what FIT allows, ending in an ellipsis.
  */
 const MAX_FIT_STRING_BYTES = 254;
 
@@ -69,31 +62,20 @@ function encodeDuration(duration: Duration): DurationFields {
 }
 
 /**
- * What is written for the end of a range the caller left open. FIT has no value
- * that reads as "no limit", and no shape for half a band either: intervals.icu
- * rejects a step carrying only one of the two bounds — "Missing
- * custom_target_value_low and/or custom_target_value_high" — and drops it from
- * the workout. So both ends are always written, and the open one gets a limit
- * no athlete reaches.
+ * The end of a range the caller left open. FIT has no shape for half a band, and an
+ * importer given one bound may drop the step, so both ends are always written and the
+ * open one gets a limit no athlete reaches.
  *
- * Heart rate and power pack two units into one field, so the filler goes in
- * whatever unit the caller used for the end they did give — a raw 0 under a
- * ceiling in watts is 0% of FTP under 120 W, two units in one band. Neither is
- * ever the offset itself (100 for heart rate, 1000 for power): that is the one
- * value where the two units meet — the SDK's own decoder reads a 100 back as
- * `bpmOffset` rather than as 100% — so a percentage ceiling stops just under it.
- *
- * No filler is zero either. A zero bound reads as unset rather than as a limit,
- * and the step loses the target it does carry: intervals.icu showed no target at
- * all on the steps written with a 0 m/s floor, while every non-zero filler came
- * through. One of theirs came back as `< 150W`, which is the reading we want.
+ * Heart rate and power pack two units into one field, so the filler takes whatever unit
+ * the caller used for the end they did give, and is never the offset itself (100, 1000)
+ * where the two units meet. **No filler is zero**: a zero bound reads as unset and takes
+ * the target with it.
  */
 const OPEN_ENDED = {
   hr: { bpm: { low: 1, high: 255 }, percent: { low: 1, high: 99 } },
   power: { watts: { low: 1, high: 2000 }, percent: { low: 1, high: 999 } },
-  // Speed and cadence carry one unit each, so their extremes are unambiguous — but
-  // never zero, which reads as unset (and a 0 m/s floor converts to an infinite pace):
-  // intervals.icu dropped the target off every step written with one.
+  // One unit each, so the extremes are unambiguous — but never zero, which reads as
+  // unset, and a 0 m/s floor converts to an infinite pace.
   speed: { low: 0.1, high: 25 }, // m/s, so ~2:46:40/km to ~90 km/h
   cadence: { low: 1, high: 254 },
 } as const;
@@ -148,7 +130,6 @@ function encodeTarget(target: Target): TargetFields {
   }
 }
 
-/** The same fields under the primary or the secondary names. */
 function targetMesgFields(target: Target, secondary: boolean): Record<string, unknown> {
   const { type, value, low, high } = encodeTarget(target);
   const fields: Record<string, unknown> = secondary
@@ -161,7 +142,6 @@ function targetMesgFields(target: Target, secondary: boolean): Record<string, un
   return fields;
 }
 
-/** One encoded FIT workout step, before message indices are assigned. */
 type StepMesg = Record<string, unknown>;
 
 /** The SDK types enums as `number`, but the encoder resolves the profile's names too. */
@@ -213,7 +193,6 @@ const FIT_SPORT: Record<Sport, string> = {
   generic: 'generic',
 };
 
-/** Our sub-sport names to the FIT enum's. */
 const FIT_SUB_SPORT: Record<SubSport, string> = {
   treadmill: 'treadmill',
   street: 'street',

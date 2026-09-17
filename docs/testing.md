@@ -5,58 +5,41 @@ npm test        # vite build, then vitest run
 npm run typecheck
 ```
 
-Tests run inside `workerd` via `@cloudflare/vitest-pool-workers`, so the FIT
-encoder and the D1 queries are exercised on the same runtime that serves
-production traffic. That is not incidental: the encoder's buffer problem (see
-[fit.md](fit.md)) only reproduces on production workerd, and a test suite on
-plain Node would have missed it.
+Tests run inside `workerd` via `@cloudflare/vitest-pool-workers`, on the same runtime
+that serves production. Not incidental: the encoder's buffer problem (see
+[fit.md](fit.md)) only reproduces there.
 
-FIT files are asserted by decoding them again with the SDK's own decoder, so
-the test says what a watch would read rather than what we meant to write. The
-other direction — the sessions an athlete records — goes through the SDK's
-encoder instead: `test/activity-fit.ts` writes an activity file from a list of
-laps, one record a second, so the stats read off it can be asserted against
-numbers the test chose. A test that needs the platform to serve one arranges
-its bytes on the stand-in under the activity's id.
+FIT files are asserted by decoding them again with the SDK's own decoder, so a test says
+what a watch would read. The other direction goes through the SDK's encoder —
+`test/activity-fit.ts` writes an activity file from a list of laps, one record a second,
+so stats read off it can be asserted against numbers the test chose.
 
-## Standing in for the outside world
+Google, Apple, intervals.icu and the Google APIs are stood in for by an auxiliary Worker
+(`test/upstream-provider.js`) that Miniflare routes outbound traffic to, so the real
+`arctic` path runs — Apple's signed client secret included — offline. The intervals.icu
+and Drive stand-ins keep state a test reaches through a service binding, so a push is
+asserted against what landed rather than against the request we sent. The Drive stand-in
+generates a throwaway RSA key per run, so the service account's JWT is a real one.
 
-Google, Apple, intervals.icu and the Google APIs are stood in for by an auxiliary
-Worker (`test/upstream-provider.js`) that Miniflare routes all outbound traffic
-to, so the real `arctic` path runs — Apple's signed client secret included —
-without touching the network.
-
-The intervals.icu stand-in keeps a calendar, and a test reaches into it through
-a service binding to see what actually landed, so a push is asserted against
-the event that arrived rather than against the request we sent.
-
-The Google Drive API stand-in keeps folders and files, and answers the service
-account's own token exchange — a throwaway RSA key is generated per run, so the
-JWT the Worker signs is a real one. A test asserts the path a copy landed at by
-walking the parents the stand-in recorded, not by trusting the URL we asked for.
-
-## Migrations
-
-The suite replays every migration before each file, so a migration that does
-not parse fails the build rather than the next deploy. `0002`, the one that
-carries data, is tested against a row written in the old shape.
+Every migration is replayed before each file, so one that does not parse fails the build
+rather than the next deploy. `0002`, which carries data, is tested against a row in the
+old shape.
 
 ## The suites
 
 | Suite | Covers |
 | --- | --- |
-| `migrations.test.ts` | The data-carrying migrations, the `json_valid` check, the external-id index, and querying steps from SQL |
-| `workout.test.ts` | Parsing loose JSON: every duration and target, range semantics, repeats, intensity inference, and the error messages |
-| `fit.test.ts` | FIT encoding, decoded back with the SDK: scaling, offsets, zones, names, intensities, repeat flattening, a full session |
-| `api.test.ts` | The REST API and `/api/tools`, FIT downloads, cross-athlete isolation, bad requests, the readable window and the cap |
-| `auth.test.ts` | Google and Apple sign-in, state handling, ID-token checks, sessions, API tokens |
-| `oauth.test.ts` | Discovery, registration, consent, the PKCE code exchange, refresh, connected apps |
+| `migrations.test.ts` | The data-carrying migrations, the `json_valid` check, the external-id index |
+| `workout.test.ts` | Parsing loose JSON: durations, targets, ranges, repeats, intensity, errors |
+| `fit.test.ts` | FIT encoding, decoded back: scaling, offsets, zones, repeat flattening |
+| `api.test.ts` | REST and `/api/tools`, downloads, cross-athlete isolation, the window and cap |
+| `auth.test.ts` | Google and Apple sign-in, state, ID-token checks, sessions, API tokens |
+| `oauth.test.ts` | Discovery, registration, consent, the PKCE exchange, refresh, connected apps |
 | `mcp.test.ts` | The JSON-RPC protocol and every tool |
-| `platforms.test.ts` | Connecting intervals.icu, pushing creates, edits, moves and deletes, surviving an outage, and completions and their recordings coming back |
-| `stats.test.ts` | Reading a recorded FIT file: session totals, the mapping to planned steps, quarters, time in band, and the flags where something was not recorded |
-| `format.test.ts` | The dashboard's own formatting — paces, target bands, lap lengths — checked under the client's tsconfig, because it reads browser code |
-| `drive.test.ts` | The scheduled copier: the write check, the path a copy lands at, the ledger claim, copying each session once, and the per-run cap |
-| `router.test.ts` | Pattern matching, parameter constraints, 405 apart from 404, HEAD on a GET route |
+| `platforms.test.ts` | Connecting, pushing edits and deletes, surviving an outage, completions |
+| `stats.test.ts` | Reading a recorded FIT file: totals, step mapping, quarters, band, flags |
+| `format.test.ts` | The dashboard's formatting, under the client's tsconfig |
+| `drive.test.ts` | The copier: the write check, the path, the ledger claim, the per-run cap |
+| `router.test.ts` | Pattern matching, constraints, 405 apart from 404, HEAD on a GET route |
 
-CI runs `npm run typecheck` and `npm test` on every push to `main` and every
-pull request.
+CI runs `npm run typecheck` and `npm test` on every push to `main` and every pull request.

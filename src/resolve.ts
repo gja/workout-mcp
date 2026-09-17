@@ -59,7 +59,6 @@ const INTENSITY_HINTS: ReadonlyArray<[RegExp, Intensity]> = [
   [/\b(interval|rep|fast|hard|on|surge)\b/i, 'interval'],
 ];
 
-/** Keys the caller actually set (present and not null). */
 export function setKeys(raw: Record<string, unknown>, keys: readonly string[]): string[] {
   return keys.filter((k) => raw[k] !== undefined && raw[k] !== null);
 }
@@ -171,7 +170,6 @@ function parseZone(value: unknown, path: string, metric: ZoneMetric): Target {
     : { type: 'power', low: percent(low), high: percent(high) };
 }
 
-/** Which metric a target constrains, for de-duplication and ordering. */
 type TargetMetric = 'pace' | 'power' | 'heart_rate' | 'cadence';
 
 /** Which of two targets leads: what you are told to run, then what follows from it. */

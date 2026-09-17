@@ -57,14 +57,11 @@ export const CONTEXTS: Record<ContextKind, Definition> = {
 export const CONTEXT_KINDS = Object.keys(CONTEXTS) as ContextKind[];
 
 /**
- * The MCP tool that reads each kind. One named tool per document rather than a
- * `kind` argument, so a client browsing the tool list sees that zones and
- * scheduling instructions exist at all — an enum value is only discoverable to
- * something that has already decided to look inside the tool.
+ * One named tool per document rather than a `kind` argument, so a client browsing the
+ * tool list sees that zones and scheduling instructions exist at all.
  */
 export const readToolName = (kind: ContextKind): string => `get_${kind.replace(/-/g, '_')}`;
 
-/** The kinds an assistant may write, which is every kind but the library. */
 export const WRITABLE_KINDS = CONTEXT_KINDS.filter((kind) => CONTEXTS[kind].writableOverMcp);
 
 /** Generous for prose, small enough that one read stays one cheap D1 row. */
@@ -171,7 +168,6 @@ export async function saveContext(
   return present(kind, { markdown: text, updated_at: now });
 }
 
-/** Forget what the athlete wrote; the built-in document takes over again, where there is one. */
 export async function clearContext(env: Env, userId: string, kind: ContextKind): Promise<ContextDocument> {
   await env.DB.prepare('DELETE FROM contexts WHERE user_id = ? AND kind = ?').bind(userId, kind).run();
   return present(kind, null);
@@ -179,7 +175,6 @@ export async function clearContext(env: Env, userId: string, kind: ContextKind):
 
 // --- Backup ------------------------------------------------------------------
 
-/** The name to save the archive under, and the folder every document sits in. */
 export const BACKUP_FILENAME = 'backup-context.zip';
 
 /** What the archive holds, written into it so a backup says what it is without being unpacked. */

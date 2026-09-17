@@ -25,13 +25,7 @@ export const isPlatformId = (value: string): value is PlatformId =>
 /** Below the Worker's outbound subrequest cap; a big first sync spans several runs. */
 export const PUSH_LIMIT = 40;
 
-/**
- * The upsert key upstream: the workout's own id, so an edit or a move cannot change
- * it, and a link row we lost is not a second event either. Not scoped by user on
- * purpose — a platform matches it against the events this app created for *that*
- * athlete, so two of our accounts sharing one would have to have drawn the same
- * random id to collide.
- */
+/** The upsert key upstream: the workout's own id, so an edit or a move cannot change it. */
 const syncKey = (workout: Pick<Workout, 'id'>): string => workout.id;
 
 // Decides what is stale. Not `updated_at`: a completion read back off a platform bumps that.
@@ -51,27 +45,14 @@ const fingerprint = (workout: Workout): Promise<string> =>
 const message = (err: unknown): string =>
   err instanceof PlatformError || err instanceof Error ? err.message : String(err);
 
-/**
- * Whether the platform turned this down itself, rather than never having heard it.
- *
- * A refusal they gave will be given again — the same grant, the same activity, the
- * same answer — so a caller that would otherwise ask once an hour forever can stop
- * asking. Their 5xx and their 429 are theirs but not settled, and a call that never
- * reached them carries no status at all: both are worth another pass.
- */
+// Whether they turned this down themselves: a refusal they gave will be given again.
+// A 5xx, a 429 and a call that never reached them are all worth another pass.
 const answered = (err: unknown): boolean =>
   err instanceof PlatformError && err.status !== null && err.status < 500 && err.status !== 429;
 
 // --- Connecting ------------------------------------------------------------
 
-/**
- * Store the token an OAuth round came back with.
- *
- * Nothing is checked against the platform first: their token endpoint answered
- * with the athlete it belongs to, so asking who it is would only repeat what we
- * were already told. What *is* checked first is that there is somewhere safe to
- * put it — nowhere to store it means nobody else sees it either.
- */
+/** Store the token an OAuth round came back with. Refused with nowhere safe to put it. */
 export async function connect(
   env: Env,
   user: User,
@@ -88,14 +69,12 @@ export async function disconnect(env: Env, user: User, platformId: PlatformId): 
   const platform = PLATFORMS[platformId] as Platform | undefined;
   const token = await store.credentialFor(env, user.id, platformId);
 
-  // Not where another account here is connected to the same athlete: upstream
-  // releases the app, not one token of it, so handing it back would take their
-  // connection down with ours. Forgetting our copy is still what was asked for.
+  // Not where another account here shares the athlete: upstream releases the app, not
+  // one token of it, so handing it back would take their connection down with ours.
   const shared = await store.accountSharedWithOthers(env, user.id, platformId);
 
   if (platform?.revoke && token && !shared) {
-    // Never fails the disconnect: a grant we cannot hand back is still one the
-    // athlete asked us to forget, and they can revoke it from their own settings.
+    // Never fails the disconnect: they can still revoke it from their own settings.
     await platform.revoke(token).catch((err: unknown) => {
       console.error(`releasing the ${platformId} credential failed`, err);
     });
@@ -117,8 +96,8 @@ export type PlatformStatus = {
   updated_at: string | null;
 };
 
-// The mapping lives here rather than on the adapter: whether this deployment was
-// given the platform's OAuth client is not the adapter's business.
+// Here rather than on the adapter: whether this deployment was given the platform's
+// OAuth client is not the adapter's business.
 const oauthOnOffer = (env: Env, platformId: PlatformId): boolean =>
   platformId === 'intervals' && intervalsConfigured(env);
 
@@ -166,9 +145,8 @@ async function sideEffect(what: string, work: () => Promise<void>): Promise<void
   try {
     await work();
   } catch (err) {
-    // The platform's own complaint goes in the line itself: a stack alone says where
-    // we gave up and not one word about what they actually said, which is the whole
-    // of what a log of this is read for.
+    // Their own complaint goes in the line itself: a stack says where we gave up and
+    // nothing about what they actually said.
     console.error(`platform sync failed while ${what}: ${message(err)}`, err);
   }
 }
@@ -198,12 +176,9 @@ export async function onWorkoutSaved(
 }
 
 /**
- * A post-workout comment was written here, so it should go up onto the session.
- *
- * Only where the recording has already come back: the stats name the activity, and
- * that is the only handle on the session upstream. A note written before the platform
- * has paired anything simply waits — `applyCompletions` carries it up with the
- * completion that names the activity at last.
+ * A comment written here goes up onto the session, but only once the recording has come
+ * back: the stats name the activity, the only handle on the session upstream. Written
+ * earlier it waits, and `applyCompletions` carries it up with the completion.
  */
 export async function onCommentSaved(env: Env, user: User, workout: Workout): Promise<void> {
   await sideEffect(`commenting on ${workout.date}/${workout.id}`, async () => {
@@ -303,9 +278,8 @@ export async function syncNow(env: Env, user: User, platformId: PlatformId): Pro
     }
     report.remaining = abandoned.length - report.removed + (stale.length - report.pushed);
 
-    // No stats budget: a person is waiting on this one — it is the connect redirect and
-    // the dashboard's own button — and a recording is a download and a FIT decode. The
-    // webhook reads them as they arrive, and the hourly pass catches up on the rest.
+    // No stats budget: a person is waiting on this one, and a recording is a download
+    // and a FIT decode. The webhook and the hourly pass read them instead.
     report.completed = await applyCompletions(env, user.id, platformId, token, { left: 0 });
     // The only place a standing error is cleared, and only with nothing left queued.
     await store.recordSyncError(env, user.id, platformId, report.remaining > 0 ? `${report.remaining} left to sync` : null);
@@ -319,12 +293,9 @@ export async function syncNow(env: Env, user: User, platformId: PlatformId): Pro
 // --- Completions coming back -----------------------------------------------
 
 /**
- * Recordings read in one scheduled run or one webhook, across every athlete in it.
- *
- * Each is a download and a FIT decode, so this is a bound on both the subrequests and
- * the CPU one invocation may spend — not a per-athlete allowance, which the hourly
- * pass would multiply by its batch of forty. A webhook brings one new session; a
- * backlog is worked off over the passes behind it.
+ * Recordings read per run, across every athlete in it — not a per-athlete allowance,
+ * which the hourly pass would multiply by its batch of forty. A backlog is worked off
+ * over the passes behind it.
  */
 export const STATS_LIMIT = 5;
 
@@ -338,13 +309,9 @@ export const STATS_RETRY_AFTER_MS = 30 * 60 * 1000;
 type Budget = { left: number };
 
 /**
- * Whether this session's recording is still worth reading.
- *
- * One already read is left alone unless the platform now names a *different* activity
- * for the same session — an upload deleted and done again — which the stored numbers
- * do not describe. One that could not be read is tried again, but never twice inside
- * half an hour: three webhook deliveries in a minute would otherwise spend every
- * attempt on the same outage, and the ceiling is meant to be hours of them.
+ * One already read is left alone unless the platform now names a *different* activity —
+ * an upload deleted and done again. One that could not be read is tried again, but never
+ * twice inside half an hour, so an outage costs one attempt rather than all three.
  */
 export function worthReading(
   stats: StatsSummary | undefined,
@@ -361,12 +328,8 @@ export function worthReading(
   );
 }
 
-/**
- * The body, capped rather than buffered whole.
- *
- * `content_length` is the platform's word and often absent, so the cap is applied to
- * what actually arrives: a Worker has 128 MB and no second chance at an OOM.
- */
+// Capped on what actually arrives: `content_length` is the platform's word and often
+// absent, and a Worker has 128 MB and no second chance at an OOM.
 async function bytesOf(file: RecordedFile, limit: number): Promise<Uint8Array> {
   const reader = (file.body as ReadableStream<Uint8Array>).getReader();
   const chunks: Uint8Array[] = [];
@@ -394,13 +357,9 @@ async function bytesOf(file: RecordedFile, limit: number): Promise<Uint8Array> {
 }
 
 /**
- * The stats behind a completion, read off the file the platform now holds.
- *
- * A recording we could not read is stored as saying so, rather than left absent: the
- * pass behind this one would otherwise fetch it again every hour for a session that
- * has no file to fetch — a manual entry, or one from Strava their API will not serve.
- * It is stored with the attempt it was, so a platform having a bad hour is not the
- * same as one that will never answer.
+ * An unreadable recording is stored as *saying* so, with the attempt it was: otherwise
+ * the hourly pass fetches a session with no file to fetch — a manual entry, or one from
+ * Strava — every hour forever.
  */
 async function readStats(
   env: Env,
@@ -424,33 +383,14 @@ async function readStats(
 }
 
 /**
- * The athlete's note on the session, reconciled with the platform's.
+ * Outbound only, deliberately: `comment` is the athlete's own words, and the description
+ * upstream is not reliably theirs — a recording app writes its own line into it on
+ * upload. See "The comment goes out, and never comes back" in docs/integrations.md.
  *
- * Outbound only, and deliberately: `comment` is the athlete's own words, and the
- * description upstream is not reliably theirs. A recording app writes its own line
- * into it on upload — "Workout performed with <app>" — and adopting that would file
- * boilerplate as what the athlete said about their session, then hand it to an
- * assistant as such on every review afterwards. Nothing written here is ever produced
- * by a machine, so nothing is read back from a field that can be.
- *
- * A note upstream is still readable, as the platform's own text: `list_recorded_workouts`
- * carries the description per session, labelled as theirs. It is only never adopted.
- *
- * So the only write is ours going up, and only where we have something to say: a
- * workout with no comment leaves their description alone rather than clearing it,
- * because "the athlete never wrote one here" is not an instruction to erase theirs.
- * Clearing travels by its own path — `onCommentSaved`, the moment it is cleared.
- *
- * Costs nothing once the two agree, which is the steady state — the comparison is off
- * the completion listing that was fetched anyway, and no call is made unless they differ.
- *
- * And costs one attempt where they never will. A platform that refuses the note keeps
- * a description that does not match it, so the difference that asked for the call is
- * still there on the next pass, and the one after: `applied_comment` is what ends that,
- * the same way `applied_completion` ends the other. The refusal is recorded against the
- * connection rather than left to a log, because the fix is the athlete's — on
- * intervals.icu a grant older than the activity-write scope is refused until they
- * connect it again.
+ * A workout with no comment leaves their description alone; clearing travels by its own
+ * path, `onCommentSaved`. Agreement costs nothing, since the comparison is off the
+ * completion listing fetched anyway. `applied_comment` is what stops a refusal being
+ * retried every pass, the way `applied_completion` does for the other.
  */
 async function syncComment(
   env: Env,
@@ -544,12 +484,9 @@ async function applyCompletions(
 }
 
 /**
- * A platform said one of its athletes recorded something: read their completions now.
- *
- * The event is a nudge, not evidence. All it is believed for is *which athlete*; the
- * pairing to an event of ours is asked for over the API as usual, so a replayed or
- * forged body cannot tick a session off by itself. Every connection to that athlete
- * is visited, because more than one of ours can legitimately point at the same one.
+ * The event is a nudge, not evidence: all it is believed for is *which athlete*, and the
+ * pairing is read back over the API as usual. Every connection to that athlete is
+ * visited, because more than one of ours can legitimately point at the same one.
  */
 export async function onAccountActivity(
   env: Env,
@@ -563,8 +500,8 @@ export async function onAccountActivity(
 
   for (const connection of connections) {
     if (!connection.token) {
-      // Said out loud, as the hourly pass says it: otherwise a rotated
-      // `CREDENTIALS_SECRET` is a connection that quietly stops hearing anything.
+      // Said out loud: otherwise a rotated `CREDENTIALS_SECRET` is a connection that
+      // quietly stops hearing anything.
       await store.recordSyncError(
         env,
         connection.user_id,
@@ -576,8 +513,8 @@ export async function onAccountActivity(
     try {
       marked += await applyCompletions(env, connection.user_id, platformId, connection.token, budget);
     } catch (err) {
-      // Recorded per athlete and kept, not thrown: one athlete's revoked token must
-      // not cost the others their completions. Re-raised once they have all had a go.
+      // Per athlete: one revoked token must not cost the others their completions.
+      // Re-raised once they have all had a go.
       await store.recordSyncError(env, connection.user_id, platformId, message(err));
       failure ??= err;
     }

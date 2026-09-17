@@ -7,7 +7,6 @@ export type Prompt = {
   title: string;
   /** Shown in the client's prompt picker, so it says when to reach for this one. */
   description: string;
-  /** The message body, which only `prompts/get` ever sends. */
   markdown: string;
 };
 

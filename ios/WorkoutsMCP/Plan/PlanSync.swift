@@ -1,33 +1,22 @@
 // Which part of the plan goes to the watch, when each workout is scheduled for, and what
-// comes off again.
-//
-// Two callers want exactly these rules: the app, when it is opened or the athlete taps, and
-// iOS, when it grants `PlanRefresh` a turn with nobody looking. So they live here rather
-// than in the model that draws the status line, and the model is left holding only the
-// counting-out that a status line needs.
+// comes off again. Here rather than in the model, because two callers want exactly these
+// rules: the app on a tap, and iOS when it grants `PlanRefresh` a turn with nobody looking.
 
 import Foundation
 
 enum PlanSync {
-    /// How much of the plan goes to the watch.
-    ///
-    /// Two days back as well as forward, because a day missed is a session still worth doing
-    /// and it should not need the app to get it back. Seven ahead rather than the fortnight
-    /// the server holds, because the far end of a fortnight is a plan that has not settled
-    /// yet, and a watch full of it is a list to scroll past.
+    /// Two days back as well as forward, because a day missed is a session still worth doing.
+    /// Seven ahead rather than the fortnight the server holds: the far end of a fortnight is
+    /// a plan that has not settled, and a watch full of it is a list to scroll past.
     static let scheduleFrom = -2
     static let scheduleTo = 7
 
     /// When a scheduled workout lands on the watch. Early enough to be there before a dawn run.
     static let scheduledHour = 5
 
-    /// How long a sync stays good for, when nobody has asked for another one.
-    ///
     /// The same four hours `PlanRefresh` asks iOS for a turn at, because it is the same
     /// question: a plan written this morning should reach the watch today, and nothing here
-    /// is urgent to the minute. Opening the app used to sync on anything over half an hour,
-    /// which on a plan that had not moved was a round trip a workout for no change at all.
-    /// A tap is never asked this — the athlete asking is the answer.
+    /// is urgent to the minute. A tap is never asked this.
     static let staleAfter: TimeInterval = 4 * 60 * 60
 
     private static let syncedAtKey = "last-synced-at"
@@ -68,13 +57,9 @@ enum PlanSync {
         return slots(for: due).contains { placed[$0.workout.key] != PlanPlacement.fingerprint($0.workout, at: $0.time) }
     }
 
-    /// Which of a plan is the watch's business: near enough to matter, done or not.
-    ///
-    /// A session already done goes out too, and goes out ticked — `WorkoutScheduler` marks a
-    /// scheduled plan complete and the Workout app shows it that way. So the week on the
-    /// watch is the week that was planned rather than what is left of it, the days behind
-    /// read as done rather than as missing, and a session worth doing again is still there
-    /// to start.
+    /// Near enough to matter, done or not. A session already done goes out ticked, so the
+    /// week on the watch is the week that was planned rather than what is left of it — and
+    /// a session worth doing again is still there to start.
     static func due(in workouts: [PlannedWorkout]) -> [PlannedWorkout] {
         workouts
             .filter { $0.date >= day(scheduleFrom) && $0.date <= day(scheduleTo) }
@@ -94,15 +79,12 @@ enum PlanSync {
     /// Place what is not already there, take off whatever the plan no longer has, and record
     /// that it happened.
     ///
-    /// Most syncs place nothing. A workout whose row the server has not rewritten, scheduled
-    /// for the minute it is already scheduled for and still on the watch, would land exactly
-    /// as it stands — so it is left alone, and neither its steps nor the two writes to the
-    /// scheduler are spent on it. What that leaves in the common case is the listing the
-    /// caller already had and one read of the scheduler; where there is work to do, the
-    /// plans for all of it come back in a single request.
+    /// Most syncs place nothing: a workout the server has not rewritten, scheduled for the
+    /// minute it is already scheduled for and still on the watch, would land exactly as it
+    /// stands, so neither its steps nor the two writes are spent on it. That leaves the
+    /// listing the caller already had and one read of the scheduler.
     ///
-    /// `placed` is called as each one is dealt with so a foreground caller can count them
-    /// out; a background one passes nothing and the loop is the same either way.
+    /// `placed` is called per workout so a foreground caller can count them out.
     @discardableResult
     static func place(
         _ due: [PlannedWorkout],
@@ -152,21 +134,15 @@ enum PlanSync {
         return count
     }
 
-    /// Early on the day it is planned for, and never in the past — which is where this
-    /// morning is by the time anybody opens the app, and where the scheduler has nothing to
-    /// show for it. A day already gone is scheduled for the next whole hour instead, which is
-    /// what makes a session missed on Sunday reachable on Tuesday.
-    ///
-    /// The next *whole* hour rather than a minute from now, so a resync ten minutes later
-    /// lands on the same time and the watch is not rewritten for nothing. And a minute apart
-    /// per workout, so two missed days are two entries rather than one time carrying both.
+    /// Early on the day it is planned for, and never in the past, where the scheduler has
+    /// nothing to show for it. A day already gone is scheduled for the next *whole* hour —
+    /// whole, so a resync ten minutes later lands on the same time and does not rewrite the
+    /// watch for nothing — and a minute apart per workout, so two missed days are two
+    /// entries.
     ///
     /// **A workout already done keeps its own day.** The bump exists so a session still to
-    /// run is reachable, and there is nothing left to reach on one that is ticked: moved
-    /// forward it would file Sunday's long run under today, which is the one fact the tick
-    /// is making a claim about. The day it was planned for and not the minute it was
-    /// finished at — `completed_at` is when the recording ended, or when somebody marked it
-    /// done days later, and only the plan's own date belongs on the plan.
+    /// run is reachable, and moved forward a finished Sunday long run would file under
+    /// today, which is the one fact the tick is claiming.
     static func scheduledTime(for workout: PlannedWorkout, slot: Int) -> Date {
         let calendar = Calendar.current
         let planned = workout.day ?? Date()

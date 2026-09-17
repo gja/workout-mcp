@@ -1,12 +1,7 @@
-// Google Drive as a service account: a signed JWT for a token, then folders and
-// one streamed upload.
-//
-// A service account rather than the athlete's own Google sign-in, because the
-// copy runs on a schedule with nobody present: an OAuth grant taken at the
-// dashboard would need refreshing, and would put this server's reach over a
-// person's whole Drive. A service account reaches exactly what it has been made
-// a member of, and nothing else, which is a bound that holds without a token to
-// keep alive.
+// Google Drive as a service account: a signed JWT for a token, then folders and one
+// streamed upload. A service account rather than the athlete's own sign-in, because the
+// copy runs on a schedule with nobody present — and it reaches exactly the drives it has
+// been made a member of, a bound that holds without a token to keep alive.
 
 import type { Env } from '../db';
 
@@ -14,9 +9,8 @@ const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const DRIVE = 'https://www.googleapis.com/drive/v3';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files';
 
-// `drive.file` would be narrower, but it only reaches files the app itself created:
-// it cannot look up the athlete's drive, nor put a folder inside it. What actually
-// bounds this credential is membership: it sees the drives it was added to.
+// `drive.file` only reaches files the app itself created, so it cannot look up the
+// athlete's drive nor put a folder inside it. Membership is what bounds this credential.
 const SCOPE = 'https://www.googleapis.com/auth/drive';
 
 const FOLDER_TYPE = 'application/vnd.google-apps.folder';
@@ -91,8 +85,7 @@ async function assertion(env: Env): Promise<string> {
 
 /** A token per sync run. Caching one across runs would be a credential in a global. */
 export async function accessToken(env: Env): Promise<string> {
-  // Signed outside the try below, so an unreadable key is not reported as an outage,
-  // and `DriveUnavailable` keeps its own type rather than being rewrapped.
+  // Signed outside the try below, so an unreadable key is not reported as an outage.
   const signed = await assertion(env);
 
   let response: Response;
@@ -151,12 +144,9 @@ export function readDriveId(pasted: string): string | null {
 export type Drive = { id: string; name: string };
 
 /**
- * Why a folder is refused outright rather than used.
- *
- * It is not a policy choice. A service account owns whatever it uploads and has
- * no storage quota of its own, so a folder inside a person's own Drive has
- * nothing to charge the bytes to and the upload fails — later, and less
- * legibly, than this does.
+ * Not a policy choice: a service account has no storage quota of its own, so a folder
+ * inside a person's own Drive has nothing to charge the bytes to and the upload fails
+ * later, and less legibly, than this does.
  */
 const NOT_A_SHARED_DRIVE =
   'that is a folder, not a shared drive. A service account owns whatever it uploads and has no ' +
@@ -164,14 +154,9 @@ const NOT_A_SHARED_DRIVE =
   'shared drive — New › Shared drive — and paste that instead.';
 
 /**
- * The shared drive behind an id, or a refusal saying why it is not one.
- *
- * Only `drives.get` is consulted, and a folder is not accepted as a substitute
- * even though its link looks identical: the upload would fail later on quota,
- * long after the form said yes. A subfolder of a shared drive would in fact
- * work, and is refused too — "paste the drive" is a rule an athlete can follow,
- * where "paste the drive, or a folder in one, but not a folder in your own
- * Drive" is not.
+ * Only `drives.get` is consulted. A folder is not accepted even though its link looks
+ * identical, and a subfolder of a shared drive would in fact work and is refused too:
+ * "paste the drive" is a rule an athlete can follow.
  */
 export async function findDrive(token: string, driveId: string): Promise<Drive> {
   try {
@@ -226,9 +211,8 @@ export async function ensureFolder(token: string, parentId: string, name: string
 // contain it, and FIT is binary, so it could.
 const boundary = (): string => `workouts-mcp-${crypto.randomUUID()}`;
 
-// Well above any FIT recording — a long ultra is single-digit MB — and low
-// enough that the recording plus the multipart body around it are nowhere near
-// the isolate's 128 MB. An OOM is not catchable, so this has to be the guard.
+// Well above any FIT recording and far below the isolate's 128 MB. An OOM is not
+// catchable, so this has to be the guard.
 export const MAX_UPLOAD_BYTES = 16 * 1024 * 1024;
 
 export type Upload = {
@@ -240,13 +224,7 @@ export type Upload = {
   length: number | null;
 };
 
-/**
- * Read the whole recording, refusing it the moment it passes the cap.
- *
- * Bounded as it arrives rather than from `Content-Length`, because the platform
- * may not have sent one — and a cap that only checks the header it was given is
- * no cap at all.
- */
+/** Bounded as it arrives rather than from `Content-Length`, which the platform may not have sent. */
 async function readBounded(body: ReadableStream, what: string): Promise<Uint8Array[]> {
   const reader = (body as ReadableStream<Uint8Array>).getReader();
   const chunks: Uint8Array[] = [];
@@ -267,12 +245,9 @@ async function readBounded(body: ReadableStream, what: string): Promise<Uint8Arr
 }
 
 /**
- * Relay a recording into the drive in one call, and answer with Google's file id.
- *
- * The bytes are assembled in memory rather than streamed because Google's
- * multipart endpoint wants a `Content-Length`, and a Worker cannot put one on a
- * streamed request body. They are held for the one call and written nowhere —
- * no column here holds a recording, only a note that one went.
+ * Assembled in memory rather than streamed, because Google's multipart endpoint wants a
+ * `Content-Length` and a Worker cannot put one on a streamed body. Held for the one call
+ * and written nowhere.
  */
 export async function uploadFile(token: string, upload: Upload): Promise<string> {
   // Before a byte is read, when the platform said: refusing early beats refusing late.

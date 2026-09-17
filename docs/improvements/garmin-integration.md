@@ -89,5 +89,5 @@ should say so. Two reasons, both outstanding:
 - [ ] The contract changes above, with intervals.icu unaffected
 - [ ] Garmin in the test stand-in, and `docs/garmin.md` restored — as a Garmin
       section of `docs/integrations.md`, or its own file. A new top-level
-      `docs/` file needs a 50-100 word README entry: `scripts/check-readme.mjs`
+      `docs/` file needs a 25-50 word README entry: `scripts/check-readme.mjs`
       enforces it, and does not look in this directory.

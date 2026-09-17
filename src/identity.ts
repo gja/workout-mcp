@@ -20,7 +20,6 @@ export type IntervalsGrant = {
   scope: string;
 };
 
-/** Who signed in, as far as the provider is concerned. */
 export type Identity = {
   provider: ProviderName;
   subject: string;
@@ -55,9 +54,9 @@ export function loginCookie(state: string | null, secure: boolean): string {
 
 const redirectUri = (origin: string, provider: ProviderName): string => `${origin}/auth/${provider}/callback`;
 
-// Connecting has a callback of its own, which is what tells the two intents apart:
-// no flag to carry, and a code meant for one cannot be spent at the other, because
-// their token endpoint is given the redirect URI the code was issued for.
+// Connecting has a callback of its own, which is what tells the two intents apart: a
+// code meant for one cannot be spent at the other, since the token endpoint is given the
+// redirect URI the code was issued for.
 export const CONNECT_CALLBACK = '/auth/intervals/connect-callback';
 
 const connectRedirectUri = (origin: string): string => `${origin}${CONNECT_CALLBACK}`;
@@ -87,12 +86,9 @@ function appleClient(env: Env, origin: string): Apple | null {
 const INTERVALS_AUTHORIZE = 'https://intervals.icu/oauth/authorize';
 const INTERVALS_TOKEN = 'https://intervals.icu/api/oauth/token';
 
-// Calendar write pushes the workouts. Activity write covers both the reading —
-// completions and the recorded files — and the post-workout comment going onto the
-// session, without which their `PUT /activity/{id}` is refused and every note stays
-// here. One permission per resource: naming `ACTIVITY:READ` alongside it is refused
-// at their authorize page with "Duplicate scope ACTIVITY", so write has to stand for
-// both. Nothing needs the athlete profile: their token response names the athlete.
+// Calendar write pushes the workouts; activity write covers reading completions and
+// recorded files *and* writing the post-workout comment. One permission per resource:
+// naming `ACTIVITY:READ` alongside it is refused with "Duplicate scope ACTIVITY".
 const INTERVALS_SCOPE = 'CALENDAR:WRITE,ACTIVITY:WRITE';
 
 export const intervalsConfigured = (env: Env): boolean =>
@@ -101,8 +97,7 @@ export const intervalsConfigured = (env: Env): boolean =>
 /** Hand-rolled: `arctic` has no intervals.icu provider, and there is no PKCE to do. */
 function intervalsAuthorizationUrl(env: Env, state: string, redirect: string): URL {
   const url = new URL(INTERVALS_AUTHORIZE);
-  // Required of an authorization endpoint by RFC 6749, and harmless where it is
-  // merely assumed: without it a stricter reading of the request is an error page.
+  // Required by RFC 6749 and harmless where it is merely assumed.
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('client_id', env.INTERVALS_CLIENT_ID as string);
   url.searchParams.set('redirect_uri', redirect);
@@ -111,7 +106,6 @@ function intervalsAuthorizationUrl(env: Env, state: string, redirect: string): U
   return url;
 }
 
-/** Which providers this deployment can actually use. */
 export function configuredProviders(env: Env, origin: string): ProviderName[] {
   return PROVIDERS.filter((provider) => {
     if (provider === 'google') return googleClient(env, origin) !== null;
@@ -180,11 +174,9 @@ export async function startLogin(
 }
 
 /**
- * The same round, for an athlete who is already signed in — however they signed in.
- *
- * Separate from `startLogin` because it must not be reachable without a session:
- * the token it comes back with is hung on `userId`, and nothing about the athlete
- * who authorizes upstream decides who that is.
+ * The same round for an athlete already signed in. Separate from `startLogin` because it
+ * must not be reachable without a session: the token is hung on `userId`, and nothing
+ * about who authorizes upstream decides who that is.
  */
 export async function startConnect(
   env: Env,
@@ -205,7 +197,6 @@ function safeReturnTo(value: string | null): string | null {
   return value.slice(0, 512);
 }
 
-/** Consume a state, returning what was stored alongside it. */
 async function takeLoginState(
   env: Env,
   provider: ProviderName,
@@ -230,8 +221,8 @@ async function takeLoginState(
   if (!row || row.provider !== provider || Date.parse(row.expires_at) < Date.now()) {
     throw new LoginError('that sign-in link has expired — please try again');
   }
-  // Whether the row names an athlete *is* the intent, and the two callbacks do
-  // different things with the code, so neither may accept the other's state.
+  // Whether the row names an athlete *is* the intent, so neither callback may accept
+  // the other's state.
   if ((row.user_id ? 'connect' : 'login') !== expect) {
     throw new LoginError('that link does not belong to this page — please try again');
   }
@@ -295,10 +286,8 @@ type IntervalsToken = {
 };
 
 /**
- * Their token endpoint: form data in, the athlete inline, no ID token and no email.
- *
- * The code is only good for two minutes, and the redirect URI has to be the one it
- * was issued for — which is what keeps a sign-in code from being spent as a connect.
+ * Form data in, the athlete inline, no ID token and no email. The code is good for two
+ * minutes, and the redirect URI has to be the one it was issued for.
  */
 async function exchangeIntervalsCode(env: Env, code: string, redirect: string): Promise<IntervalsGrant> {
   if (!intervalsConfigured(env)) throw new LoginError('intervals.icu is not configured on this server');
@@ -359,7 +348,6 @@ async function readCallback(
   return { code, ...(await takeLoginState(env, provider, state, expect)) };
 }
 
-/** Exchange the callback's code for the athlete's identity. */
 export async function completeLogin(
   env: Env,
   provider: ProviderName,
@@ -412,11 +400,8 @@ export async function completeLogin(
 }
 
 /**
- * The connect callback: a token for the athlete who started it, and no session.
- *
- * Nothing here touches `users` or mints a cookie. Connecting intervals.icu is a
- * setting on an account, not a claim about who is using it, so it works the same
- * whether the athlete signed in with Google, Apple or intervals.icu itself.
+ * A token for the athlete who started it, and no session: connecting is a setting on an
+ * account rather than a claim about who is using it, so nothing here touches `users`.
  */
 export async function completeConnect(
   env: Env,
@@ -436,7 +421,6 @@ export async function completeConnect(
   return { grant: await exchangeIntervalsCode(env, code, connectRedirectUri(origin)), returnTo };
 }
 
-/** Sweep abandoned sign-in attempts. */
 export async function pruneLoginStates(env: Env, now: Date = new Date()): Promise<number> {
   const result = await env.DB.prepare('DELETE FROM login_states WHERE expires_at < ?').bind(now.toISOString()).run();
   return result.meta.changes ?? 0;
