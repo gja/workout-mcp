@@ -5,7 +5,7 @@ import Foundation
 import Security
 
 enum Keychain {
-    private static let service = "com.workoutsmcp.credential"
+    private static let service = "com.workouts-mcp.credential"
 
     static func save(_ data: Data, as account: String) {
         delete(account)

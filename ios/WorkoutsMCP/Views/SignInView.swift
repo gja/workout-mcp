@@ -1,11 +1,12 @@
-// The one thing to ask for is which deployment: workout-mcp is something you host, so
-// there is no address to assume. Everything after that is Google's or Apple's own page.
+// The one thing to ask for is which deployment. workouts-mcp.com is the one most people
+// want and is filled in; the field is there because this server is also something you can
+// host yourself. Everything after that happens on Google's or Apple's own page.
 
 import SwiftUI
 
 struct SignInView: View {
     @EnvironmentObject private var session: AppSession
-    @AppStorage("server") private var server = ""
+    @AppStorage("server") private var server = "workouts-mcp.com"
     @State private var showingToken = false
     @State private var token = ""
 
@@ -13,7 +14,7 @@ struct SignInView: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("workouts.example.com", text: $server)
+                    TextField("workouts-mcp.com", text: $server)
                         .textContentType(.URL)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
@@ -21,7 +22,7 @@ struct SignInView: View {
                 } header: {
                     Text("Your WorkoutsMCP server")
                 } footer: {
-                    Text("The address you open the dashboard at.")
+                    Text("workouts-mcp.com, or the address of your own deployment.")
                 }
 
                 Section {

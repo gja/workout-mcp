@@ -62,14 +62,29 @@ Laps come from `HKWorkoutActivity` where the watch recorded one per interval, fr
 server's lap matching copes with all three, and says `unmatched` rather than guessing when
 the mapping does not line up.
 
-Then it is written as a FIT activity file, on the phone, by a small encoder in `ios/`
-rather than by a library — there is no Swift FIT SDK, and the file an activity needs is
-seven message types. Its field numbers and enums were read out of the profile that ships
-with `@garmin/fitsdk`, which is the decoder the server reads the file back with, and the
-byte layout was round-tripped through that decoder and through `statsFrom` before it was
-written in Swift.
+## The file it writes
+
+Then it is written as a FIT activity file, on the phone, by
+[Garmin's own Swift SDK](https://github.com/garmin/fit-swift-sdk) — the same profile
+version, 21.214, as the `@garmin/fitsdk` the server decodes with. The SDK owns the header,
+both CRCs, the definition and data records and every field's scaling; what `ios/Fit/` still
+decides is which messages an activity needs and what goes in them.
+
+It goes in full. A `record` carries position and fix accuracy, altitude with the climb rate
+and grade derived from it, speed, cumulative distance, heart rate, power, cadence — with
+the half-stride in `fractional_cadence` rather than rounded off — the running dynamics
+Apple records, respiration rate and cumulative energy. The `session` and every `lap` carry
+the summary: totals, averages, maxima, minima, the bounding box, start and end position,
+work in joules and normalized power.
+
+Two of those have a method rather than a formula, and both are computed **the way this
+server computes them** when a file leaves them out: elevation gain behind a 3 m noise gate,
+and normalized power as Coggan's rolling 30-second average. A figure the file carries wins
+over one derived here, so the two agreeing is what stops the same session reading
+differently depending on where its numbers came from.
 
 ## The id in the file
+
 
 The workout's `<date>/<id>` travels in the file as a developer field on the `session`
 message, named `workout_mcp_id`. Developer fields are the FIT spec's own extension point,
@@ -87,9 +102,27 @@ the athlete, from a picker that is always there. WorkoutKit plan ids are **deriv
 the workout key rather than allocated, so scheduling a workout again replaces the plan on
 the watch instead of leaving two.
 
+## The home screen is one sentence
+
+The plan lives in Apple Fitness once it has been sent there, so showing it again in this
+app would be a second copy to keep honest. What the athlete actually needs to know is
+whether the sending worked, so the top of the screen is one line — *Synced to Apple
+Fitness · 8 planned workouts · 2 min ago* — and tapping it syncs again. Opening the app
+syncs on its own when the last one was over half an hour ago, because a status line that
+is merely the last thing that happened is worse than none.
+
+A sync sends every workout still to come and then **prunes**: anything this app put on the
+watch that the plan no longer has comes off, so the two really do agree rather than
+accumulating. Plans the athlete follows from elsewhere are not this app's to touch, and are
+left alone — only ids in this app's own index are removed.
+
+Below it is the last seven days of runs and rides out of Health, each with the planned
+workout it matches and a tick where the server already has it, and below that the way out.
+
 ## Signing in
 
-The app asks for the address of the deployment and nothing else. It discovers the
+The app asks for the address of the deployment — [workouts-mcp.com](https://workouts-mcp.com)
+is filled in, because this server is also something you can host yourself — and nothing else. It discovers the
 authorization server, registers itself (RFC 7591), and runs an authorization code flow
 with PKCE in an `ASWebAuthenticationSession` — the same door an MCP client comes through,
 described in [mcp.md](mcp.md). The consent page is the server's own, so the Google or
@@ -115,3 +148,12 @@ cache of the plan, no credential outside the keychain. The only thing that persi
 index from a WorkoutKit plan id to a workout key, which is a few hundred short strings in
 `UserDefaults` and is what lets a session recorded a fortnight later still name the plan
 it was for.
+
+## Open source, no secrets
+
+The app ships in this repository under the same MIT licence as the rest of it, and holds
+no secret to ship: it is a public OAuth client that registers itself with whatever
+deployment it is pointed at, so there is no client secret, no API key and no signing
+identity in the project. The credential it ends up with is minted per install and lives in
+that phone's keychain. The only thing a build needs that is not in the repo is an Apple
+signing team, which is the developer's own.

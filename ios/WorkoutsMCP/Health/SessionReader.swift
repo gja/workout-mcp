@@ -1,13 +1,14 @@
 // An `HKWorkout` read back out as a second-by-second recording, which is the shape a FIT
 // activity file wants and the shape Health does not hand over.
 //
-// HealthKit stores a workout as a handful of series that agree on nothing: a route of
-// irregular locations, heart rates every few seconds, distances as sums over intervals of
-// their own. This walks a one-second timeline from the start of the session and fills each
-// second from whichever series covers it, leaving a second nothing covers empty — never
-// zero, which downstream would read as a measurement.
+// HealthKit stores a workout as a dozen series that agree on nothing: a route of irregular
+// locations, heart rates every few seconds, distances as sums over intervals of their own.
+// This walks a one-second timeline from the start of the session and fills each second from
+// whichever series covers it, leaving a second nothing covers empty — never zero, which
+// downstream would read as a measurement.
 
 import CoreLocation
+import FITSwiftSDK
 import Foundation
 import HealthKit
 
@@ -15,20 +16,28 @@ enum SessionReader {
     /// A recording longer than this is cut: the file would outrun what the server decodes.
     private static let maximumSeconds = 12 * 60 * 60
 
+    /// Grade and climb rate over one second are noise. These are read across a few of them.
+    private static let slopeWindow = 5
+
     static func read(_ workout: HKWorkout, as workoutKey: String?) async throws -> RecordedSession {
         let sport = HealthAccess.sport(of: workout)
         let start = workout.startDate
         let seconds = max(min(Int(workout.endDate.timeIntervalSince(start).rounded()), maximumSeconds), 1)
         let end = start.addingTimeInterval(Double(seconds))
 
-        // Every series first, then one pass over the timeline: nothing is fetched while the
-        // samples are being written, so there is one owner of them at a time.
+        // Every series is fetched first and the timeline written afterwards, so there is one
+        // owner of the samples at a time and no await in the middle of filling them.
         let route = try await locations(of: workout)
         let heartRates = await quantities(.heartRate, of: workout)
         let powers = await quantities(sport == .cycling ? .cyclingPower : .runningPower, of: workout)
         let speeds = await quantities(sport == .cycling ? .cyclingSpeed : .runningSpeed, of: workout)
         let cadences = await quantities(sport == .cycling ? .cyclingCadence : .stepCount, of: workout)
         let distances = await quantities(sport == .cycling ? .distanceCycling : .distanceWalkingRunning, of: workout)
+        let energy = await quantities(.activeEnergyBurned, of: workout)
+        let breathing = await quantities(.respiratoryRate, of: workout)
+        let oscillation = await quantities(.runningVerticalOscillation, of: workout)
+        let contact = await quantities(.runningGroundContactTime, of: workout)
+        let stride = await quantities(.runningStrideLength, of: workout)
 
         var samples = (0 ... seconds).map { RecordedSample(time: start.addingTimeInterval(Double($0))) }
         let timeline = Timeline(start: start, count: samples.count)
@@ -37,24 +46,33 @@ enum SessionReader {
             guard let index = timeline.slot(location.timestamp) else { continue }
             samples[index].latitude = location.coordinate.latitude
             samples[index].longitude = location.coordinate.longitude
+            if location.horizontalAccuracy >= 0 { samples[index].positionAccuracy = location.horizontalAccuracy }
             if location.verticalAccuracy >= 0 { samples[index].altitude = location.altitude }
             if location.speed >= 0 { samples[index].speed = location.speed }
         }
 
-        let beatsPerMinute = HKUnit.count().unitDivided(by: .minute())
-        spread(heartRates, as: beatsPerMinute, over: timeline, into: &samples) { $0.heartRate = $1 }
+        let perMinute = HKUnit.count().unitDivided(by: .minute())
+        spread(heartRates, as: perMinute, over: timeline, into: &samples) { $0.heartRate = $1 }
         spread(powers, as: .watt(), over: timeline, into: &samples) { $0.power = $1 }
         spread(speeds, as: HKUnit.meter().unitDivided(by: .second()), over: timeline, into: &samples) { $0.speed = $1 }
+        spread(breathing, as: perMinute, over: timeline, into: &samples) { $0.respirationRate = $1 }
+
+        // FIT carries the running dynamics in millimetres, milliseconds and millimetres.
+        spread(oscillation, as: .meterUnit(with: .milli), over: timeline, into: &samples) { $0.verticalOscillation = $1 }
+        spread(contact, as: .secondUnit(with: .milli), over: timeline, into: &samples) { $0.groundContactTime = $1 }
+        spread(stride, as: .meterUnit(with: .milli), over: timeline, into: &samples) { $0.strideLength = $1 }
 
         if sport == .cycling {
-            spread(cadences, as: beatsPerMinute, over: timeline, into: &samples) { $0.cadence = $1 }
+            spread(cadences, as: perMinute, over: timeline, into: &samples) { $0.cadence = $1 }
         } else {
             // Running records steps, not a cadence, so it is steps over the seconds they took.
             spread(cadences, as: .count(), over: timeline, into: &samples, perSecond: true) { $0.cadence = $1 * 60 }
         }
 
-        accumulate(distances, over: timeline, into: &samples)
+        accumulate(distances, as: .meter(), over: timeline, into: &samples) { $0.distance = $1 }
+        accumulate(energy, as: .kilocalorie(), over: timeline, into: &samples) { $0.calories = $1 }
         fillSpeedFromDistance(&samples)
+        fillSlope(&samples)
 
         return RecordedSession(
             sport: sport,
@@ -64,8 +82,6 @@ enum SessionReader {
             movingSeconds: min(workout.duration, Double(seconds)),
             samples: samples,
             laps: laps(of: workout, from: start, to: end),
-            calories: workout.statistics(for: HKQuantityType(.activeEnergyBurned))?
-                .sumQuantity()?.doubleValue(for: .kilocalorie()),
             workoutKey: workoutKey
         )
     }
@@ -82,9 +98,9 @@ enum SessionReader {
         }
     }
 
-    /// Each sample held across the seconds it covers, which is how a watch writes them:
-    /// one reading every few seconds, meant for all of them. `perSecond` divides a total
-    /// — a count of steps — by the seconds it was counted over first.
+    /// Each sample held across the seconds it covers, which is how a watch writes them: one
+    /// reading every few seconds, meant for all of them. `perSecond` divides a total — a
+    /// count of steps — by the seconds it was counted over first.
     private static func spread(
         _ samples: [HKQuantitySample],
         as unit: HKUnit,
@@ -109,22 +125,31 @@ enum SessionReader {
 
     /// FIT wants the total so far, and Health gives sums over intervals of its own choosing,
     /// so they are added up in order and carried across the seconds no sample covered.
-    private static func accumulate(_ samples: [HKQuantitySample], over timeline: Timeline, into filled: inout [RecordedSample]) {
+    private static func accumulate(
+        _ samples: [HKQuantitySample],
+        as unit: HKUnit,
+        over timeline: Timeline,
+        into filled: inout [RecordedSample],
+        assign: (inout RecordedSample, Double) -> Void
+    ) {
         var total = 0.0
+        var marks: [Int: Double] = [:]
+
         for sample in samples {
-            total += sample.quantity.doubleValue(for: .meter())
+            total += sample.quantity.doubleValue(for: unit)
             guard let index = timeline.slot(sample.endDate) ?? timeline.slot(sample.startDate) else { continue }
-            filled[index].distance = total
+            marks[index] = total
         }
         guard total > 0 else { return }
 
         var carried = 0.0
         for index in filled.indices {
-            if let here = filled[index].distance { carried = here } else { filled[index].distance = carried }
+            if let here = marks[index] { carried = here }
+            assign(&filled[index], carried)
         }
     }
 
-    /// A speed the series did not carry, from the distance that did. Pace is the field most
+    /// A speed the series did not carry, from the distance that did. Pace is the figure most
     /// often read off one of these files, and one second of distance is enough to have it.
     private static func fillSpeedFromDistance(_ samples: inout [RecordedSample]) {
         for index in samples.indices where samples[index].speed == nil {
@@ -133,6 +158,26 @@ enum SessionReader {
                   let before = samples[index - 1].distance else { continue }
             let seconds = samples[index].time.timeIntervalSince(samples[index - 1].time)
             if seconds > 0 { samples[index].speed = max(0, (here - before) / seconds) }
+        }
+    }
+
+    /// Grade and climb rate, which no sensor reports: they are the altitude the route gave
+    /// against the distance covered under it, read across a few seconds so one noisy fix
+    /// does not read as a wall.
+    private static func fillSlope(_ samples: inout [RecordedSample]) {
+        for index in samples.indices where index >= slopeWindow {
+            let back = index - slopeWindow
+            guard let high = samples[index].altitude, let low = samples[back].altitude else { continue }
+
+            let climbed = high - low
+            let seconds = samples[index].time.timeIntervalSince(samples[back].time)
+            if seconds > 0 { samples[index].verticalSpeed = climbed / seconds }
+
+            guard let here = samples[index].distance, let there = samples[back].distance else { continue }
+            let run = here - there
+            // A grade off a metre of travel is arithmetic on noise, and the clamp is what a
+            // head unit does: no real road reads past 50%.
+            if run >= 1 { samples[index].grade = min(50, max(-50, climbed / run * 100)) }
         }
     }
 

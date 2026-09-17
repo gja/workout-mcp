@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		AA0000000000000000000082 /* FITSwiftSDK in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000081 /* FITSwiftSDK */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		AA0000000000000000000001 /* WorkoutsMCP.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WorkoutsMCP.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0000000000000000000002 /* WorkoutsMCP.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WorkoutsMCP.entitlements; sourceTree = "<group>"; };
@@ -25,6 +29,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA0000000000000000000082 /* FITSwiftSDK in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -68,6 +73,9 @@
 				AA0000000000000000000010 /* WorkoutsMCP */,
 			);
 			name = WorkoutsMCP;
+			packageProductDependencies = (
+				AA0000000000000000000081 /* FITSwiftSDK */,
+			);
 			productName = WorkoutsMCP;
 			productReference = AA0000000000000000000001 /* WorkoutsMCP.app */;
 			productType = "com.apple.product-type.application";
@@ -97,6 +105,9 @@
 			mainGroup = AA0000000000000000000030;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
+			packageReferences = (
+				AA0000000000000000000080 /* XCRemoteSwiftPackageReference "fit-swift-sdk" */,
+			);
 			productRefGroup = AA0000000000000000000031 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -201,7 +212,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.WorkoutsMCP;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.workouts-mcp.ios";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -229,7 +240,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.WorkoutsMCP;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.workouts-mcp.ios";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -259,6 +270,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		AA0000000000000000000080 /* XCRemoteSwiftPackageReference "fit-swift-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/garmin/fit-swift-sdk.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 21.214.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AA0000000000000000000081 /* FITSwiftSDK */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA0000000000000000000080 /* XCRemoteSwiftPackageReference "fit-swift-sdk" */;
+			productName = FITSwiftSDK;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = AA0000000000000000000050 /* Project object */;
 }

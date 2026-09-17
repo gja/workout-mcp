@@ -11,7 +11,7 @@ import Foundation
 import WorkoutKit
 
 enum PlanAlerts {
-    static func alert(for target: PlanTarget, sport: FitSport) -> (any WorkoutAlert)? {
+    static func alert(for target: PlanTarget) -> (any WorkoutAlert)? {
         switch target {
         case .open:
             return nil

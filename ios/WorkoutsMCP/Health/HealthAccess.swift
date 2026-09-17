@@ -1,6 +1,7 @@
 // Permission, and the listing of what the athlete actually recorded. Read-only: this app
 // never writes a sample back into Health.
 
+import FITSwiftSDK
 import Foundation
 import HealthKit
 
@@ -19,9 +20,11 @@ enum HealthError: LocalizedError {
 enum HealthAccess {
     static let store = HKHealthStore()
 
-    /// Everything a FIT file of a run or a ride can carry, and nothing else.
+    /// Every channel a FIT file of a run or a ride can carry, and nothing else. A type the
+    /// athlete declines, or a sensor they were not wearing, comes back empty rather than
+    /// failing: a run with no power meter is still a run worth uploading.
     static var readTypes: Set<HKObjectType> {
-        var types: Set<HKObjectType> = [
+        [
             HKObjectType.workoutType(),
             HKSeriesType.workoutRoute(),
             HKQuantityType(.heartRate),
@@ -29,15 +32,16 @@ enum HealthAccess {
             HKQuantityType(.distanceCycling),
             HKQuantityType(.stepCount),
             HKQuantityType(.activeEnergyBurned),
-        ]
-        types.formUnion([
+            HKQuantityType(.respiratoryRate),
             HKQuantityType(.runningPower),
             HKQuantityType(.runningSpeed),
+            HKQuantityType(.runningVerticalOscillation),
+            HKQuantityType(.runningGroundContactTime),
+            HKQuantityType(.runningStrideLength),
             HKQuantityType(.cyclingPower),
             HKQuantityType(.cyclingCadence),
             HKQuantityType(.cyclingSpeed),
-        ])
-        return types
+        ]
     }
 
     static func request() async throws {
@@ -81,7 +85,7 @@ enum HealthAccess {
         (workout.metadata?[HKMetadataKeyIndoorWorkout] as? Bool) == true
     }
 
-    static func sport(of workout: HKWorkout) -> FitSport {
+    static func sport(of workout: HKWorkout) -> Sport {
         switch workout.workoutActivityType {
         case .running: return .running
         case .cycling: return .cycling
@@ -93,7 +97,7 @@ enum HealthAccess {
         }
     }
 
-    static func subSport(of workout: HKWorkout) -> FitSubSport {
+    static func subSport(of workout: HKWorkout) -> SubSport {
         switch (sport(of: workout), isIndoor(workout)) {
         case (.running, true): return .treadmill
         case (.running, false): return .street
@@ -102,6 +106,9 @@ enum HealthAccess {
         default: return .generic
         }
     }
+
+    /// So a view can say "Ride" without knowing what a FIT sport is.
+    static func isRide(_ workout: HKWorkout) -> Bool { sport(of: workout) == .cycling }
 
     static func distance(of workout: HKWorkout) -> Double? {
         let type: HKQuantityType = sport(of: workout) == .cycling

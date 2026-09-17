@@ -17,7 +17,7 @@ struct ActivityView: View {
     var body: some View {
         Form {
             Section("Recorded") {
-                LabeledContent("Sport", value: HealthAccess.sport(of: activity) == .cycling ? "Ride" : "Run")
+                LabeledContent("Sport", value: HealthAccess.isRide(activity) ? "Ride" : "Run")
                 LabeledContent("Started", value: activity.startDate.formatted(date: .abbreviated, time: .shortened))
                 LabeledContent("Duration", value: Formats.duration(activity.duration))
                 if let metres = HealthAccess.distance(of: activity), metres > 0 {

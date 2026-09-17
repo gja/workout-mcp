@@ -5,8 +5,24 @@ There is no watch app: the plan is scheduled through **WorkoutKit**, so it appea
 Workout app on the watch the way any Fitness+ or third-party plan does, and the session
 comes back through **HealthKit** like any other.
 
+It talks to [workouts-mcp.com](https://workouts-mcp.com) out of the box, or to your own
+deployment — the sign-in screen asks which.
+
 Why it exists and how the two halves join up is [docs/ios.md](../docs/ios.md). This file
 is how to build it.
+
+## Open source, and nothing to hide in it
+
+This repository is open source, the app included: MIT, and the whole thing is here — the
+Worker, the dashboard and this app.
+
+**Nothing secret is checked in, here or anywhere else in the repo.** There is no API key,
+no client secret and no signing identity in this project. The app registers itself with
+whatever deployment you point it at ([RFC 7591](https://datatracker.ietf.org/doc/html/rfc7591),
+public client, no secret to hold), and the credential it gets back lives in the keychain
+on the phone. The only thing you supply to build it is your own Apple signing team, which
+Xcode keeps in your account rather than in the project file. The server's secrets are
+Wrangler secrets — see [docs/deployment.md](../docs/deployment.md).
 
 ## Building it
 
@@ -17,11 +33,10 @@ adding a Swift file is just adding a file) and a device running **iOS 17 or newe
 open ios/WorkoutsMCP.xcodeproj
 ```
 
-Then, once:
+Xcode resolves the one package dependency on first open. Then, once:
 
-1. Select the **WorkoutsMCP** target › *Signing & Capabilities*, and set your team.
-   Change `PRODUCT_BUNDLE_IDENTIFIER` from `com.example.WorkoutsMCP` to something under
-   a prefix you own.
+1. Select the **WorkoutsMCP** target › *Signing & Capabilities*, and set your team. The
+   bundle id is `com.workouts-mcp.ios`; change it if you are not signing as us.
 2. Check that **HealthKit** is listed under *Signing & Capabilities*. It comes from
    `WorkoutsMCP.entitlements`, which is deliberately outside the source folder so it is
    not copied into the bundle as a resource.
@@ -29,15 +44,27 @@ Then, once:
    `WorkoutScheduler` does nothing there, so almost none of this app can be exercised in
    it.
 
-There is no Swift package to fetch: everything is a system framework.
+## Dependencies
+
+One, and it is the one worth having:
+
+| | |
+| --- | --- |
+| [`garmin/fit-swift-sdk`](https://github.com/garmin/fit-swift-sdk) | Garmin's official FIT SDK. It owns the wire format — header, both CRCs, definition and data records, the profile's scaling and every field number — so this app only decides which messages an activity needs. It pulls in `apple/swift-collections`, and nothing else. |
+
+Nothing else is worth a dependency here. The keychain wrapper is forty lines against
+`Security`, the networking is `URLSession` and `Codable`, the UI is SwiftUI, and the
+health and scheduling APIs are Apple's. A keychain wrapper, an HTTP library or a JSON
+library would each add a package to audit and update in exchange for saving a file
+shorter than this table.
 
 ## Signing in
 
-The app asks for the address of your deployment and nothing else. It discovers the
+The app asks for the address of the deployment and nothing else. It discovers the
 authorization server from `/.well-known/oauth-authorization-server`, registers itself
 (RFC 7591), and runs an authorization code flow with PKCE in an
-`ASWebAuthenticationSession` — so the Google or Apple sign-in happens on your server's
-own consent page and this app never sees a password.
+`ASWebAuthenticationSession` — so the Google or Apple sign-in happens on the server's own
+consent page and this app never sees a password.
 
 It then trades the grant at `POST /api/app-token` for an ordinary `wk_` token and keeps
 that in the keychain, because an OAuth access token reaches `/mcp` and not `/api/`. The
@@ -50,10 +77,19 @@ instead*, for a deployment where the browser round trip is not wanted.
 
 ## What it does
 
-| | |
-| --- | --- |
-| **Planned** | The plan from `GET /api/workouts`. Swipe right on one to send it to Apple Fitness, left to take it off again, or use *Send all* for everything still to come. |
-| **Recorded in Health** | Runs and rides from the last week. Tap one for *Generate .fit*, which builds the file on the phone, and *Upload to WorkoutsMCP*, which posts it. |
+The home screen is three things.
+
+**Where the plan stands.** One line — *Synced to Apple Fitness · 8 planned workouts · 2 min
+ago* — and tapping it syncs again. Opening the app syncs on its own if the last one was
+over half an hour ago, so the line is true rather than merely reassuring. Syncing sends
+every workout still to come, and takes off the watch anything this app put there that the
+plan no longer has.
+
+**The last 7 days**, from Health: every run and ride, with the planned workout it matches
+and a tick where the server already has it. Tap one for *Generate .fit*, which builds the
+file on the phone, and *Upload to WorkoutsMCP*, which posts it.
+
+**Log out.**
 
 Uploading ingests the file server-side: the stats are worked out and stored, the session
 is marked done, and **the file itself is not kept**. See
@@ -64,26 +100,47 @@ is marked done, and **the file itself is not kept**. See
 ```
 Api/          the REST client and the shapes it decodes
 Auth/         discovery, registration, PKCE, and the keychain
-Fit/          the FIT encoder, and a recorded session as an activity file
+Fit/          a recorded session, its summary figures, and the SDK call that writes it
 Health/       permission, the workout listing, and the read that turns one into samples
 Plan/         a resolved plan as a WorkoutKit CustomWorkout, and the id that ties them
 Views/        the home screen, a session, and signing in
 ```
 
-### The FIT encoder
+### What goes in the file
 
-`Fit/FitWriter.swift` writes definition and data records, the 14-byte header and both
-CRCs; `Fit/ActivityFit.swift` decides which messages an activity file needs. Every field
-number, scale and enum value in it was read out of the profile that ships with
-`@garmin/fitsdk` — the same decoder the server reads the file back with — rather than
-remembered, and the byte layout was prototyped in JavaScript and round-tripped through
-that decoder and through `statsFrom` before being written here.
+`Health/SessionReader.swift` walks a one-second timeline and fills each second from
+whichever HealthKit series covers it, so a `record` message carries everything the watch
+had:
 
-The workout id travels in the file as a **developer field** on the `session` message,
-named `workout_mcp_id` and holding `<date>/<id>`. That is the spec's own way to add a
-field, so a decoder that does not know about it skips it and one that does can read it
-back. The upload does not depend on it — the route names the workout — but a file shared
-anywhere else still says what it was for.
+| | |
+| --- | --- |
+| Position | latitude, longitude and the fix's accuracy, from the workout route |
+| Elevation | altitude, plus the climb rate and grade derived across five seconds of it |
+| Pace | speed from the sport's own series, from the route, or from the distance travelled |
+| Distance | cumulative metres, as FIT wants it |
+| Heart rate | beats a minute |
+| Power | running or cycling watts |
+| Cadence | crank rpm, or steps a minute turned into strides — with the half-stride in `fractional_cadence` rather than rounded off |
+| Running dynamics | vertical oscillation, ground contact time, stride length |
+| Respiration | breaths a minute |
+| Energy | cumulative kilocalories |
+
+The `session` and each `lap` then carry the summary of all of it: totals, averages, maxima
+and minima, bounding box, start and end position, work in joules, and normalized power.
+Elevation gain and normalized power are computed the way the **server** computes them when
+a file leaves them out — a 3 m noise gate, and Coggan's rolling 30-second average — so a
+file this app writes and one it does not read the same. See [docs/stats.md](../docs/stats.md).
+
+A channel the athlete did not record is **absent**, never zero: a zero heart rate would be
+read downstream as a measurement.
+
+### The id in the file
+
+The workout id travels as a **developer field** on the `session` message, named
+`workout_mcp_id` and holding `<date>/<id>`. That is the FIT spec's own extension point, so
+a decoder that does not know about it skips it and one that does can read it back. The
+upload does not depend on it — the route names the workout — but a file shared anywhere
+else still says what it was for.
 
 ### Matching a session back to its plan
 
@@ -97,9 +154,9 @@ Three things are tried, in order:
 
 ## What to check first if it does not compile
 
-Nearly all of this is ordinary Foundation, SwiftUI and HealthKit. The part with the most
-surface against a framework that has moved between releases is WorkoutKit, and it is
-deliberately confined to two files — `Plan/WorkoutKitSync.swift` and
+Nearly all of this is ordinary Foundation, SwiftUI, HealthKit and the FIT SDK. The part
+with the most surface against a framework that has moved between releases is WorkoutKit,
+and it is deliberately confined to two files — `Plan/WorkoutKitSync.swift` and
 `Plan/PlanAlerts.swift`. If an initialiser has been renamed or an alert type has grown a
 parameter, those are the two files to fix, and nothing else refers to WorkoutKit at all.
 
