@@ -125,9 +125,12 @@ is not offered at all.
 **Settings** is who is signed in, which deployment this build talks to, the way out — and
 whether the half of this app nobody watches is alive. A session missing from the server is
 equally consistent with HealthKit never having woken the app, a wake that was cut short, and
-a session this app will not upload unattended, so three lines separate them: whether Health
-can wake the app, when it last did and what came of it, and how many sessions have gone up
-on their own. A number above zero on the last is the whole proof that the path works.
+a session this app will not upload unattended, so four lines separate them: whether Health can
+wake the app, when it last ran in the background and what came of it, when the observer last
+fired at all, and how many sessions have gone up on their own. The middle two are two because
+opening the app fires the observer as well, so only the background line is evidence that iOS
+ran the app unasked; a number above zero on the last proves the upload rules fire at all,
+without saying from which of the three places.
 
 ## What a sync sends
 
@@ -186,6 +189,19 @@ the same rules: every `PlanRefresh` turn, and opening the app. A session that fa
 upload is simply one the server still has no recording for, so the next run finds it again —
 there is no watermark to advance past it.
 
-`Health/WakeLog.swift` keeps the three facts Settings shows in `UserDefaults`, because a
-wake that never arrives and a wake that arrives and finds nothing are the same silence from
-outside the app.
+`Health/WakeLog.swift` keeps the facts Settings shows in `UserDefaults`, because a wake that
+never arrives and a wake that arrives and finds nothing are the same silence from outside
+the app.
+
+**A background wake is recorded apart from every other fire**, or the act of looking destroys
+what is being looked for. `HKObserverQuery` fires an initial callback whenever it is executed,
+and `start()` executes it on every launch — so opening the app to read the last wake writes
+one over it, and a single line can only ever show the launch that went to read it. The app's
+state is read at the *start* of a wake, before any work the athlete might open the app during,
+and only a genuinely background one writes its own pair of keys. Those survive every launch
+after, so `never` there on a phone that has been opened since is the answer being no.
+
+Settings re-reads them on appearing and on coming back to the front. `UserDefaults` is not
+observable, so a body that reads it directly holds its first reading while the catch-up it is
+reporting on finishes underneath — a counter that stays wrong exactly while somebody watches
+to see whether it moves.

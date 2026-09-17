@@ -29,10 +29,12 @@ enum BackgroundSync {
         if observer == nil {
             let query = HKObserverQuery(sampleType: .workoutType(), predicate: nil) { _, completion, error in
                 guard error == nil else {
-                    // Still acknowledged. HealthKit backs off an observer that stops answering,
-                    // and a failed read is not a reason to stop being told about the next one.
-                    WakeLog.woke(.unreadable)
+                    // Acknowledged first: HealthKit backs off an observer that stops
+                    // answering, and writing it down can follow.
                     completion()
+                    Task { @MainActor in
+                        WakeLog.woke(.unreadable, inBackground: UIApplication.shared.applicationState == .background)
+                    }
                     return
                 }
                 Task { @MainActor in await answer(completion) }
@@ -75,11 +77,15 @@ enum BackgroundSync {
     /// this is the only place that knows both it and the work.
     @MainActor
     private static func answer(_ completion: @escaping () -> Void) async {
-        let wake = Wake(completion)
+        // Read before the work, not after: by the time an upload finishes the athlete may
+        // have opened the app, which would report a background wake as a foreground one.
+        let inBackground = UIApplication.shared.applicationState == .background
+
+        let wake = Wake(completion, inBackground: inBackground)
         wake.begin()
 
         let outcome = await uploadWhatIsCertain()
-        WakeLog.woke(outcome)
+        WakeLog.woke(outcome, inBackground: inBackground)
         wake.done()
     }
 
@@ -91,9 +97,13 @@ enum BackgroundSync {
     private final class Wake {
         private var acknowledge: (() -> Void)?
         private var assertion = UIBackgroundTaskIdentifier.invalid
+        /// Carried from the start of the wake: expiring is the moment the app state changes,
+        /// and what matters is what was true when iOS handed this launch over.
+        private let inBackground: Bool
 
-        init(_ acknowledge: @escaping () -> Void) {
+        init(_ acknowledge: @escaping () -> Void, inBackground: Bool) {
             self.acknowledge = acknowledge
+            self.inBackground = inBackground
         }
 
         func begin() {
@@ -101,7 +111,7 @@ enum BackgroundSync {
                 // UIKit calls an expiration handler on the main thread, which is where this
                 // object lives. This is the last moment there is to answer.
                 MainActor.assumeIsolated {
-                    WakeLog.woke(.ranOut)
+                    WakeLog.woke(.ranOut, inBackground: self.inBackground)
                     self.done()
                 }
             }
