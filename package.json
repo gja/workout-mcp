@@ -1,7 +1,7 @@
 {
   "name": "workout-mcp",
   "version": "0.1.0",
-  "description": "Plan workouts over MCP, export them as Garmin FIT files. Cloudflare Workers + D1.",
+  "description": "Plan, execute and analyze your workouts with AI. Over MCP or REST, on Cloudflare Workers + D1.",
   "scripts": {
     "dev": "vite dev",
     "deploy": "vite build && wrangler deploy",
