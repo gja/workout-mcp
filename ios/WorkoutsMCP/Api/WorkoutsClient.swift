@@ -62,9 +62,11 @@ struct WorkoutsClient: Sendable {
 
     /// The FIT file as the body. Comes back with the workout marked done. See docs/stats.md.
     @discardableResult
-    func upload(_ fit: Data, to workout: PlannedWorkout, activityID: String) async throws -> RecordingReceipt {
+    /// Keyed by `<date>/<id>` rather than by a `PlannedWorkout`, because the route needs
+    /// nothing else — and a wake holds the key from `PlanLink` without asking the server.
+    func upload(_ fit: Data, to workoutKey: String, activityID: String) async throws -> RecordingReceipt {
         let escaped = activityID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "upload"
-        var request = try await signed("/api/workouts/\(workout.key)/recording?activity_id=\(escaped)")
+        var request = try await signed("/api/workouts/\(workoutKey)/recording?activity_id=\(escaped)")
         request.httpMethod = "POST"
         request.setValue("application/vnd.ant.fit", forHTTPHeaderField: "Content-Type")
         request.httpBody = fit

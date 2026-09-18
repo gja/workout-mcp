@@ -15,8 +15,9 @@ enum SyncLog {
     private static let uploadedKey = "sync-uploaded-count"
     private static let backgroundKey = "sync-background-wake-count"
 
-    /// The last few days of a diagnostic, not an archive.
-    private static let limit = 200
+    /// The last hundred lines, not an archive. A run writes a handful, so this is days of
+    /// ordinary use and still bounded on the day something logs in a loop.
+    private static let limit = 100
 
     enum Kind: String, Codable {
         /// HealthKit's answer to being asked to wake this app.
@@ -70,7 +71,7 @@ enum SyncLog {
     static func record(_ kind: Kind, _ said: String) {
         var log = entries
         log.append(Entry(id: UUID(), at: Date(), kind: kind, said: said, unattended: isUnattended))
-        if log.count > limit { log.removeFirst(log.count - limit) }
+        log = pruned(log)
 
         if kind == .wake, isUnattended {
             defaults.set(defaults.integer(forKey: backgroundKey) + 1, forKey: backgroundKey)
@@ -88,7 +89,20 @@ enum SyncLog {
     static func deliveryRefused(_ error: Error) {
         defaults.set(Date(), forKey: deliveryAtKey)
         defaults.set(error.localizedDescription, forKey: deliveryProblemKey)
-        record(.delivery, error.localizedDescription)
+        record(.delivery, "HealthKit refused to wake the app: \(describe(error))")
+    }
+
+    /// More than `localizedDescription`, which for a network failure is a sentence that names
+    /// neither the status nor the code — and a log read at arm's length needs both.
+    static func describe(_ error: Error) -> String {
+        if let api = error as? ApiError { return "HTTP \(api.status) — \(api.message)" }
+        let ns = error as NSError
+        return "\(ns.localizedDescription) [\(ns.domain) \(ns.code)]"
+    }
+
+    private static func pruned(_ log: [Entry]) -> [Entry] {
+        guard log.count > limit else { return log }
+        return Array(log.dropFirst(log.count - limit))
     }
 
     /// Never reset, where the log above is trimmed: one session that went up without anybody

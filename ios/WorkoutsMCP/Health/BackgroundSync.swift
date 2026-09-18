@@ -117,56 +117,106 @@ enum BackgroundSync {
         }
     }
 
-    /// Only the sessions the watch itself matched to a plan, and only the ones the server has
-    /// not already read — `isDone` on the listing is what says so, so nothing needs a ledger
-    /// and a failed upload is simply still not done.
+    /// Only the sessions the watch itself matched to a plan, and only the ones that have not
+    /// gone up already — `Uploaded` says so locally, because a wake has seconds and the
+    /// listing that used to answer it is the slowest call in the path. Everything the POST
+    /// needs is the workout key, which `PlanLink` already holds.
     ///
     /// Not private, and not only for a wake: `PlanRefresh` and opening the app run it too,
     /// because `.immediate` delivery is a request rather than a guarantee.
+    ///
+    /// **One run at a time.** Opening the app starts the observer's own fire and the catch-up
+    /// within a moment of each other, and both used to reach the POST before either finished
+    /// — one walk went up three times. `Uploaded` cannot stop that on its own, because none
+    /// of them has recorded anything yet; a second caller joins the run already going instead.
     @discardableResult
     static func uploadWhatIsCertain() async -> SyncLog.Outcome {
+        await join()
+    }
+
+    @MainActor private static var inFlight: Task<SyncLog.Outcome, Never>?
+
+    @MainActor
+    private static func join() async -> SyncLog.Outcome {
+        if let running = inFlight { return await running.value }
+
+        let run = Task { await send() }
+        inFlight = run
+        let outcome = await run.value
+        inFlight = nil
+        return outcome
+    }
+
+    private static func send() async -> SyncLog.Outcome {
         guard let client = StoredSession.load()?.client else { return .signedOut }
 
-        let from = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
-        let to = Calendar.current.date(byAdding: .day, value: 14, to: Date()) ?? Date()
-
-        guard let planned = try? await client.workouts(from: from, to: to) else { return .unreachable }
-        // Two days: a wake is for what just finished, and a background launch has
-        // seconds rather than minutes to spend.
-        guard let activities = try? await HealthAccess.recentActivities(days: 2) else { return .unreadable }
+        let activities: [HKWorkout]
+        do {
+            // Two days: a wake is for what just finished, and a background launch has
+            // seconds rather than minutes to spend.
+            activities = try await HealthAccess.recentActivities(days: 2)
+        } catch {
+            SyncLog.record(.upload, "could not read Health: \(SyncLog.describe(error))")
+            return .unreadable
+        }
 
         var uploaded = 0
         var refused = false
+        var unreachable = false
+        // Counted so a run that sends nothing can say why, which is the silence that has been
+        // hardest to read: three recent sessions and no upload is not one fact but three.
+        var alreadySent = 0
+        var unplanned = 0
 
         for activity in activities {
-            // A turn iOS is about to take back. What is left is the next run's, and the
-            // server's own record of what is done is what makes that safe.
+            // Cancellation reaches here when the run itself is cancelled; a caller that gave
+            // up does not stop it, since another may still be waiting on the same run.
             if Task.isCancelled { break }
 
+            // Before `planID`, which is a round trip to the store per session: the cheap
+            // question first, so a wake spends its seconds on what it might actually send.
+            guard !Uploaded.contains(activity.uuid) else { alreadySent += 1; continue }
             guard let planID = await HealthAccess.planID(of: activity),
-                  let key = PlanLink.workoutKey(forPlan: planID),
-                  let workout = planned.first(where: { $0.key == key }),
-                  !workout.isDone else { continue }
+                  let key = PlanLink.workoutKey(forPlan: planID) else { unplanned += 1; continue }
+
+            // Before the work, not only after it: reading the session, encoding the file and
+            // posting it are where a wake runs out of time, and a line written only on
+            // success leaves nothing behind to say which of them it died in.
+            SyncLog.record(.upload, "about to upload \(key)")
 
             do {
-                let recorded = try await SessionReader.read(activity, as: workout.key)
+                let recorded = try await SessionReader.read(activity, as: key)
                 try await client.upload(
                     try ActivityFit.encode(recorded),
-                    to: workout,
+                    to: key,
                     activityID: activity.uuid.uuidString
                 )
+                Uploaded.remember(activity.uuid)
                 uploaded += 1
-                SyncLog.record(.upload, "\(workout.name) went up")
+                SyncLog.record(.upload, "finished uploading \(key)")
+                // One a run. A wake is about the session that just finished, and the next
+                // run — or the catch-up on opening the app — takes whatever is behind it.
+                break
             } catch {
                 // Continue, not return: one session that cannot be read or sent must not
                 // hide every session behind it for as long as it stays stuck.
-                SyncLog.record(.upload, "\(workout.name) would not go up: \(error.localizedDescription)")
+                SyncLog.record(.upload, "could not upload \(key): \(SyncLog.describe(error))")
                 refused = true
+                // Worth telling apart: a server that refused the file is a different morning
+                // from a phone that had no network when it woke.
+                if (error as NSError).domain == NSURLErrorDomain { unreachable = true }
             }
         }
 
+        if uploaded == 0, !refused {
+            SyncLog.record(
+                .upload,
+                "nothing to send: \(activities.count) recent, \(alreadySent) already up, \(unplanned) with no plan"
+            )
+        }
+
         if uploaded > 0 { SyncLog.uploaded(uploaded) }
-        if refused { return .failed }
+        if refused { return unreachable ? .unreachable : .failed }
         return uploaded > 0 ? .uploaded : .nothing
     }
 }
