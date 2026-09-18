@@ -52,6 +52,13 @@ Xcode resolves the one package dependency on first open. Then, once:
    deliberately outside the source folder so it is not copied into the bundle as a
    resource. Background delivery also has to be on the App ID; automatic signing adds it.
 
+   **Background Modes** should be listed too, with **Background fetch** ticked. That one
+   comes from `Info.plist` beside the entitlements, which holds only the two keys the
+   generated plist cannot: `UIBackgroundModes` and `BGTaskSchedulerPermittedIdentifiers`.
+   Everything else about the plist is still a build setting. Once installed, the app
+   appears under *Settings › General › Background App Refresh*; if it does not, the
+   modes did not make it into the bundle.
+
    The target carries **both** HealthKit purpose strings, share and update, even though
    this app only ever reads: App Store validation asks for the update string because the
    entitlement permits writing, not because the code does any. The string says so.

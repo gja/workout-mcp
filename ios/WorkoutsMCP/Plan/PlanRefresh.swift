@@ -12,7 +12,7 @@ import BackgroundTasks
 import Foundation
 
 enum PlanRefresh {
-    /// The same string as `INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers` in the project:
+    /// The same string as `BGTaskSchedulerPermittedIdentifiers` in `ios/Info.plist`:
     /// iOS refuses to register a task the bundle has not declared, and refuses at launch.
     static let identifier = "com.workouts-mcp.ios.plan-refresh"
 

@@ -240,6 +240,16 @@ session over, and the system's own view of this app all delay it; a force-quit s
 until the app is opened by hand. So the same upload runs from two other places under exactly
 the same rules: every `PlanRefresh` turn, and opening the app.
 
+**A refresh turn has to be declared, and the declaration has to reach the bundle.** iOS
+grants `BGAppRefreshTask` only to an app whose `Info.plist` lists `fetch` under
+`UIBackgroundModes` and the task's identifier under `BGTaskSchedulerPermittedIdentifiers`;
+without both, `register` answers false and nothing is ever scheduled. Both keys live in
+`ios/Info.plist`, next to the entitlements, and not in the build settings that generate the
+rest of the plist: Xcode's generator honours a fixed list of `INFOPLIST_KEY_` names and drops
+the ones it does not know without a word. Declared that way, the turn never came for a day,
+and the tell was the app missing from *Settings › General › Background App Refresh*. An app
+that declares the mode is listed there; check that before anything else.
+
 **And a wake asks the server nothing before it posts.** It used to read the listing first —
 three weeks of plan, over the slowest link in the path — to check `isDone` on one workout,
 and a wake that ran out of time ran out of it there. Everything the POST needs is the

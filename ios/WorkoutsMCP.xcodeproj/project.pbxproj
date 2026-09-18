@@ -13,6 +13,7 @@
 /* Begin PBXFileReference section */
 		AA0000000000000000000001 /* WorkoutsMCP.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WorkoutsMCP.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0000000000000000000002 /* WorkoutsMCP.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WorkoutsMCP.entitlements; sourceTree = "<group>"; };
+		AA0000000000000000000004 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AA0000000000000000000003 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -41,6 +42,7 @@
 			children = (
 				AA0000000000000000000010 /* WorkoutsMCP */,
 				AA0000000000000000000002 /* WorkoutsMCP.entitlements */,
+				AA0000000000000000000004 /* Info.plist */,
 				AA0000000000000000000003 /* README.md */,
 				AA0000000000000000000031 /* Products */,
 			);
@@ -253,10 +255,9 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = "com.workouts-mcp.ios.plan-refresh";
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = WorkoutsMCP;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
-				INFOPLIST_KEY_UIBackgroundModes = fetch;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "WorkoutsMCP reads your recorded runs and rides so it can build a FIT file from them and upload it to your own server, and your heart rate so it can show you what you rest at and the highest you have been recorded working.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "WorkoutsMCP never writes anything to Health. It only reads the runs and rides you have already recorded.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -285,10 +286,9 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = "com.workouts-mcp.ios.plan-refresh";
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = WorkoutsMCP;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
-				INFOPLIST_KEY_UIBackgroundModes = fetch;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "WorkoutsMCP reads your recorded runs and rides so it can build a FIT file from them and upload it to your own server, and your heart rate so it can show you what you rest at and the highest you have been recorded working.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "WorkoutsMCP never writes anything to Health. It only reads the runs and rides you have already recorded.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
