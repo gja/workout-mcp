@@ -138,8 +138,10 @@ a field to edit. It comes from the plan id the watch recorded, or from the one w
 that sport planned for that day — and where it is neither, the session says so rather than
 offering a menu to guess from.
 
-**Settings.** Who is signed in, which deployment this build talks to, **Log out**, and a
-**Sync log** sheet: whether Health can wake the app, when it last ran with nobody looking and
+**Settings.** Who is signed in, which deployment this build talks to, **Log out**, a
+**Heart rate** sheet — a year of Health as the two figures zones are built from, an average
+resting heart rate and an observed maximum that is the third-highest day rather than the
+highest, because a wrist sensor spikes — and a **Sync log** sheet: whether Health can wake the app, when it last ran with nobody looking and
 what came of it, how many sessions have gone up without anybody tapping *Export*, and the
 events behind all three.
 
@@ -270,7 +272,7 @@ declaration and it should be the shipper who makes it.
 Api/          the REST client and the shapes it decodes
 Auth/         discovery, registration, PKCE, and the keychain
 Fit/          a recorded session, its summary figures, and the SDK call that writes it
-Health/       permission, the listing, the read that turns one into samples, the background wake
+Health/       permission, the listing, the read that turns one into samples, a year of heart rate, the background wake
 Plan/         a resolved plan as a WorkoutKit CustomWorkout, and the id that ties them
 Views/        the three tabs, a workout, a session, a lap, and signing in
 ```

@@ -34,7 +34,9 @@ wall of questions (skimmed).
 Round 4 does not simply ask for a max HR, because that answer is usually a guess: it asks
 where their training is recorded and walks them to the figure their own history holds, with
 two warnings — a platform's zone settings frequently hold 220 minus age, and a wrist optical
-sensor spikes. What survives is written as an observed maximum with its date.
+sensor spikes. What survives is written as an observed maximum with its date. An athlete on
+the iPhone app is pointed at *Settings › Heart rate* instead, which applies the same two
+warnings to a year of Health itself; see [ios.md](ios.md#heart-rate).
 
 Two rules run through it. **Never invent a number**: anything unknown is written as
 `*not set*` beside the test that would set it, because a guessed threshold looks like a

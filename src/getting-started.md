@@ -100,7 +100,9 @@ from and when, and write that alongside it.
 - **Swimming:** CSS or a recent 400m and 200m, pool length, and whether they
   swim in a pool, open water or both.
 - **Everyone:** age, if they are willing, when max HR is a guess rather than a
-  measurement.
+  measurement. And **resting HR** where a watch records one: it is what makes
+  heart rate reserve available, and a percentage of reserve is not the same
+  band as the same percentage of max.
 
 **Max HR is usually already on their watch**, so ask where their sessions are
 recorded before asking them for a number. The highest heart rate in a hard
@@ -109,6 +111,12 @@ athletes have without testing for it.
 
 - **Ask which platform** their training ends up in — Apple Watch, Garmin,
   Strava, Coros, Polar, Wahoo, Whoop.
+- **If they have the WorkoutsMCP iPhone app, it has already done this.**
+  *Settings › Heart rate* reads a year of Apple Health and gives back an average
+  resting heart rate and an observed maximum — the third-highest day of that
+  year, so a single sensor spike cannot set it — with a button that copies both
+  to paste here. Ask them to open it rather than walking them through the
+  Fitness app.
 - **If they are not sure**, ask what is on their wrist and whether it syncs to a
   phone: the watch names the app. Apple Watch is the Fitness or Health app,
   Garmin is Garmin Connect, Coros and Polar are their own apps, and a chest
@@ -168,7 +176,11 @@ numbers.
 - **Swimming:** per-100 bands off CSS, and the pool length they were measured
   in.
 - State the basis at the top of each section — "FTP 200 W", "max HR 190",
-  "CSS 1:45/100 m" — and the date it was set.
+  "CSS 1:45/100 m" — and the date it was set. Where a resting HR is known, write
+  it beside the max and **say which of the two the heart rate bands are
+  percentages of**: max HR, or heart rate reserve — max minus resting, Karvonen.
+  They are different beats, and a band that does not say which is one nobody can
+  check.
 - Close with **review triggers**: the events that make these numbers stale. A
   completed ramp test or time trial, an easy session sitting below its HR band
   two weeks running, intervals finished repeatedly well inside or outside

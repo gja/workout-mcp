@@ -42,6 +42,12 @@ enum Formats {
         date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
     }
 
+    /// "19 Sep 2026" — the same day for text that leaves the app, where a year from now is
+    /// not the same fact as a fortnight ago.
+    static func dated(_ date: Date) -> String {
+        date.formatted(date: .abbreviated, time: .omitted)
+    }
+
     /// Coarse on purpose. A sync five seconds ago and one twenty seconds ago are the same
     /// fact, and a line that counts seconds at the athlete invites them to read it twice to
     /// see whether it changed. Minutes until an hour, then hours, then days.

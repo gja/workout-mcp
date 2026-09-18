@@ -122,14 +122,49 @@ name and type from a URL, and it is not deleted on dismissal because a share tar
 asynchronously. Where the session has no planned workout to file against, the export action
 is not offered at all.
 
-**Settings** is who is signed in, which deployment this build talks to, the way out — and
-**Sync log**, a sheet over what the half of this app nobody watches has been doing. A session
+**Settings** is who is signed in, which deployment this build talks to, the way out,
+**Heart rate** (below) — and **Sync log**, a sheet over what the half of this app nobody
+watches has been doing. A session
 missing from the server is equally consistent with HealthKit never having woken the app, a
 wake that was cut short, and a session this app will not upload unattended, and nothing in a
 background launch can say which. So the sheet opens on three: whether Health can wake the
 app, when it last ran with nobody looking and what came of it, and how many sessions have
 gone up on their own. Under them is the event list, newest first, each line marked where it
 happened unattended.
+
+## Heart rate
+
+*Settings › Heart rate* is the one reading of Health here that is not about a single
+session: a year of it, reduced to the two figures a heart rate zone is anchored to — what
+this athlete rests at, and the highest they have been recorded working. Round 4 of the
+setup interview sends an athlete on this app here rather than walking them through the
+Fitness app; see [prompts.md](prompts.md).
+
+**The maximum is the third-highest day, not the highest.** A wrist optical sensor spikes,
+and a lone 205 with nothing near it in any other day of the year is an artefact that would
+otherwise set every band underneath it. The three days the figure is read off are listed
+below it, so it can be checked rather than believed. It is still a floor — the hardest this
+athlete has been *recorded* working, not the hardest they can work — and the screen says so
+in the same words the interview does.
+
+**A day, not a session.** HealthKit has a predicate for the samples of one named workout
+and none for "any workout", so filtering to sessions would be a query per session. Two
+statistics queries bucketed by day cover the year instead — daily maximum heart rate, daily
+resting heart rate — and an all-out effort nobody thought to start as a workout counts for
+it rather than being missed. A day Health has nothing for is absent rather than zero, for
+the reason [stats.md](stats.md) gives.
+
+**No zones are computed here.** The bands live in `workout-zones` on the server, which is
+the single source of truth for physiology — the same reason the Executed tab shows the
+server's numbers with HealthKit's series in hand. What this screen adds beside the two
+measurements is heart rate reserve, max minus resting, which is what a Karvonen percentage
+is taken of; and a button that copies the lot as prose to paste into the assistant, saying
+of each figure where it came from and how far to trust it. An assistant handed a bare 186
+cannot tell a measurement from a guess.
+
+Resting heart rate is the one `readTypes` entry no FIT file carries, and it is there for
+this screen alone. An athlete who declines it, or a watch that never wrote one, gets a
+section saying so rather than an average of nothing.
 
 ## What a sync sends
 
