@@ -85,10 +85,18 @@ reaching an athlete by three routes is recognisable as one file.
 
 **Matching a session to its plan is tried two ways, in order**: the plan id the watch
 recorded, read off `HKWorkout.workoutPlan` — there is no metadata key to look it up by —
-against an index the app wrote when it scheduled the workout; then the one workout of that
-sport planned for that day, where there is exactly one. WorkoutKit plan ids are **derived**
-from the workout key rather than allocated, so scheduling a workout again replaces the plan
-on the watch instead of leaving two.
+then the one workout of that sport planned for that day, where there is exactly one.
+
+**The plan id is the workout key.** WorkoutKit's id is a UUID and nothing else, so
+`<date>/<id>` cannot be stored there as itself, but it fits with room over in the 122 bits a
+UUID leaves free: `PlanLink` writes the day in as four BCD bytes and the id as one byte a
+character, under version 8, and reads it back out again. So the id is still **derived**
+rather than allocated — scheduling a workout again replaces the plan on the watch instead of
+leaving two — and a session recorded weeks later names its workout from the id alone, with
+nothing to have been lost in between. A key that will not fit that layout falls back to a
+SHA-256 digest and the index of ids the app has always written when scheduling, which is
+also what answers for anything an older build put on the watch. Because those older ids are
+version 5, scheduling knows both and replaces either.
 
 There is deliberately no third way. A picker was tried and removed: everything past those
 two is a question the app is in the worst position to answer, and what it produced when it
@@ -189,7 +197,7 @@ the same rules: every `PlanRefresh` turn, and opening the app.
 **And a wake asks the server nothing before it posts.** It used to read the listing first —
 three weeks of plan, over the slowest link in the path — to check `isDone` on one workout,
 and a wake that ran out of time ran out of it there. Everything the POST needs is the
-workout key, which `PlanLink` already holds from scheduling it, so the only question left is
+workout key, which the plan id carries, so the only question left is
 whether this session is one the app is already finished with. `Health/Settled.swift` answers
 that locally, and is written only where the answer **cannot change**: a session that went up,
 one refused for a reason another run would get again, and one the watch never named a plan
