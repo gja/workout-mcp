@@ -260,11 +260,16 @@ reviewer who could not get past the first screen.
 
 ### Export compliance
 
-Every upload asks whether the app uses non-exempt encryption. This app only uses HTTPS and
-the keychain, which is the standard exemption, so the answer is no. Adding
-`INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO` to the build settings answers it once
-rather than on every build — left out of the project deliberately, because it is a legal
-declaration and it should be the shipper who makes it.
+Every upload asks whether the app uses non-exempt encryption, and App Store Connect keeps
+asking on each build until the answer is in the binary.
+`INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO` is in the build settings, so the
+question is answered at build time and the *App Encryption Documentation* sheet stops
+appearing.
+
+The declaration is true of this app: it uses HTTPS through the OS, the keychain, and
+SHA-256 in `Auth/OAuth.swift` and `Plan/PlanLink.swift` — a hash, not encryption. All of
+that is the standard exemption. It is still a legal declaration, so if you fork this and
+add encryption of your own, that line is yours to revisit.
 
 ## Where things are
 
