@@ -15,11 +15,9 @@ enum SyncLog {
     private static let uploadedKey = "sync-uploaded-count"
     private static let backgroundKey = "sync-background-wake-count"
 
-    /// Two days of a diagnostic, not an archive: long enough to cover the window a wake
-    /// reads and a night of not looking, short enough that it never becomes a file to manage.
-    private static let keepHours: TimeInterval = 48
-    /// A backstop on the hours, for the day something logs in a loop.
-    private static let limit = 500
+    /// The last hundred lines, not an archive. A run writes a handful, so this is days of
+    /// ordinary use and still bounded on the day something logs in a loop.
+    private static let limit = 100
 
     enum Kind: String, Codable {
         /// HealthKit's answer to being asked to wake this app.
@@ -103,10 +101,8 @@ enum SyncLog {
     }
 
     private static func pruned(_ log: [Entry]) -> [Entry] {
-        let oldest = Date(timeIntervalSinceNow: -keepHours * 3600)
-        var kept = log.filter { $0.at >= oldest }
-        if kept.count > limit { kept.removeFirst(kept.count - limit) }
-        return kept
+        guard log.count > limit else { return log }
+        return Array(log.dropFirst(log.count - limit))
     }
 
     /// Never reset, where the log above is trimmed: one session that went up without anybody

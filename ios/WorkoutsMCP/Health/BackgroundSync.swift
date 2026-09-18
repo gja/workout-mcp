@@ -179,6 +179,11 @@ enum BackgroundSync {
             guard let planID = await HealthAccess.planID(of: activity),
                   let key = PlanLink.workoutKey(forPlan: planID) else { unplanned += 1; continue }
 
+            // Before the work, not only after it: reading the session, encoding the file and
+            // posting it are where a wake runs out of time, and a line written only on
+            // success leaves nothing behind to say which of them it died in.
+            SyncLog.record(.upload, "about to upload \(key)")
+
             do {
                 let recorded = try await SessionReader.read(activity, as: key)
                 try await client.upload(
@@ -188,14 +193,14 @@ enum BackgroundSync {
                 )
                 Uploaded.remember(activity.uuid)
                 uploaded += 1
-                SyncLog.record(.upload, "\(key) went up")
+                SyncLog.record(.upload, "finished uploading \(key)")
                 // One a run. A wake is about the session that just finished, and the next
                 // run — or the catch-up on opening the app — takes whatever is behind it.
                 break
             } catch {
                 // Continue, not return: one session that cannot be read or sent must not
                 // hide every session behind it for as long as it stays stuck.
-                SyncLog.record(.upload, "\(key) would not go up: \(SyncLog.describe(error))")
+                SyncLog.record(.upload, "could not upload \(key): \(SyncLog.describe(error))")
                 refused = true
                 // Worth telling apart: a server that refused the file is a different morning
                 // from a phone that had no network when it woke.

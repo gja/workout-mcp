@@ -205,10 +205,13 @@ anything yet, so a second caller joins the run already going instead of starting
 `Health/SyncLog.swift` records what each step did, because a wake that never arrives and a
 wake that arrives and finds nothing are the same silence from outside the app. Delivery being
 enabled or refused, every observer fire and its outcome, every session that went up or would
-not, every plan written to the watch and every `PlanRefresh` turn all get a line, kept in
-`UserDefaults` for **48 hours** — the process a wake happened in is gone by the time anybody
-asks, which takes the console with it, and two days covers a night of not looking without
-becoming a file to manage. Settings opens it as **Sync log**.
+not, every plan written to the watch and every `PlanRefresh` turn all get a line — the last
+hundred, in `UserDefaults`, because the process a wake happened in is gone by the time
+anybody asks and it takes the console with it. Settings opens it as **Sync log**.
+
+An upload is written down **before** it starts as well as after. Reading the session,
+encoding the file and posting it are where a wake runs out of time, and a line written only
+on success leaves nothing to say which of the three it died in.
 
 A failure says what failed: a status and a message for the server, a domain and a code
 otherwise, because `localizedDescription` alone names neither. And a run that sends nothing
