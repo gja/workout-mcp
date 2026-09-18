@@ -275,6 +275,15 @@ morning. And nobody is left to refresh afterwards, so a landing posts `sessionUp
 The foreground still waits: *Export* and the catch-up on opening the app have a whole app
 lifetime and somebody watching.
 
+**A landing is announced**, since by then there is usually no screen to announce it on. The
+notification is **local** — the phone already knows the fact, so no server, no APNs and no
+device token are involved — and it reads *your walk "90s walk II" has been marked complete*,
+because the POST answers with the workout it just marked done and `SessionUpload` is already
+holding that body to read a refusal out of. So neither the name nor the sport costs a request. Permission is asked for beside Health's, on a
+foreground refresh, for the reason everything else in this section exists: a launch nobody is
+looking at is the wrong moment to ask anybody anything. Refused, nothing is posted and nothing
+else changes.
+
 Telling those refusals apart matters more than it sounds. The listing used to filter a
 deleted workout out before it was ever posted; without it, three deleted test workouts
 `404`'d on every wake for a day, because only a success had ever been written down.

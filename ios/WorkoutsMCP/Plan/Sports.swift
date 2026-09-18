@@ -17,6 +17,20 @@ enum Sports {
         }
     }
 
+    /// What an athlete calls it, for a sentence rather than an API. Anything this app does
+    /// not have a word for is a "session", which is true of everything and wrong about nothing.
+    static func noun(_ sport: String?) -> String {
+        switch sport {
+        case "running": return "run"
+        case "cycling": return "ride"
+        case "swimming": return "swim"
+        case "walking": return "walk"
+        case "hiking": return "hike"
+        case "rowing": return "row"
+        default: return "session"
+        }
+    }
+
     static func fitSubSport(_ subSport: String?) -> SubSport {
         switch subSport {
         case "treadmill": return .treadmill
