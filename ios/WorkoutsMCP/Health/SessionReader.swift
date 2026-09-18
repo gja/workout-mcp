@@ -26,19 +26,38 @@ enum SessionReader {
         let seconds = max(min(Int(workout.endDate.timeIntervalSince(start).rounded()), maximumSeconds), 1)
         let end = start.addingTimeInterval(Double(seconds))
 
-        // Every series is fetched first and the timeline written afterwards, so there is one
-        // owner of the samples at a time and no await in the middle of filling them.
-        let route = try await locations(of: workout)
-        let heartRates = await quantities(.heartRate, of: workout)
-        let powers = await quantities(sport == .cycling ? .cyclingPower : .runningPower, of: workout)
-        let speeds = await quantities(sport == .cycling ? .cyclingSpeed : .runningSpeed, of: workout)
-        let cadences = await quantities(sport == .cycling ? .cyclingCadence : .stepCount, of: workout)
-        let distances = await quantities(sport == .cycling ? .distanceCycling : .distanceWalkingRunning, of: workout)
-        let energy = await quantities(.activeEnergyBurned, of: workout)
-        let breathing = await quantities(.respiratoryRate, of: workout)
-        let oscillation = await quantities(.runningVerticalOscillation, of: workout)
-        let contact = await quantities(.runningGroundContactTime, of: workout)
-        let stride = await quantities(.runningStrideLength, of: workout)
+        // Every series is asked for at once: each is a round trip to the store, and twelve one
+        // after another is most of what a HealthKit wake is given. The timeline is still
+        // written only once they have all landed, so there is one owner of the samples at a
+        // time and no await in the middle of filling them.
+        let began = Date()
+        async let askRoute = locations(of: workout)
+        async let askHeartRates = quantities(.heartRate, of: workout)
+        async let askPowers = quantities(sport == .cycling ? .cyclingPower : .runningPower, of: workout)
+        async let askSpeeds = quantities(sport == .cycling ? .cyclingSpeed : .runningSpeed, of: workout)
+        async let askCadences = quantities(sport == .cycling ? .cyclingCadence : .stepCount, of: workout)
+        async let askDistances = quantities(sport == .cycling ? .distanceCycling : .distanceWalkingRunning, of: workout)
+        async let askEnergy = quantities(.activeEnergyBurned, of: workout)
+        async let askBreathing = quantities(.respiratoryRate, of: workout)
+        async let askOscillation = quantities(.runningVerticalOscillation, of: workout)
+        async let askContact = quantities(.runningGroundContactTime, of: workout)
+        async let askStride = quantities(.runningStrideLength, of: workout)
+
+        let route = try await askRoute
+        // The route is the one that is not a single round trip — a track arrives in batches —
+        // so what it cost is worth telling apart from the eleven that are.
+        let routing = SyncLog.took(Date().timeIntervalSince(began))
+        let heartRates = await askHeartRates
+        let powers = await askPowers
+        let speeds = await askSpeeds
+        let cadences = await askCadences
+        let distances = await askDistances
+        let energy = await askEnergy
+        let breathing = await askBreathing
+        let oscillation = await askOscillation
+        let contact = await askContact
+        let stride = await askStride
+        let asked = Date()
 
         var samples = (0 ... seconds).map { RecordedSample(time: start.addingTimeInterval(Double($0))) }
         let timeline = Timeline(start: start, count: samples.count)
@@ -76,6 +95,12 @@ enum SessionReader {
         dropUnsettledAltitude(&samples)
         fillSpeedFromDistance(&samples)
         fillSlope(&samples)
+
+        // Asking against filling, because reading a session is where a wake spends its budget
+        // and one figure for the two would not say which half to go after. See docs/ios.md.
+        let health = SyncLog.took(asked.timeIntervalSince(began))
+        let filling = SyncLog.took(Date().timeIntervalSince(asked))
+        SyncLog.record(.upload, "read \(seconds)s of session — Health \(health) (route \(routing)), timeline \(filling)")
 
         return RecordedSession(
             sport: sport,

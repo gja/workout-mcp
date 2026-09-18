@@ -202,15 +202,16 @@ enum BackgroundSync {
 
             do {
                 let recorded = try await SessionReader.read(activity, as: key)
-                try await SessionUpload.shared.hand(
-                    try ActivityFit.encode(recorded),
-                    to: key,
-                    activity: activity.uuid,
-                    using: client
-                )
+                // Timed on the way past: reading is measured inside `SessionReader`, and this
+                // is the other half of the nine seconds a wake used to spend before the POST.
+                let encoding = Date()
+                let file = try ActivityFit.encode(recorded)
+                let encoded = SyncLog.took(Date().timeIntervalSince(encoding))
+
+                try await SessionUpload.shared.hand(file, to: key, activity: activity.uuid, using: client)
                 Handed.hold(activity.uuid)
                 uploaded += 1
-                SyncLog.record(.upload, "handed \(key) to iOS to finish")
+                SyncLog.record(.upload, "handed \(key) to iOS to finish, encoded in \(encoded)")
                 // One a run. A wake is about the session that just finished, and the next
                 // run — or the catch-up on opening the app — takes whatever is behind it.
                 break

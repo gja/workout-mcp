@@ -253,7 +253,7 @@ id and posts — no round trip before the one that matters.
 
 ### The transfer does not belong to the wake
 
-Even with nothing wasted it did not fit. An upload takes **17 to 34 seconds** on device
+Even with nothing wasted it did not fit. Sending a session took **17 to 34 seconds** on device
 against the roughly thirty a background-task assertion is given, so a 90-second walk was woken
 59 seconds after the watch saved it, wrote `ran out of time`, and did that twice more before a
 fourth attempt scraped through twenty minutes later. Delivery was never the problem; the work
@@ -294,6 +294,38 @@ run at a time**: opening the app starts the observer's own fire and the catch-up
 moment of each other, and both used to reach the POST before either finished — one walk went
 up three times. `Settled` cannot stop that by itself, since none of them has recorded
 anything yet, so a second caller joins the run already going instead of starting another.
+
+### And the reading is asked all at once
+
+Moving the transfer out bought a second. The log timestamps each step, and on the wake that
+showed it the network was the cheap end — *about to upload* at 11:44:02, *handed a session to
+iOS* nine seconds later, *finished uploading* one second after that. Nine of the ten seconds
+were reading the session out of Health and encoding the file, and both are still inside the
+assertion.
+
+That nine seconds was a **96-second indoor walk with no GPS and no power meter**, which is
+about the smallest recording there is, so the cost was never the data. HealthKit keeps each
+series separately and there is a query per series, and `SessionReader` was making twelve of
+them one after another — heart rate, power, speed, cadence, distance, energy, breathing, the
+three running dynamics, and the route — paying a round trip for each whether or not it had
+anything to say. A walk has no power and no running dynamics; those queries cost what a query
+costs anyway.
+
+None of them depends on another, so they now go out together and the timeline is filled once
+they have all landed. What the invariant there was ever about is the writing — one owner of
+the samples at a time, and no await in the middle of filling them — and asking is not writing.
+
+**Nothing is skipped for being inapplicable.** Power on a walk, running dynamics on a ride:
+those come back empty, but they now come back empty alongside everything else rather than
+after it, so leaving them out would save nothing a clock could read — and would quietly lose
+a series the day a watch starts writing one.
+
+And the split is written down rather than argued about. Every read logs what it spent asking
+Health against what it spent filling the timeline, the route counted apart from the eleven
+because a track arrives in batches rather than in one answer, and the line that hands the file
+over says how long encoding took. Encoding is per-sample work — that walk is 97 records — so
+it is not where nine seconds hides, but the log says which half it was rather than leaving it
+to be reasoned out.
 
 `Health/SyncLog.swift` records what each step did, because a wake that never arrives and a
 wake that arrives and finds nothing are the same silence from outside the app. Delivery being
