@@ -125,6 +125,10 @@ de-duplicated case-insensitively, and sending the field replaces the whole list.
 `external_id` makes re-syncing safe: creating a workout again with the same key **updates
 that workout in place**, same id, moved if the date changed. Keys are scoped to one athlete.
 
+An id is unique to an athlete, not to a day, so it names the same workout wherever it
+sits. Every call that takes a `date` beside an `id` — a tool argument or a path segment —
+ignores the date and resolves by the id; see [api.md](api.md#the-date-in-a-path-is-ignored).
+
 A write answers with which workout it was and where to find it, not with the steps the
 caller just sent.
 
@@ -147,6 +151,25 @@ The dashboard has no control for it.
 Because it is its own verb, rewriting the plan does not un-do the session: `update_workout`,
 a `PUT`, and a re-sync under the same `external_id` all carry the record across, including
 onto another day, and the stats come with it.
+
+## Moving one to another day
+
+The day is its own verb too, because a plan that only slips a day should not have to be
+resent:
+
+```
+reschedule_workout { "date": "2026-09-12", "id": "a1b2c3d4", "to_date": "2026-09-14" }
+```
+
+The id stays, and so does everything hanging off it: the steps, the completion, the note
+and the stats — the row does not move, one column changes. Over REST that is
+`PUT /api/workouts/:date/:id/date` with `{"date": "2026-09-14"}`, where the date in the
+path is the usual ignored one. A day already outside the retention window is refused
+rather than written somewhere it could not be read back.
+
+This is the one way to move a session that has been done: the steps go across untouched,
+so the rewrite the stats forbid never happens. `update_workout` still moves a workout as
+part of replacing it, for a caller that is changing the plan anyway.
 
 ## Saying how it went
 

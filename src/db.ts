@@ -143,43 +143,35 @@ export async function listWorkouts(env: Env, userId: string, from?: string, to?:
   return (results ?? []).map(parseRow);
 }
 
-export async function getWorkout(env: Env, userId: string, date: string, id: string): Promise<Workout | null> {
+/** By id alone: the day a workout sits on is not part of what it is. See docs/database.md. */
+export async function getWorkout(env: Env, userId: string, id: string): Promise<Workout | null> {
   const window = readWindow();
-  if (date < window.from || date > window.to) return null;
-
   const row = await env.DB.prepare(
-    `SELECT ${WORKOUT_COLUMNS} FROM workouts WHERE user_id = ? AND date = ? AND id = ?`,
+    `SELECT ${WORKOUT_COLUMNS} FROM workouts WHERE user_id = ? AND id = ? AND date >= ? AND date <= ?`,
   )
-    .bind(userId, date, id)
+    .bind(userId, id, window.from, window.to)
     .first<WorkoutRow>();
   return row ? parseRow(row) : null;
 }
 
 /**
  * Several workouts in one read — a round trip a workout is what `/api/workout-plans`
- * exists to stop being. Asked by date and narrowed to the ids here rather than as a bound
- * pair per key, because D1 takes at most 100 bound parameters and two a key runs out
- * before the fifty workouts an account may hold. What it over-reads is a day's others.
+ * exists to stop being. Bound one id a key, which fits: D1 takes at most 100 bound
+ * parameters and an account holds fifty workouts.
  */
-export async function getWorkouts(
-  env: Env,
-  userId: string,
-  keys: readonly { date: string; id: string }[],
-): Promise<Workout[]> {
-  const window = readWindow();
-  const wanted = keys.filter((key) => key.date >= window.from && key.date <= window.to);
+export async function getWorkouts(env: Env, userId: string, ids: readonly string[]): Promise<Workout[]> {
+  const wanted = [...new Set(ids)];
   if (wanted.length === 0) return [];
 
-  const dates = [...new Set(wanted.map((key) => key.date))];
+  const window = readWindow();
   const { results } = await env.DB.prepare(
     `SELECT ${WORKOUT_COLUMNS} FROM workouts
-     WHERE user_id = ? AND date IN (${dates.map(() => '?').join(', ')}) ORDER BY date, created_at`,
+     WHERE user_id = ? AND date >= ? AND date <= ? AND id IN (${wanted.map(() => '?').join(', ')})
+     ORDER BY date, created_at`,
   )
-    .bind(userId, ...dates)
+    .bind(userId, window.from, window.to, ...wanted)
     .all<WorkoutRow>();
-
-  const asked = new Set(wanted.map((key) => `${key.date}/${key.id}`));
-  return (results ?? []).filter((row) => asked.has(`${row.date}/${row.id}`)).map(parseRow);
+  return (results ?? []).map(parseRow);
 }
 
 // Not narrowed to the read window: the key's unique index is not either.
@@ -194,7 +186,7 @@ export async function findByExternalId(
   return row ?? null;
 }
 
-/** Ask before deleting the old row on a move, or a refusal costs the workout too. */
+/** Asked before a write, so a day nothing could be read back from is refused rather than stored. */
 export function assertRetainable(date: string): void {
   const window = retentionWindow();
   if (date < window.from || date > window.to) {
@@ -220,27 +212,21 @@ type StoredRecord = {
 };
 
 // Not window-narrowed: asked about a row that is about to be written over, not read back.
-async function storedRecord(
-  env: Env,
-  userId: string,
-  date: string,
-  id: string,
-): Promise<StoredRecord> {
+async function storedRecord(env: Env, userId: string, id: string): Promise<StoredRecord> {
   const row = await env.DB.prepare(
-    'SELECT completed_at, comment, stats, steps FROM workouts WHERE user_id = ? AND date = ? AND id = ?',
+    'SELECT completed_at, comment, stats, steps FROM workouts WHERE user_id = ? AND id = ?',
   )
-    .bind(userId, date, id)
+    .bind(userId, id)
     .first<StoredRecord>();
   return row ?? { completed_at: null, comment: null, stats: null, steps: null };
 }
 
-/** `previous` is where the row being replaced is now, when the caller has already moved it. */
+/** With an `id`, the row that id names is rewritten wherever it sits — the date moves with it. */
 export async function putWorkout(
   env: Env,
   userId: string,
   input: WorkoutInput,
   id?: string,
-  previous?: { date: string; id: string },
 ): Promise<Workout> {
   let workoutId = id;
 
@@ -258,8 +244,8 @@ export async function putWorkout(
   let completedAt = input.completed_at ?? null;
   let comment = input.comment ?? null;
   let stats: string | null = null;
-  const carryFrom = async (date: string, rowId: string) => {
-    const stored = await storedRecord(env, userId, date, rowId);
+  const carryFrom = async (rowId: string) => {
+    const stored = await storedRecord(env, userId, rowId);
     const samePlan = stored.steps === JSON.stringify(input.steps);
 
     if (stored.completed_at && !samePlan) {
@@ -276,15 +262,6 @@ export async function putWorkout(
     stats = samePlan ? stored.stats : null;
   };
 
-  // Where what is being replaced lives now, which is not where it is going on a move.
-  const replacing = previous ?? (workoutId === undefined ? null : { date: input.date, id: workoutId });
-
-  // Read, then cleared, in that order: the delete would take both across with it.
-  const carryAcross = async (from: { date: string; id: string }) => {
-    await carryFrom(from.date, from.id);
-    if (from.date !== input.date) await deleteWorkout(env, userId, from.date, from.id);
-  };
-
   // A caller with its own key is re-syncing: land on the row that key already names.
   if (input.external_id) {
     const existing = await findByExternalId(env, userId, input.external_id);
@@ -294,14 +271,12 @@ export async function putWorkout(
       // Caught here, or the unique index breaks and the caller's mistake reads as a 500.
       fail('external_id', `"${input.external_id}" already belongs to workout ${existing.id} on ${existing.date}`);
     }
-    if (existing) await carryAcross(existing);
-    else if (replacing) await carryAcross(replacing);
-  } else if (replacing) {
-    await carryAcross(replacing);
   }
 
+  // Nothing is deleted on a move: the row keeps its key and only its date changes.
+  if (workoutId !== undefined) await carryFrom(workoutId);
   // The only write that adds a row: every path reusing an id has checked it exists.
-  if (workoutId === undefined) await assertRoomFor(env, userId, input.date);
+  else await assertRoomFor(env, userId, input.date);
 
   const workout: Workout = { id: workoutId ?? newId(), ...input, updated_at: new Date().toISOString() };
   if (completedAt) workout.completed_at = completedAt;
@@ -313,8 +288,8 @@ export async function putWorkout(
   await env.DB.prepare(
     `INSERT INTO workouts (user_id, date, id, name, sport, sub_sport, notes, tags, external_id, steps, completed_at, comment, stats, created_at, updated_at)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14)
-     ON CONFLICT (user_id, date, id) DO UPDATE SET
-       name = excluded.name, sport = excluded.sport, sub_sport = excluded.sub_sport,
+     ON CONFLICT (user_id, id) DO UPDATE SET
+       date = excluded.date, name = excluded.name, sport = excluded.sport, sub_sport = excluded.sub_sport,
        notes = excluded.notes, tags = excluded.tags, external_id = excluded.external_id,
        steps = excluded.steps, completed_at = excluded.completed_at, comment = excluded.comment,
        stats = excluded.stats, updated_at = excluded.updated_at`,
@@ -343,20 +318,37 @@ export async function putWorkout(
 export async function setCompleted(
   env: Env,
   userId: string,
-  date: string,
   id: string,
   completedAt: string | null,
 ): Promise<Workout | null> {
   const window = readWindow();
-  if (date < window.from || date > window.to) return null;
-
   const result = await env.DB.prepare(
-    'UPDATE workouts SET completed_at = ?, updated_at = ? WHERE user_id = ? AND date = ? AND id = ?',
+    `UPDATE workouts SET completed_at = ?, updated_at = ?
+     WHERE user_id = ? AND id = ? AND date >= ? AND date <= ?`,
   )
-    .bind(completedAt, new Date().toISOString(), userId, date, id)
+    .bind(completedAt, new Date().toISOString(), userId, id, window.from, window.to)
     .run();
   if ((result.meta.changes ?? 0) === 0) return null;
-  return getWorkout(env, userId, date, id);
+  return getWorkout(env, userId, id);
+}
+
+/**
+ * The day, on its own — one column now that a row is keyed by its id, so the plan, the
+ * completion, the note and the stats stay exactly where they are. `updated_at` is bumped
+ * because the platform holding this session does have to be told it moved.
+ */
+export async function setDate(env: Env, userId: string, id: string, date: string): Promise<Workout | null> {
+  assertRetainable(date);
+
+  const window = readWindow();
+  const result = await env.DB.prepare(
+    `UPDATE workouts SET date = ?, updated_at = ?
+     WHERE user_id = ? AND id = ? AND date >= ? AND date <= ?`,
+  )
+    .bind(date, new Date().toISOString(), userId, id, window.from, window.to)
+    .run();
+  if ((result.meta.changes ?? 0) === 0) return null;
+  return getWorkout(env, userId, id);
 }
 
 /**
@@ -367,49 +359,40 @@ export async function setCompleted(
 export async function setComment(
   env: Env,
   userId: string,
-  date: string,
   id: string,
   comment: string | null,
 ): Promise<Workout | null> {
   const window = readWindow();
-  if (date < window.from || date > window.to) return null;
-
   const result = await env.DB.prepare(
-    'UPDATE workouts SET comment = ? WHERE user_id = ? AND date = ? AND id = ?',
+    'UPDATE workouts SET comment = ? WHERE user_id = ? AND id = ? AND date >= ? AND date <= ?',
   )
-    .bind(comment, userId, date, id)
+    .bind(comment, userId, id, window.from, window.to)
     .run();
   if ((result.meta.changes ?? 0) === 0) return null;
-  return getWorkout(env, userId, date, id);
+  return getWorkout(env, userId, id);
 }
 
 /** The whole document, laps and all. Read on its own, for the reason `WORKOUT_COLUMNS` gives. */
-export async function getStats(env: Env, userId: string, date: string, id: string): Promise<WorkoutStats | null> {
+export async function getStats(env: Env, userId: string, id: string): Promise<WorkoutStats | null> {
   const window = readWindow();
-  if (date < window.from || date > window.to) return null;
-
-  const row = await env.DB.prepare('SELECT stats FROM workouts WHERE user_id = ? AND date = ? AND id = ?')
-    .bind(userId, date, id)
+  const row = await env.DB.prepare(
+    'SELECT stats FROM workouts WHERE user_id = ? AND id = ? AND date >= ? AND date <= ?',
+  )
+    .bind(userId, id, window.from, window.to)
     .first<{ stats: string | null }>();
   return row?.stats ? (JSON.parse(row.stats) as WorkoutStats) : null;
 }
 
 /** Written by the platform sync alone, once the recording behind a completion has been read. */
-export async function setStats(
-  env: Env,
-  userId: string,
-  date: string,
-  id: string,
-  stats: WorkoutStats,
-): Promise<void> {
-  await env.DB.prepare('UPDATE workouts SET stats = ? WHERE user_id = ? AND date = ? AND id = ?')
-    .bind(JSON.stringify(stats), userId, date, id)
+export async function setStats(env: Env, userId: string, id: string, stats: WorkoutStats): Promise<void> {
+  await env.DB.prepare('UPDATE workouts SET stats = ? WHERE user_id = ? AND id = ?')
+    .bind(JSON.stringify(stats), userId, id)
     .run();
 }
 
-export async function deleteWorkout(env: Env, userId: string, date: string, id: string): Promise<boolean> {
-  const result = await env.DB.prepare('DELETE FROM workouts WHERE user_id = ? AND date = ? AND id = ?')
-    .bind(userId, date, id)
+export async function deleteWorkout(env: Env, userId: string, id: string): Promise<boolean> {
+  const result = await env.DB.prepare('DELETE FROM workouts WHERE user_id = ? AND id = ?')
+    .bind(userId, id)
     .run();
   return (result.meta.changes ?? 0) > 0;
 }

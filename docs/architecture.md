@@ -43,10 +43,11 @@ by the GET route.
 
 ## One door for writes
 
-Every create, replace, delete and completion goes through `src/plan.ts`, whether it
-arrived over REST or MCP — the read-old-row, carry-the-completion, delete-before-a-move
-dance lives there once, and each caller only shapes the error. It is also the one
-place the connected platforms hear about a change.
+Every create, replace, move, delete and completion goes through `src/plan.ts`, whether it
+arrived over REST or MCP — reading the row a write is about, carrying the completion
+across it, and knowing the day a workout has left so its platform link can follow, all
+live there once, and each caller only shapes the error. It is also the one place the
+connected platforms hear about a change.
 
 ## Layering
 
@@ -82,5 +83,5 @@ it, so a save cannot overwrite what is being typed.
 
 Two Vite entries: the dashboard and the OAuth consent screen. `public/privacy-policy.html`
 is a static file with no script. `/workout/<id>` is the one page path the routing table
-claims; the client resolves the id against the first list that arrives, because an id is
-only unique within a date.
+claims; the client resolves the id against the first list that arrives, which is where it
+learns the day to open the panel on.

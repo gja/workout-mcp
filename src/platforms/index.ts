@@ -379,7 +379,7 @@ async function readStats(
   } catch (err) {
     stats = statsUnreadable(source, message(err), attempt);
   }
-  await db.setStats(env, userId, workout.date, workout.id, stats);
+  await db.setStats(env, userId, workout.id, stats);
 }
 
 /**
@@ -443,11 +443,11 @@ async function applyCompletions(
   for (const completion of completions) {
     const link = await store.findLinkByRemoteId(env, userId, platformId, completion.remote_id);
     if (!link) continue;
-    const workout = await db.getWorkout(env, userId, link.date, link.workout_id);
+    const workout = await db.getWorkout(env, userId, link.workout_id);
     if (!workout) continue;
 
     if (link.applied_completion !== completion.completed_at) {
-      await db.setCompleted(env, userId, link.date, link.workout_id, completion.completed_at);
+      await db.setCompleted(env, userId, link.workout_id, completion.completed_at);
       await store.recordAppliedCompletion(
         env,
         userId,

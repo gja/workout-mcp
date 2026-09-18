@@ -8,8 +8,9 @@ import type { Source, WorkoutStats } from './stats';
 import type { Workout, WorkoutInput } from './workout';
 
 export async function createWorkout(env: Env, user: User, input: WorkoutInput): Promise<Workout> {
-  // A known `external_id` makes this an update, possibly on another date — so
-  // where the row was has to be read before the write, or its link is orphaned.
+  // A known `external_id` makes this an update, possibly on another date — and the
+  // platform link is keyed by the date it was on, so where the row was has to be read
+  // before the write, or that link is orphaned.
   const previous = input.external_id ? await db.findByExternalId(env, user.id, input.external_id) : null;
 
   const workout = await db.putWorkout(env, user.id, input);
@@ -17,40 +18,52 @@ export async function createWorkout(env: Env, user: User, input: WorkoutInput): 
   return workout;
 }
 
-export async function replaceWorkout(
-  env: Env,
-  user: User,
-  currentDate: string,
-  id: string,
-  input: WorkoutInput,
-): Promise<Workout | null> {
-  const existing = await db.getWorkout(env, user.id, currentDate, id);
+/** The id says which workout; where it currently sits is the row's business, not the caller's. */
+export async function replaceWorkout(env: Env, user: User, id: string, input: WorkoutInput): Promise<Workout | null> {
+  const existing = await db.getWorkout(env, user.id, id);
   if (!existing) return null;
 
   if (existing.completed_at) input.completed_at = existing.completed_at;
 
-  // Where it is now, which on a move is not where it is going: `putWorkout` reads the
-  // completion and the stats off that row, and clears it, in that order.
-  const workout = await db.putWorkout(env, user.id, input, id, { date: currentDate, id });
-  await platforms.onWorkoutSaved(env, user, workout, { date: currentDate, id });
+  const workout = await db.putWorkout(env, user.id, input, id);
+  await platforms.onWorkoutSaved(env, user, workout, { date: existing.date, id });
   return workout;
 }
 
-export async function deleteWorkout(env: Env, user: User, date: string, id: string): Promise<boolean> {
-  // Told after the row is gone; the link table still holds the key, so a failure retries.
-  const deleted = await db.deleteWorkout(env, user.id, date, id);
-  if (deleted) await platforms.onWorkoutDeleted(env, user, date, id);
-  return deleted;
+/**
+ * The day, on its own: the same session on another date, so the id and everything hanging
+ * off it — the plan, the completion, the note, the stats — stay as they are. Its own verb
+ * because a caller that only wants it a day later should not have to resend the plan, and
+ * resending the plan is what a recorded session refuses.
+ */
+export async function moveWorkout(env: Env, user: User, id: string, date: string): Promise<Workout | null> {
+  const existing = await db.getWorkout(env, user.id, id);
+  if (!existing) return null;
+  if (date === existing.date) return existing;
+
+  const workout = await db.setDate(env, user.id, id, date);
+  if (workout) await platforms.onWorkoutSaved(env, user, workout, { date: existing.date, id });
+  return workout;
+}
+
+export async function deleteWorkout(env: Env, user: User, id: string): Promise<Workout | null> {
+  // Read first for the day it was on: the platform link is keyed by that, and after the
+  // delete there is nothing left to ask. The link table still holds the key, so a failure retries.
+  const existing = await db.getWorkout(env, user.id, id);
+  if (!existing) return null;
+
+  if (!(await db.deleteWorkout(env, user.id, id))) return null;
+  await platforms.onWorkoutDeleted(env, user, existing.date, id);
+  return existing;
 }
 
 /** Deliberately not pushed: completions travel the other way, off the platform. */
 export const setCompleted = (
   env: Env,
   user: User,
-  date: string,
   id: string,
   completedAt: string | null,
-): Promise<Workout | null> => db.setCompleted(env, user.id, date, id, completedAt);
+): Promise<Workout | null> => db.setCompleted(env, user.id, id, completedAt);
 
 /**
  * The athlete's note on how the session went — and, unlike a completion, this one
@@ -60,11 +73,10 @@ export const setCompleted = (
 export async function setComment(
   env: Env,
   user: User,
-  date: string,
   id: string,
   comment: string | null,
 ): Promise<Workout | null> {
-  const workout = await db.setComment(env, user.id, date, id, comment);
+  const workout = await db.setComment(env, user.id, id, comment);
   if (workout) await platforms.onCommentSaved(env, user, workout);
   return workout;
 }
@@ -77,18 +89,17 @@ export async function setComment(
 export async function recordSession(
   env: Env,
   user: User,
-  date: string,
   id: string,
   bytes: Uint8Array,
   source: Source,
 ): Promise<{ workout: Workout; stats: WorkoutStats } | null> {
-  const existing = await db.getWorkout(env, user.id, date, id);
+  const existing = await db.getWorkout(env, user.id, id);
   if (!existing) return null;
 
   const stats = statsFrom(bytes, existing, source);
-  await db.setStats(env, user.id, date, id, stats);
+  await db.setStats(env, user.id, id, stats);
 
-  const workout = await setCompleted(env, user, date, id, existing.completed_at ?? endedAt(stats));
+  const workout = await setCompleted(env, user, id, existing.completed_at ?? endedAt(stats));
   return workout ? { workout, stats } : null;
 }
 

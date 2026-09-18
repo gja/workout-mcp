@@ -144,6 +144,15 @@ const WORKOUT_PROPERTIES = {
   steps: STEP_SCHEMA,
 } as const;
 
+/**
+ * Taken wherever a workout is named, and ignored: an id names one workout whatever day it
+ * sits on, and a caller holding the day it used to be on is right about which workout it
+ * means. Kept in the schema because clients and links already carry it.
+ */
+const ON_DATE = { type: 'string', description: 'Optional and ignored; the id names it.' } as const;
+
+const WORKOUT_ID = { type: 'string', description: 'The workout id.' } as const;
+
 /** `"a", "b" and "c"` — kinds named in prose, from one list, so no description can drift from it. */
 const nameKinds = (kinds: readonly context.ContextKind[]): string =>
   kinds
@@ -222,16 +231,15 @@ export const TOOLS = [
     name: 'get_workout',
     annotations: { title: 'Read a planned workout', readOnlyHint: true, openWorldHint: false },
     description:
-      'Fetch one planned workout. The id may be omitted when the date holds exactly one. Once the ' +
-      'session has been recorded, `stats` carries the totals and `comment` the athlete\'s own note ' +
-      'on how it went — read that before judging the numbers.',
+      'Fetch one planned workout, by id or by a date holding exactly one. Once the session has ' +
+      'been recorded, `stats` carries the totals and `comment` the athlete\'s own note on how it ' +
+      'went — read that before judging the numbers.',
     inputSchema: {
       type: 'object',
       properties: {
-        date: WORKOUT_PROPERTIES.date,
-        id: { type: 'string', description: 'The workout id. Optional when the date holds a single workout.' },
+        date: { type: 'string', description: 'The day to read, YYYY-MM-DD. Only used without an id.' },
+        id: { type: 'string', description: 'The workout id. Give this or a date.' },
       },
-      required: ['date'],
     },
   },
   {
@@ -253,20 +261,37 @@ export const TOOLS = [
       type: 'object',
       properties: {
         id: { type: 'string', description: 'The id of the workout to replace.' },
-        current_date: { type: 'string', description: 'The date the workout is currently on, YYYY-MM-DD.' },
+        current_date: ON_DATE,
         ...WORKOUT_PROPERTIES,
       },
-      required: ['id', 'current_date', 'date', 'steps'],
+      required: ['id', 'date', 'steps'],
+    },
+  },
+  {
+    name: 'reschedule_workout',
+    annotations: { title: 'Move a workout to another day', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    description:
+      'Move a planned workout to another day, keeping its id and everything recorded against it. ' +
+      'Use this rather than update_workout when only the day changes: a session already done ' +
+      'refuses a rewritten plan, but moves.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        date: ON_DATE,
+        id: WORKOUT_ID,
+        to_date: { type: 'string', description: 'The day to move it to, YYYY-MM-DD.' },
+      },
+      required: ['id', 'to_date'],
     },
   },
   {
     name: 'delete_workout',
     annotations: { title: 'Delete a planned workout', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
-    description: 'Delete a planned workout by date and id.',
+    description: 'Delete a planned workout by id.',
     inputSchema: {
       type: 'object',
-      properties: { date: WORKOUT_PROPERTIES.date, id: { type: 'string' } },
-      required: ['date', 'id'],
+      properties: { date: ON_DATE, id: WORKOUT_ID },
+      required: ['id'],
     },
   },
   {
@@ -279,8 +304,8 @@ export const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        date: WORKOUT_PROPERTIES.date,
-        id: { type: 'string', description: 'The workout id.' },
+        date: ON_DATE,
+        id: WORKOUT_ID,
         completed_at: {
           type: 'string',
           description:
@@ -292,7 +317,7 @@ export const TOOLS = [
           description: 'Defaults to true. Pass false to clear the record instead, leaving the workout planned.',
         },
       },
-      required: ['date', 'id'],
+      required: ['id'],
     },
   },
   {
@@ -306,8 +331,8 @@ export const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        date: WORKOUT_PROPERTIES.date,
-        id: { type: 'string', description: 'The workout id.' },
+        date: ON_DATE,
+        id: WORKOUT_ID,
         comment: {
           type: 'string',
           description:
@@ -315,7 +340,7 @@ export const TOOLS = [
             `${MAX_COMMENT_LENGTH} characters. Empty clears the note.`,
         },
       },
-      required: ['date', 'id', 'comment'],
+      required: ['id', 'comment'],
     },
   },
   {
@@ -327,8 +352,8 @@ export const TOOLS = [
       'URL to link to.',
     inputSchema: {
       type: 'object',
-      properties: { date: WORKOUT_PROPERTIES.date, id: { type: 'string' } },
-      required: ['date', 'id'],
+      properties: { date: ON_DATE, id: WORKOUT_ID },
+      required: ['id'],
     },
   },
   {
@@ -340,8 +365,8 @@ export const TOOLS = [
       'seconds per kilometre, and an unrecorded figure is null, never 0 — read `flags` first.',
     inputSchema: {
       type: 'object',
-      properties: { date: WORKOUT_PROPERTIES.date, id: { type: 'string', description: 'The workout id.' } },
-      required: ['date', 'id'],
+      properties: { date: ON_DATE, id: WORKOUT_ID },
+      required: ['id'],
     },
   },
   { name: 'get_workout_library', ...readsContext('workout-library') },
@@ -430,6 +455,9 @@ export class ToolError extends Error {}
 const asObject = (args: unknown): Record<string, unknown> =>
   typeof args === 'object' && args !== null && !Array.isArray(args) ? (args as Record<string, unknown>) : {};
 
+/** The one 404 a workout has: it is named by its id, wherever the caller thinks it sits. */
+export const missing = (id: string): string => `no workout ${id}`;
+
 const requireString = (args: Record<string, unknown>, key: string): string => {
   const value = args[key];
   if (typeof value !== 'string' || value === '') throw new ToolError(`${key} is required`);
@@ -485,12 +513,13 @@ export async function callTool(
     }
 
     case 'get_workout': {
-      const date = parseDate(requireString(args, 'date'), 'date');
+      // The one tool a date does something in: without an id it is the whole question.
       if (typeof args.id === 'string' && args.id !== '') {
-        const workout = await db.getWorkout(env, user.id, date, args.id);
-        if (!workout) throw new ToolError(`no workout ${args.id} on ${date}`);
+        const workout = await db.getWorkout(env, user.id, args.id);
+        if (!workout) throw new ToolError(missing(args.id));
         return present(workout);
       }
+      const date = parseDate(requireString(args, 'date'), 'date');
       const onDate = await db.listWorkouts(env, user.id, date, date);
       if (onDate.length === 0) throw new ToolError(`no workouts on ${date}`);
       if (onDate.length > 1) {
@@ -509,23 +538,30 @@ export async function callTool(
 
     case 'update_workout': {
       const id = requireString(args, 'id');
-      const currentDate = parseDate(requireString(args, 'current_date'), 'current_date');
       const { id: _id, current_date: _currentDate, ...rest } = args;
 
-      const workout = await plan.replaceWorkout(env, user, currentDate, id, parseWorkout(rest));
-      if (!workout) throw new ToolError(`no workout ${id} on ${currentDate}`);
+      const workout = await plan.replaceWorkout(env, user, id, parseWorkout(rest));
+      if (!workout) throw new ToolError(missing(id));
+      return presentBrief(workout);
+    }
+
+    case 'reschedule_workout': {
+      const id = requireString(args, 'id');
+      const toDate = parseDate(requireString(args, 'to_date'), 'to_date');
+
+      const workout = await plan.moveWorkout(env, user, id, toDate);
+      if (!workout) throw new ToolError(missing(id));
       return presentBrief(workout);
     }
 
     case 'delete_workout': {
-      const date = parseDate(requireString(args, 'date'), 'date');
       const id = requireString(args, 'id');
-      if (!(await plan.deleteWorkout(env, user, date, id))) throw new ToolError(`no workout ${id} on ${date}`);
-      return { deleted: true, date, id };
+      const deleted = await plan.deleteWorkout(env, user, id);
+      if (!deleted) throw new ToolError(missing(id));
+      return { deleted: true, date: deleted.date, id };
     }
 
     case 'complete_workout': {
-      const date = parseDate(requireString(args, 'date'), 'date');
       const id = requireString(args, 'id');
 
       let completed = true;
@@ -544,26 +580,24 @@ export async function callTool(
           ? new Date().toISOString()
           : parseTimestamp(args.completed_at, 'completed_at');
 
-      const workout = await plan.setCompleted(env, user, date, id, completedAt);
-      if (!workout) throw new ToolError(`no workout ${id} on ${date}`);
+      const workout = await plan.setCompleted(env, user, id, completedAt);
+      if (!workout) throw new ToolError(missing(id));
       return presentBrief(workout);
     }
 
     case 'comment_workout': {
-      const date = parseDate(requireString(args, 'date'), 'date');
       const id = requireString(args, 'id');
       if (args.comment === undefined) throw new ToolError('comment is required; send an empty one to clear it');
 
-      const workout = await plan.setComment(env, user, date, id, parseComment(args.comment));
-      if (!workout) throw new ToolError(`no workout ${id} on ${date}`);
+      const workout = await plan.setComment(env, user, id, parseComment(args.comment));
+      if (!workout) throw new ToolError(missing(id));
       return presentBrief(workout);
     }
 
     case 'export_workout_fit': {
-      const date = parseDate(requireString(args, 'date'), 'date');
       const id = requireString(args, 'id');
-      const workout = await db.getWorkout(env, user.id, date, id);
-      if (!workout) throw new ToolError(`no workout ${id} on ${date}`);
+      const workout = await db.getWorkout(env, user.id, id);
+      if (!workout) throw new ToolError(missing(id));
       const bytes = encodeWorkoutFit(workout);
       return {
         filename: fitDownloadName(workout),
@@ -574,19 +608,18 @@ export async function callTool(
     }
 
     case 'get_workout_stats': {
-      const date = parseDate(requireString(args, 'date'), 'date');
       const id = requireString(args, 'id');
       // Both, always: the note is what says why the numbers look as they do, and an
       // analysis that reads one without the other is reading half the session.
       const [stats, workout] = await Promise.all([
-        db.getStats(env, user.id, date, id),
-        db.getWorkout(env, user.id, date, id),
+        db.getStats(env, user.id, id),
+        db.getWorkout(env, user.id, id),
       ]);
       if (stats) return { ...stats, comment: workout?.comment ?? null };
 
-      if (!workout) throw new ToolError(`no workout ${id} on ${date}`);
+      if (!workout) throw new ToolError(missing(id));
       throw new ToolError(
-        `nothing has been recorded against ${id} on ${date} yet; stats are read off the session ` +
+        `nothing has been recorded against ${id} yet; stats are read off the session ` +
           'once the connected platform has matched it to this workout',
       );
     }
