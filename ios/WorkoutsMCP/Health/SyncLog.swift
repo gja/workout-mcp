@@ -133,6 +133,10 @@ enum SyncLog {
         return "\(ns.localizedDescription) [\(ns.domain) \(ns.code)]"
     }
 
+    /// A duration as a line reports it. One decimal, because what is being told apart here is
+    /// a second from ten of them, on a launch that is given about thirty.
+    static func took(_ seconds: TimeInterval) -> String { String(format: "%.1fs", seconds) }
+
     private static func pruned(_ log: [Entry]) -> [Entry] {
         guard log.count > limit else { return log }
         return Array(log.dropFirst(log.count - limit))
