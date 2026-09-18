@@ -174,9 +174,11 @@ enum PlanTarget: Decodable {
 struct RecordingReceipt: Decodable {
     let date: String
     let id: String
-    /// What the workout is called, which is the whole of what a notification wants to say.
-    /// The server has always sent it; nothing here read it until something had to.
+    /// What the workout is called and what kind it was, which is the whole of what a
+    /// notification wants to say. The server has always sent both; nothing here read them
+    /// until something had to.
     let name: String?
+    let sport: String?
     let completedAt: String?
     let stats: StatsSummary?
 }

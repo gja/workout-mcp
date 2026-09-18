@@ -97,7 +97,8 @@ extension SessionUpload: URLSessionDataDelegate {
             NotificationCenter.default.post(name: .sessionUploaded, object: nil)
             // And for the far more likely case of no screen at all. The workout's name comes
             // back in the answer we are already holding, so this costs no request.
-            Notify.uploaded(Self.received(said)?.name)
+            let receipt = Self.received(said)
+            Notify.uploaded(receipt?.name, sport: receipt?.sport)
             return
         }
 

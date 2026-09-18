@@ -17,12 +17,18 @@ enum Notify {
     /// iOS made to report the transfer, which usually has no screen at all — and refused
     /// silently where notifications were never allowed, which is the right amount of fuss.
     ///
+    /// In the athlete's words rather than the app's: *your walk "90s walk II" has been marked
+    /// complete*, which is what the upload did. Both the name and the sport come back in the
+    /// answer to the POST, so neither costs a request.
+    ///
     /// No banner while the app is in front: without a `UNUserNotificationCenterDelegate` iOS
     /// suppresses one, and a screen that is already redrawing itself has said it better.
-    static func uploaded(_ name: String?) {
+    static func uploaded(_ name: String?, sport: String?) {
+        let noun = Sports.noun(sport)
         let content = UNMutableNotificationContent()
-        content.title = "Synced"
-        content.body = name.map { "\($0) is on the server." } ?? "Your session is on the server."
+        content.title = "Workout synced"
+        content.body = name.map { "Your \(noun) \u{201C}\($0)\u{201D} has been marked complete!" }
+            ?? "Your \(noun) has been marked complete!"
         content.sound = .default
 
         // No trigger at all, which means as soon as iOS will show it.

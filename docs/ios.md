@@ -277,9 +277,9 @@ lifetime and somebody watching.
 
 **A landing is announced**, since by then there is usually no screen to announce it on. The
 notification is **local** — the phone already knows the fact, so no server, no APNs and no
-device token are involved — and it names the workout, because the POST answers with the
-workout it just marked done and `SessionUpload` is already holding that body to read a refusal
-out of. So no request is spent on the name. Permission is asked for beside Health's, on a
+device token are involved — and it reads *your walk "90s walk II" has been marked complete*,
+because the POST answers with the workout it just marked done and `SessionUpload` is already
+holding that body to read a refusal out of. So neither the name nor the sport costs a request. Permission is asked for beside Health's, on a
 foreground refresh, for the reason everything else in this section exists: a launch nobody is
 looking at is the wrong moment to ask anybody anything. Refused, nothing is posted and nothing
 else changes.
