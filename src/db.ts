@@ -333,9 +333,8 @@ export async function setCompleted(
 }
 
 /**
- * The day, on its own — one column now that a row is keyed by its id, so the plan, the
- * completion, the note and the stats stay exactly where they are. `updated_at` is bumped
- * because the platform holding this session does have to be told it moved.
+ * One column, now that a row is keyed by its id, so nothing else has to be carried.
+ * `updated_at` is bumped: the platform holding this session does have to hear about it.
  */
 export async function setDate(env: Env, userId: string, id: string, date: string): Promise<Workout | null> {
   assertRetainable(date);

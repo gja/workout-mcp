@@ -46,9 +46,9 @@ being visible and stays in the table: storage is not the binding constraint (5 G
 a few hundred bytes a workout). The cap counts only what is inside the window, so it is a
 rolling limit rather than a wall after a year of training.
 
-Every single-workout read and write narrows on the row's stored date — `... AND id = ?
-AND date >= ? AND date <= ?` — rather than on a date the caller supplied, which is how
-the window survives the caller's date being ignored.
+Every single-workout read and write narrows on the row's *stored* date — `... AND id = ?
+AND date >= ? AND date <= ?` — never on one the caller gave, which is how the window
+survives the caller's date being ignored.
 
 Two lookups are deliberately **not** narrowed, because both read a row that is about to
 be written over: `findByExternalId`, since its unique index is not narrowed either and a

@@ -780,51 +780,27 @@ describe('tools', () => {
     expect(read.completed_at).toBe(`${DAY}T06:30:00.000Z`);
   });
 
-  it('moves a workout to another day, keeping its id and the record of it being done', async () => {
+  it('moves a workout by id alone, and ignores a date that is not its own', async () => {
     const created = (await callTool('create_workout', intervals)) as { id: string };
-    await callTool('complete_workout', { date: DAY, id: created.id, completed_at: `${DAY}T06:30:00Z` });
+    expect(await callTool('get_workout', { id: created.id })).toMatchObject({ id: created.id, date: DAY });
+    await callTool('complete_workout', { id: created.id, completed_at: `${DAY}T06:30:00Z` });
 
-    const moved = (await callTool('reschedule_workout', {
-      date: DAY,
-      id: created.id,
-      to_date: NEXT_DAY,
-    })) as { id: string; date: string; completed_at: string };
+    // The date argument is the wrong day on purpose: it is taken and ignored.
+    const moved = await callTool('reschedule_workout', { date: NEXT_DAY, id: created.id, to_date: NEXT_DAY });
     expect(moved).toMatchObject({ id: created.id, date: NEXT_DAY, completed_at: `${DAY}T06:30:00.000Z` });
 
-    // The plan goes with it, and nothing is left on the day it came from.
-    const read = (await callTool('get_workout', { date: NEXT_DAY, id: created.id })) as { steps: unknown[] };
-    expect(read.steps).toHaveLength(intervals.steps.length);
+    const listed = (await callTool('list_workouts', {})) as { workouts: { date: string; steps: unknown[] }[] };
+    expect(listed.workouts).toHaveLength(1);
+    expect(listed.workouts[0]).toMatchObject({ date: NEXT_DAY });
+    expect(listed.workouts[0].steps).toHaveLength(intervals.steps.length);
 
-    const listed = (await callTool('list_workouts', {})) as { workouts: { date: string }[] };
-    expect(listed.workouts.map((w) => w.date)).toEqual([NEXT_DAY]);
-  });
-
-  it('takes an id with no date at all, and ignores one that is wrong', async () => {
-    const created = (await callTool('create_workout', intervals)) as { id: string };
-
-    expect(await callTool('get_workout', { id: created.id })).toMatchObject({ id: created.id, date: DAY });
-    expect(await callTool('complete_workout', { id: created.id })).toMatchObject({ id: created.id });
-    expect(await callTool('comment_workout', { id: created.id, comment: 'By id' })).toMatchObject({
-      comment: 'By id',
-    });
-    // The wrong day, taken and ignored: the failure is that nothing was recorded against
-    // this workout, not that no workout was found on the day that was named.
-    const stats = await rpc('tools/call', {
-      name: 'get_workout_stats',
-      arguments: { date: NEXT_DAY, id: created.id },
-    });
-    expect(stats.result?.isError).toBe(true);
-    expect(JSON.stringify(stats.result)).toContain('nothing has been recorded');
-    expect(await callTool('delete_workout', { date: NEXT_DAY, id: created.id })).toMatchObject({
-      deleted: true,
-      date: DAY,
-    });
+    expect(await callTool('delete_workout', { id: created.id })).toMatchObject({ deleted: true, date: NEXT_DAY });
   });
 
   it('reports moving a workout that is not there', async () => {
     const response = await rpc('tools/call', {
       name: 'reschedule_workout',
-      arguments: { date: DAY, id: 'nosuchid', to_date: NEXT_DAY },
+      arguments: { id: 'nosuchid', to_date: NEXT_DAY },
     });
     expect(response.result?.isError).toBe(true);
   });

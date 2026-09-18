@@ -161,15 +161,11 @@ resent:
 reschedule_workout { "date": "2026-09-12", "id": "a1b2c3d4", "to_date": "2026-09-14" }
 ```
 
-The id stays, and so does everything hanging off it: the steps, the completion, the note
-and the stats — the row does not move, one column changes. Over REST that is
-`PUT /api/workouts/:date/:id/date` with `{"date": "2026-09-14"}`, where the date in the
-path is the usual ignored one. A day already outside the retention window is refused
-rather than written somewhere it could not be read back.
-
-This is the one way to move a session that has been done: the steps go across untouched,
-so the rewrite the stats forbid never happens. `update_workout` still moves a workout as
-part of replacing it, for a caller that is changing the plan anyway.
+The row does not move — one column changes — so the id, the steps, the completion, the
+note and the stats all stay as they are. That makes this the one way to move a session
+already done, whose steps a rewrite may not touch. Over REST it is
+`PUT /api/workouts/:date/:id/date` with `{"date": "2026-09-14"}`; a day outside the
+retention window is refused rather than written where it could not be read back.
 
 ## Saying how it went
 

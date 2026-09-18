@@ -65,19 +65,14 @@ A date may hold several workouts, each with its own short id.
 ## The `:date` in a path is ignored
 
 A workout id is unique per athlete, so **the id is what every single-workout route
-resolves by** and the date in the path is taken and ignored. A client holding the address
-of a workout that has since moved still reaches it, and a 404 means the workout is gone
-rather than that it was looked for on the wrong day — so the body says `no workout
-a1b2c3d4`, with no date in it.
+resolves by**: a client holding the address of a workout that has since moved still
+reaches it, and a 404 (`no workout a1b2c3d4`, no date in it) means the workout is gone.
+The segment stays because every link and client already carries it; the same goes for
+`plan-ids` and for a tool's `date` argument. `get_workout` is the exception — a date with
+no id is a question about the day.
 
-The date stays in the path because every link, every client and every `/export` URL
-already carries it, and dropping it would break them all to save a segment. The same goes
-for `plan-ids` on `/api/workout-plans` and for the `date` argument of a tool: given,
-ignored, and the id decides. `get_workout` is the one exception, because a date with no
-id is a question about the day rather than a way of naming a workout.
-
-The retention window is unaffected: it is applied to the date the row is *stored* with,
-so a workout that has aged out is invisible whichever address is used to ask for it.
+The retention window is applied to the date the row is *stored* with, so a workout that
+has aged out is invisible whichever address asks for it.
 
 ## The routes outside `/api/`
 

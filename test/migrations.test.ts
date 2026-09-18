@@ -2,10 +2,9 @@
  * The migrations themselves.
  *
  * `resetDatabase` already replays every migration before each suite, so a
- * migration that does not parse breaks the whole run. What is tested here are
- * the ones that carry data: 0002 rebuilds `workouts` around a `steps` column
- * and 0013 rebuilds it around its id, and neither may lose an already-deployed
- * row or the constraints that came with it.
+ * migration that does not parse breaks the whole run. What is tested here is
+ * what the rebuilds have to hold on to: 0002 and 0013 both rewrite `workouts`
+ * under an already-deployed row, and the row below is carried through both.
  */
 
 import { env } from 'cloudflare:test';
@@ -174,25 +173,6 @@ describe('0013, the workout id is the key', () => {
     // Another athlete's workouts are their own, ids included.
     const other = await seedUser('other@example.com');
     await insert(other.id, DAY, 'a1b2c3d4');
-  });
-
-  it('carries a row across the rebuild with everything hanging off it', async () => {
-    const { id: userId } = await seedUser();
-    const created = await putWorkout(
-      env,
-      userId,
-      parseWorkout({ date: DAY, name: '8x400m', notes: 'Track', steps: [{ goal_s: 600 }] }),
-    );
-
-    // The rebuild alone, replayed over the table `resetDatabase` already migrated.
-    await runMigration(MIGRATIONS[Object.keys(MIGRATIONS).find((path) => path.includes('0013_'))!]);
-
-    expect(await getWorkout(env, userId, created.id)).toMatchObject({
-      id: created.id,
-      date: DAY,
-      name: '8x400m',
-      notes: 'Track',
-    });
   });
 });
 

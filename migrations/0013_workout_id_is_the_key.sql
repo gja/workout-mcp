@@ -1,16 +1,13 @@
 -- A workout id names a workout, whatever day it sits on.
 --
 -- The key was (user_id, date, id), which made the day part of a workout's
--- identity: every route had to be told where a workout was before it could say
--- what to do with it, moving one was a delete and an insert, and a caller
--- holding a date from before a move addressed nothing. The id is already
--- random enough to stand on its own, so it is made unique per athlete here and
--- the date goes back to being an ordinary column with an index on it.
+-- identity: moving one was a delete and an insert, and a caller holding a date
+-- from before a move addressed nothing. The id is already random enough to
+-- stand on its own, so the date goes back to being an ordinary column.
 --
 -- SQLite cannot change a primary key in place, so the table is rebuilt — 0002
--- does the same and says why. Rows sharing an id across two dates cannot be
--- carried across as two; the `MAX(updated_at)` picks the one last written,
--- which is the one a caller reading by id would have been handed anyway.
+-- does the same and says why. `MAX(updated_at)` collapses rows that shared an
+-- id across two dates, keeping the one last written.
 
 CREATE TABLE workouts_rekeyed (
   user_id      TEXT NOT NULL,

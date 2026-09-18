@@ -144,11 +144,7 @@ const WORKOUT_PROPERTIES = {
   steps: STEP_SCHEMA,
 } as const;
 
-/**
- * Taken wherever a workout is named, and ignored: an id names one workout whatever day it
- * sits on, and a caller holding the day it used to be on is right about which workout it
- * means. Kept in the schema because clients and links already carry it.
- */
+/** Taken wherever a workout is named and ignored, because callers already hold one. */
 const ON_DATE = { type: 'string', description: 'Optional and ignored; the id names it.' } as const;
 
 const WORKOUT_ID = { type: 'string', description: 'The workout id.' } as const;

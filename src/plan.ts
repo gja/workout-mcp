@@ -31,10 +31,9 @@ export async function replaceWorkout(env: Env, user: User, id: string, input: Wo
 }
 
 /**
- * The day, on its own: the same session on another date, so the id and everything hanging
- * off it — the plan, the completion, the note, the stats — stay as they are. Its own verb
- * because a caller that only wants it a day later should not have to resend the plan, and
- * resending the plan is what a recorded session refuses.
+ * Its own verb because a caller that only wants the session a day later should not have to
+ * resend the plan — and resending it is what a recorded session refuses. Nothing but the
+ * date changes, so the completion, the note and the stats need no carrying.
  */
 export async function moveWorkout(env: Env, user: User, id: string, date: string): Promise<Workout | null> {
   const existing = await db.getWorkout(env, user.id, id);
@@ -47,8 +46,8 @@ export async function moveWorkout(env: Env, user: User, id: string, date: string
 }
 
 export async function deleteWorkout(env: Env, user: User, id: string): Promise<Workout | null> {
-  // Read first for the day it was on: the platform link is keyed by that, and after the
-  // delete there is nothing left to ask. The link table still holds the key, so a failure retries.
+  // Read first for the day it was on: the platform link is keyed by that, and the delete
+  // leaves nobody to ask. Told afterwards, so a failure there retries off the link.
   const existing = await db.getWorkout(env, user.id, id);
   if (!existing) return null;
 

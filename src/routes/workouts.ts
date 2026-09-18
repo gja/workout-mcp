@@ -13,11 +13,7 @@ import { fail, parseDate, parseTimestamp } from '../units';
 import type { Workout } from '../workout';
 import { parseComment, parseWorkout } from '../workout';
 
-/**
- * Every single-workout route is still addressed by the pair, because that is what every
- * link and every client already holds — but the id is what it resolves by, and the date
- * is ignored. See docs/api.md.
- */
+/** Addressed by the pair, resolved by the id alone: the date is ignored. See docs/api.md. */
 type WorkoutRoute = '/api/workouts/:date(\\d{4}-\\d{2}-\\d{2})/:id([0-9a-z]+)';
 type DateRoute = `${WorkoutRoute}/date`;
 type CompletionRoute = `${WorkoutRoute}/complete`;
@@ -61,11 +57,7 @@ const getWorkoutStats: AuthedRoute<StatsRoute> = async ({ env, user, params }) =
   return error(workout ? `nothing has been recorded against ${params.id} yet` : missing(params.id), 404);
 };
 
-/**
- * `2026-09-12-a1b2c3d4` -> the id in it. The one spelling of a plan id, here and in
- * `/export`; the day is still required of the caller, and still ignored, because that is
- * what every client and every link already holds.
- */
+/** `2026-09-12-a1b2c3d4` -> the id in it. The day is required of the caller, and ignored. */
 function idFromSlug(slug: string): string | null {
   if (slug.length < 12 || slug[10] !== '-') return null;
   const date = slug.slice(0, 10);
@@ -87,8 +79,7 @@ const resolvedPlan = (workout: Workout) => ({
 /**
  * Every plan a client is about to schedule, in one round trip: a route addressed by one
  * workout cost a request, an authentication and a read each. Ids are `YYYY-MM-DD-<id>`,
- * as they always were, and a workout that has moved since the client listed it is found
- * all the same: the day in the slug is not what it is looked up by.
+ * and one naming the day a workout has left still finds it.
  *
  * A plan that is not there is named in `missing` rather than failing the batch — it may
  * have been deleted since the listing, which is the answer to the question.

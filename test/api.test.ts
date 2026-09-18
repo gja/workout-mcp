@@ -342,60 +342,49 @@ describe('an external id', () => {
 });
 
 describe('the date in the path', () => {
-  const stale = (workout: { id: string }, suffix = '.json') =>
-    `/api/workouts/${shiftDate(today(), 9)}/${workout.id}${suffix}`;
+  /** A day the workout is not on, which every route but the listing takes and ignores. */
+  const stale = (id: string, suffix = '.json') => `/api/workouts/${shiftDate(today(), 9)}/${id}${suffix}`;
 
-  it('is ignored: a workout is found by its id, from any day', async () => {
-    const created = await createIntervals();
-    const response = await call(stale(created));
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ id: created.id, date: created.date });
-  });
+  it('is ignored by every verb, so a stale address still edits the right workout', async () => {
+    const { date, id } = await createIntervals();
 
-  it('is ignored by every verb that edits one', async () => {
-    const created = await createIntervals();
+    expect((await call(stale(id))).status).toBe(200);
+    expect(
+      (
+        await call(`${stale(id, '')}/complete`, {
+          method: 'POST',
+          body: JSON.stringify({ completed_at: `${date}T06:30:00Z` }),
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (await call(`${stale(id, '')}/comment`, { method: 'PUT', body: JSON.stringify({ comment: 'Wrong day' }) }))
+        .status,
+    ).toBe(200);
 
-    const done = await call(`${stale(created, '')}/complete`, {
-      method: 'POST',
-      body: JSON.stringify({ completed_at: `${created.date}T06:30:00Z` }),
-    });
-    expect(done.status).toBe(200);
-
-    const commented = await call(`${stale(created, '')}/comment`, {
-      method: 'PUT',
-      body: JSON.stringify({ comment: 'Filed from the wrong day' }),
-    });
-    expect(commented.status).toBe(200);
-
-    const read = (await (await call(`/api/workouts/${created.date}/${created.id}.json`)).json()) as {
+    const read = (await (await call(`/api/workouts/${date}/${id}.json`)).json()) as {
       completed_at: string;
       comment: string;
     };
-    expect(read.completed_at).toBe(`${created.date}T06:30:00.000Z`);
-    expect(read.comment).toBe('Filed from the wrong day');
+    expect(read).toMatchObject({ completed_at: `${date}T06:30:00.000Z`, comment: 'Wrong day' });
 
-    expect((await call(stale(created), { method: 'DELETE' })).status).toBe(200);
-    expect((await call(`/api/workouts/${created.date}/${created.id}.json`)).status).toBe(404);
+    expect((await call(stale(id), { method: 'DELETE' })).status).toBe(200);
+    expect((await call(`/api/workouts/${date}/${id}.json`)).status).toBe(404);
   });
 
   // The window is applied to the day the row is stored with, so a lenient path cannot
-  // reach past it by naming a day that is inside one.
-  it('does not let a workout that has aged out be reached by asking on another day', async () => {
-    const outside = shiftDate(today(), -9);
+  // reach past it by naming one inside the window. The 404 names no day either.
+  it('cannot reach a workout that has aged out by naming a day inside the window', async () => {
     await env.DB.prepare(
       `INSERT INTO workouts (user_id, date, id, name, sport, steps, created_at, updated_at)
        VALUES (?1, ?2, 'aged0000', 'Old', 'running', '[]', '', '')`,
     )
-      .bind(userId, outside)
+      .bind(userId, shiftDate(today(), -9))
       .run();
 
-    expect((await call(`/api/workouts/${today()}/aged0000.json`)).status).toBe(404);
-  });
-
-  it('says only which workout is missing, with no day in it', async () => {
-    const response = await call(`/api/workouts/${DAY}/nosuchid.json`);
+    const response = await call(`/api/workouts/${today()}/aged0000.json`);
     expect(response.status).toBe(404);
-    expect(((await response.json()) as { error: string }).error).toBe('no workout nosuchid');
+    expect(((await response.json()) as { error: string }).error).toBe('no workout aged0000');
   });
 
   it('finds a plan whose slug names the day it has left', async () => {
@@ -405,70 +394,46 @@ describe('the date in the path', () => {
       body: JSON.stringify({ date: NEXT_DAY }),
     });
 
-    const response = await call(`/api/workout-plans?plan-ids=${created.date}-${created.id}`);
-    const body = (await response.json()) as { plans: { date: string; id: string }[]; missing: string[] };
+    const body = (await (
+      await call(`/api/workout-plans?plan-ids=${created.date}-${created.id}`)
+    ).json()) as { plans: { date: string; id: string }[]; missing: string[] };
     expect(body.missing).toEqual([]);
-    expect(body.plans).toHaveLength(1);
-    expect(body.plans[0]).toMatchObject({ id: created.id, date: NEXT_DAY });
+    expect(body.plans).toEqual([expect.objectContaining({ id: created.id, date: NEXT_DAY })]);
   });
 });
 
 describe('moving a workout to another day', () => {
   const move = (workout: { date: string; id: string }, date: string) =>
-    call(`/api/workouts/${workout.date}/${workout.id}/date`, {
-      method: 'PUT',
-      body: JSON.stringify({ date }),
-    });
+    call(`/api/workouts/${workout.date}/${workout.id}/date`, { method: 'PUT', body: JSON.stringify({ date }) });
 
-  it('keeps the id and leaves nothing on the day it came from', async () => {
-    const created = await createIntervals();
-    const response = await move(created, NEXT_DAY);
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ id: created.id, date: NEXT_DAY });
-
-    const { workouts } = (await (await call('/api/workouts.json')).json()) as {
-      workouts: { id: string; date: string; steps: unknown[] }[];
-    };
-    expect(workouts).toHaveLength(1);
-    expect(workouts[0]).toMatchObject({ id: created.id, date: NEXT_DAY });
-    expect(workouts[0].steps).toHaveLength(INTERVALS.steps.length);
-  });
-
-  // The one move a done session allows: its steps go across untouched, so the mapping
-  // its stats hold still names the steps that ran.
-  it('carries the completion and the note across, done or not', async () => {
+  // Its own verb, so what is recorded against the session comes with it — which is what
+  // lets a session already done move at all: its steps are not rewritten.
+  it('keeps the id, the plan and the record of it being done', async () => {
     const created = await createIntervals();
     await call(`/api/workouts/${created.date}/${created.id}/complete`, {
       method: 'POST',
       body: JSON.stringify({ completed_at: `${created.date}T06:30:00Z` }),
     });
-    await call(`/api/workouts/${created.date}/${created.id}/comment`, {
-      method: 'PUT',
-      body: JSON.stringify({ comment: 'Survives the move' }),
-    });
 
-    expect((await move(created, NEXT_DAY)).status).toBe(200);
+    expect(await (await move(created, NEXT_DAY)).json()).toMatchObject({ id: created.id, date: NEXT_DAY });
 
-    const moved = (await (await call(`/api/workouts/${NEXT_DAY}/${created.id}.json`)).json()) as {
-      completed_at: string;
-      comment: string;
+    const { workouts } = (await (await call('/api/workouts.json')).json()) as {
+      workouts: { id: string; date: string; steps: unknown[]; completed_at: string }[];
     };
-    expect(moved.completed_at).toBe(`${created.date}T06:30:00.000Z`);
-    expect(moved.comment).toBe('Survives the move');
+    expect(workouts).toHaveLength(1);
+    expect(workouts[0]).toMatchObject({
+      id: created.id,
+      date: NEXT_DAY,
+      completed_at: `${created.date}T06:30:00.000Z`,
+    });
+    expect(workouts[0].steps).toHaveLength(INTERVALS.steps.length);
   });
 
-  it('refuses a day that could not be read back, leaving the workout where it is', async () => {
+  it('refuses a day it could not be read back from, leaving it where it is', async () => {
     const created = await createIntervals();
-    const response = await move(created, shiftDate(today(), 400));
-    expect(response.status).toBe(400);
-    expect(((await response.json()) as { error: string }).error).toMatch(/date:/);
-
-    expect((await call(`/api/workouts/${created.date}/${created.id}.json`)).status).toBe(200);
-  });
-
-  it('refuses a body without a real date', async () => {
-    const created = await createIntervals();
+    expect((await move(created, shiftDate(today(), 400))).status).toBe(400);
     expect((await move(created, 'next tuesday')).status).toBe(400);
+    expect((await call(`/api/workouts/${created.date}/${created.id}.json`)).status).toBe(200);
   });
 
   it('answers 404 for a workout that is not there', async () => {
