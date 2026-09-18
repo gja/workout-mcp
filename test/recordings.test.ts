@@ -270,31 +270,24 @@ describe('the archive', () => {
 // --- The signature -----------------------------------------------------------
 
 describe('the signed link', () => {
-  it('refuses one whose claims have been edited', async () => {
+  it('refuses one whose claims have been edited, or whose signature has been taken off', async () => {
     await control('setup', { activities: [recorded('i1')] });
     const { body } = await listing(RANGE);
 
     // Widen the range by a year, leaving the signature over what was asked for.
-    const url = new URL(body.download_url!);
-    const claims = JSON.parse(atob(url.searchParams.get('claims')!)) as { f: string; t: string };
+    const widened = new URL(body.download_url!);
+    const claims = JSON.parse(atob(widened.searchParams.get('claims')!)) as { f: string; t: string };
     expect(claims.t).toBe(shiftDate(DAY, 1));
     claims.t = shiftDate(DAY, 300);
-    url.searchParams.set('claims', btoa(JSON.stringify(claims)).replace(/=+$/, ''));
+    widened.searchParams.set('claims', btoa(JSON.stringify(claims)).replace(/=+$/, ''));
 
-    const response = await download(url.toString());
-    expect(response.status).toBe(403);
-    expect(((await response.json()) as { error: string }).error).toMatch(/altered/);
-  });
+    const altered = await download(widened.toString());
+    expect(altered.status).toBe(403);
+    expect(((await altered.json()) as { error: string }).error).toMatch(/altered/);
 
-  it('refuses one with the signature taken off', async () => {
-    await control('setup', { activities: [recorded('i1')] });
-    const { body } = await listing(RANGE);
-
-    const url = new URL(body.download_url!);
-    url.searchParams.delete('signature');
-
-    const response = await download(url.toString());
-    expect(response.status).toBe(403);
+    const unsigned = new URL(body.download_url!);
+    unsigned.searchParams.delete('signature');
+    expect((await download(unsigned.toString())).status).toBe(403);
   });
 
   it('refuses one that has expired', async () => {

@@ -102,22 +102,21 @@ describe('file structure', () => {
     });
   });
 
-  it('writes the description, so the watch shows what the session is for', () => {
-    const workout = build([{ goal_s: 600 }], { notes: 'Steady aerobic hour, keep it conversational' });
-    expect(roundTrip(workout).workoutMesgs[0]).toMatchObject({
-      wktDescription: 'Steady aerobic hour, keep it conversational',
+  it('writes the description and the sub-sport, and leaves out the ones not given', () => {
+    // What the session is for, and the profile the watch should pick.
+    const described = build([{ goal_s: 600 }], {
+      notes: 'Steady aerobic hour, keep it conversational',
+      sub_sport: 'treadmill',
     });
-  });
+    expect(roundTrip(described).workoutMesgs[0]).toMatchObject({
+      wktDescription: 'Steady aerobic hour, keep it conversational',
+      sport: 'running',
+      subSport: 'treadmill',
+    });
 
-  it('writes the sub-sport, so the watch picks the right profile', () => {
-    const workout = build([{ goal_s: 600 }], { sub_sport: 'treadmill' });
-    expect(roundTrip(workout).workoutMesgs[0]).toMatchObject({ sport: 'running', subSport: 'treadmill' });
-  });
-
-  it('leaves both out when the workout has neither', () => {
-    const mesg = roundTrip(build([{ goal_s: 600 }])).workoutMesgs[0];
-    expect(mesg.wktDescription).toBeUndefined();
-    expect(mesg.subSport).toBeUndefined();
+    const bare = roundTrip(build([{ goal_s: 600 }])).workoutMesgs[0];
+    expect(bare.wktDescription).toBeUndefined();
+    expect(bare.subSport).toBeUndefined();
   });
 
   it('gives every sport its FIT equivalent', () => {
@@ -146,13 +145,8 @@ describe('durations', () => {
     expect(steps[0].durationDistance).toBeCloseTo(400, 2);
     expect(steps[1].durationDistance).toBeCloseTo(5000, 2);
     expect(steps[2].durationDistance as number).toBeCloseTo(1609.34, 1);
-    expect(steps[3].durationDistance as number).toBeCloseTo(91.44, 1);
-  });
-
-  it('rounds sub-centimetre distances rather than truncating to zero', () => {
-    // 100 yards is 9144 centimetres exactly; a truncating encoder loses the tail.
-    const step = roundTrip(build([{ goal_yards: 100 }])).workoutStepMesgs[0];
-    expect(step.durationDistance).toBe(91.44);
+    // 100 yards is 9144 centimetres exactly, and a truncating encoder loses the tail.
+    expect(steps[3].durationDistance).toBe(91.44);
   });
 });
 
@@ -211,11 +205,6 @@ describe('targets', () => {
     expect(ftp).toMatchObject({ customTargetPowerLow: 1, customTargetPowerHigh: 80 });
   });
 
-  it('still writes both ends when both were given', () => {
-    const step = roundTrip(build([{ goal_s: 60, target_watts: [152, 180] }])).workoutStepMesgs[0];
-    expect(step).toMatchObject({ customTargetPowerLow: 1152, customTargetPowerHigh: 1180 });
-  });
-
   it('fills the open end of a secondary target too', () => {
     const step = roundTrip(
       build([{ goal_s: 60, target_watts: [152, 180], target_cadence: ['-', 95] }]),
@@ -235,13 +224,7 @@ describe('targets', () => {
     expect(ftp).toMatchObject({ customTargetPowerLow: 90, customTargetPowerHigh: 105 });
   });
 
-  it('writes zones as the target value, not a custom range', () => {
-    const step = roundTrip(build([{ goal_s: 60, target_hr_zone: 3 }])).workoutStepMesgs[0];
-    expect(step).toMatchObject({ targetType: 'heartRate', targetHrZone: 3 });
-    expect(step.customTargetValueLow).toBeUndefined();
-  });
-
-  it('maps each zone metric to its FIT target type', () => {
+  it('writes each zone as its metric\'s target value, not a custom range', () => {
     const steps = roundTrip(
       build([
         { goal_s: 60, target_hr_zone: 2 },
@@ -253,6 +236,7 @@ describe('targets', () => {
     // A pace zone is a speed zone as far as FIT is concerned.
     expect(steps[1]).toMatchObject({ targetType: 'speed', targetSpeedZone: 6 });
     expect(steps[2]).toMatchObject({ targetType: 'power', targetPowerZone: 4 });
+    for (const step of steps) expect(step.customTargetValueLow).toBeUndefined();
   });
 
   it('writes a zone range as a percentage band, not a zone', () => {
@@ -383,7 +367,8 @@ describe('repeats', () => {
   ]);
 
   it('flattens to FIT order with the repeat after its children', () => {
-    const steps = roundTrip(intervals).workoutStepMesgs;
+    const decoded = roundTrip(intervals);
+    const steps = decoded.workoutStepMesgs;
     expect(steps.map((s: DecodedMesg) => s.wktStepName ?? s.durationType)).toEqual([
       'Warmup',
       'Fast',
@@ -392,24 +377,16 @@ describe('repeats', () => {
       'Cooldown',
     ]);
     expect(steps.map((s: DecodedMesg) => s.messageIndex)).toEqual([0, 1, 2, 3, 4]);
+    // The repeat is one of the steps the file says it has.
+    expect(decoded.workoutMesgs[0]).toMatchObject({ numValidSteps: 5 });
   });
 
-  it('points the repeat back at its first child and carries the count', () => {
+  it('points the repeat back at its first child, with a target type it has no target for', () => {
     const repeat = roundTrip(intervals).workoutStepMesgs[3];
     expect(repeat).toMatchObject({ durationStep: 1, repeatSteps: 8 });
-  });
-
-  it('gives the repeat a target type, which every step is expected to have', () => {
     // The repeat has no target of its own, but a step without the field is
     // the one record an importer reading it unconditionally will fail on.
-    const repeat = roundTrip(intervals).workoutStepMesgs[3];
     expect(repeat.targetType).toBe('open');
-    // And it still reads as a repeat count, which resolves off durationType.
-    expect(repeat.repeatSteps).toBe(8);
-  });
-
-  it('counts the repeat step in numValidSteps', () => {
-    expect(roundTrip(intervals).workoutMesgs[0]).toMatchObject({ numValidSteps: 5 });
   });
 
   it('stores a repeat once instead of unrolling it', () => {
@@ -431,19 +408,7 @@ describe('repeats', () => {
     expect(forty.workoutStepMesgs[3]).toMatchObject({ repeatSteps: 40 });
   });
 
-  it('keeps message indices dense and in order, which repeats point into', () => {
-    const decoded = roundTrip(
-      build([
-        { goal_s: 60 },
-        { repeat: 3, steps: [{ goal_s: 30 }, { repeat: 2, steps: [{ goal_s: 10 }] }] },
-        { goal_s: 60 },
-      ]),
-    );
-    expect(decoded.workoutStepMesgs.map((step) => step.messageIndex)).toEqual([...Array(6).keys()]);
-    expect(decoded.workoutMesgs[0]).toMatchObject({ numValidSteps: 6 });
-  });
-
-  it('handles nested repeats', () => {
+  it('handles nested repeats, keeping the indices they point into dense and in order', () => {
     const nested = build([
       { repeat: 2, steps: [{ name: 'A', goal_s: 30 }, { repeat: 3, steps: [{ name: 'B', goal_s: 10 }] }] },
     ]);
@@ -456,6 +421,16 @@ describe('repeats', () => {
     ]);
     expect(flat[2]).toMatchObject({ durationValue: 1, targetValue: 3 });
     expect(flat[3]).toMatchObject({ durationValue: 0, targetValue: 2 });
+
+    const decoded = roundTrip(
+      build([
+        { goal_s: 60 },
+        { repeat: 3, steps: [{ goal_s: 30 }, { repeat: 2, steps: [{ goal_s: 10 }] }] },
+        { goal_s: 60 },
+      ]),
+    );
+    expect(decoded.workoutStepMesgs.map((step) => step.messageIndex)).toEqual([...Array(6).keys()]);
+    expect(decoded.workoutMesgs[0]).toMatchObject({ numValidSteps: 6 });
   });
 });
 

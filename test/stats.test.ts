@@ -184,35 +184,22 @@ describe('what the recording did not say', () => {
     expect(laps[8].quarters).not.toBeNull();
   });
 
-  it('matches what was run when the session stopped early', () => {
+  it('matches what was run when the session stopped before the plan did', () => {
     // Aborted after the second rep: four laps against a plan of eight steps.
-    const aborted: ActivitySpec = { laps: AS_PLANNED.laps.slice(0, 4) };
-    const { laps, flags } = read(aborted);
+    const { laps, flags } = read({ laps: AS_PLANNED.laps.slice(0, 4) });
 
     expect(flags).not.toContain('laps_do_not_match_plan');
     expect(laps.map((lap) => lap.planned_step_index)).toEqual([0, 1, 2, 3]);
     expect(laps.every((lap) => lap.match_confidence === 'high')).toBe(true);
     // The steps that were never run are simply absent; the plan says what is missing.
     expect(laps).toHaveLength(4);
-  });
 
-  it('matches the rest when the cooldown was skipped', () => {
-    const noCooldown: ActivitySpec = { laps: AS_PLANNED.laps.slice(0, 7) };
-    const { laps, flags } = read(noCooldown);
-
-    expect(flags).not.toContain('laps_do_not_match_plan');
-    expect(laps.map((lap) => lap.planned_step_name)).toEqual([
+    // And the same for a session that ran everything but the cooldown.
+    const noCooldown = read({ laps: AS_PLANNED.laps.slice(0, 7) });
+    expect(noCooldown.flags).not.toContain('laps_do_not_match_plan');
+    expect(noCooldown.laps.map((lap) => lap.planned_step_name)).toEqual([
       'Warmup', 'Threshold', 'Jog', 'Threshold', 'Jog', 'Threshold', 'Jog',
     ]);
-  });
-
-  it('marks a cooldown cut short as the step it was, run short', () => {
-    const shortened = { ...AS_PLANNED, laps: AS_PLANNED.laps.map((lap, index) => (index === 7 ? { ...lap, seconds: 70 } : lap)) };
-    const { laps } = read(shortened);
-
-    expect(laps[7]).toMatchObject({ planned_step_name: 'Cooldown', match_confidence: 'low' });
-    // And the reps in front of it are untouched by the one that went wrong.
-    expect(laps.slice(0, 7).every((lap) => lap.match_confidence === 'high')).toBe(true);
   });
 
   it('withholds the mapping when a missed lap press has shifted it', () => {
@@ -239,12 +226,20 @@ describe('what the recording did not say', () => {
   });
 
   it('marks a lap that ran to the wrong length as a low-confidence match', () => {
-    const short = { ...AS_PLANNED, laps: AS_PLANNED.laps.map((lap, index) => (index === 1 ? { ...lap, seconds: 60 } : lap)) };
-    const { laps } = read(short);
+    const cutTo = (index: number, seconds: number): ActivitySpec => ({
+      ...AS_PLANNED,
+      laps: AS_PLANNED.laps.map((lap, at) => (at === index ? { ...lap, seconds } : lap)),
+    });
 
-    expect(laps[1].match_confidence).toBe('low');
-    expect(laps[1].planned_step_index).toBe(1);
-    expect(laps[3].match_confidence).toBe('high');
+    // A rep run for a quarter of what it was written as, and a cooldown cut short.
+    const rep = read(cutTo(1, 60)).laps;
+    expect(rep[1]).toMatchObject({ planned_step_index: 1, match_confidence: 'low' });
+
+    const cooldown = read(cutTo(7, 70)).laps;
+    expect(cooldown[7]).toMatchObject({ planned_step_name: 'Cooldown', match_confidence: 'low' });
+    // And the laps in front of each are untouched by the one that went wrong.
+    expect(rep[3].match_confidence).toBe('high');
+    expect(cooldown.slice(0, 7).every((lap) => lap.match_confidence === 'high')).toBe(true);
   });
 
   // A watch on smart recording writes a sample every ten or fifteen seconds. Reading each

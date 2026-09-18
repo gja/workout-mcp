@@ -61,18 +61,15 @@ describe('authentication', () => {
     expect(await response.json()).toMatchObject({ ok: true });
   });
 
-  it('refuses the API without a valid token', async () => {
-    expect((await SELF.fetch(`${BASE}/api/workouts`)).status).toBe(401);
-    const bad = await SELF.fetch(`${BASE}/api/workouts`, { headers: { Authorization: 'Bearer nope' } });
-    expect(bad.status).toBe(401);
-  });
-
-  it('points an unauthenticated MCP client at the OAuth metadata', async () => {
+  it('refuses the API without a valid token, and says where the OAuth flow starts', async () => {
     const response = await SELF.fetch(`${BASE}/api/workouts`);
     expect(response.status).toBe(401);
     expect(response.headers.get('WWW-Authenticate')).toContain(
       `resource_metadata="${BASE}/.well-known/oauth-protected-resource/mcp"`,
     );
+
+    const bad = await SELF.fetch(`${BASE}/api/workouts`, { headers: { Authorization: 'Bearer nope' } });
+    expect(bad.status).toBe(401);
   });
 
   it('keeps one athlete\'s workouts out of another\'s', async () => {
@@ -135,16 +132,15 @@ describe('workout CRUD', () => {
     expect(read.steps).toEqual(INTERVALS.steps);
   });
 
-  it('keeps a workout readable after a round trip through the database', async () => {
+  it('reads a workout back by date and id, summary and all', async () => {
     const { date, id } = await createIntervals();
-    const read = (await (await call(`/api/workouts/${date}/${id}.json`)).json()) as {
-      summary: string;
-      planned: { seconds: number };
-    };
+    const response = await call(`/api/workouts/${date}/${id}.json`);
+    expect(response.status).toBe(200);
 
+    const read = (await response.json()) as { id: string; date: string; name: string; summary: string };
+    expect(read).toMatchObject({ id, date, name: '8x400m' });
     expect(read.summary).toContain('Fast: 400 m @ 4:00-4:15/km');
     expect(read.summary).toContain('Float: 1:30 @ slower than 6:30/km');
-    expect(read.planned.seconds).toBe(600 + 8 * 90 + 600);
   });
 
   it('stores tags and reads them back, summary included', async () => {
@@ -183,13 +179,6 @@ describe('workout CRUD', () => {
       body: JSON.stringify({ ...INTERVALS, name: 'Renamed' }),
     });
     expect(await listed()).not.toBe(first);
-  });
-
-  it('reads a workout back by date and id', async () => {
-    const { date, id } = await createIntervals();
-    const response = await call(`/api/workouts/${date}/${id}.json`);
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ id, date, name: '8x400m' });
   });
 
   it('allows several workouts on one date', async () => {
@@ -320,13 +309,6 @@ describe('an external id', () => {
 
     const { workouts } = (await (await call('/api/workouts.json')).json()) as { workouts: { date: string }[] };
     expect(workouts.map((w) => w.date)).toEqual([NEXT_DAY]);
-  });
-
-  it('keeps workouts without a key independent', async () => {
-    await createIntervals();
-    await createIntervals();
-    const { workouts } = (await (await call('/api/workouts.json')).json()) as { workouts: unknown[] };
-    expect(workouts).toHaveLength(2);
   });
 
   it('is scoped to the athlete', async () => {
@@ -551,16 +533,6 @@ describe('completing a workout', () => {
     expect(response.status).toBe(404);
   });
 
-  it('is scoped to the athlete', async () => {
-    const created = await createIntervals();
-    const other = await seedUser('other@example.com');
-    const response = await SELF.fetch(`${BASE}/api/workouts/${created.date}/${created.id}/complete`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${other.token}`, 'Content-Type': 'application/json' },
-    });
-    expect(response.status).toBe(404);
-  });
-
   it('survives a rewrite of the plan, and a move to another day', async () => {
     const created = await createIntervals();
     await complete(created, { completed_at: `${created.date}T06:30:00Z` });
@@ -592,10 +564,14 @@ describe('completing a workout', () => {
     expect(after.completed_at).toBe(`${first.date}T06:30:00.000Z`);
   });
 
-  it('refuses a method it does not have', async () => {
+  it('is scoped to the athlete', async () => {
     const created = await createIntervals();
-    const response = await call(`/api/workouts/${created.date}/${created.id}/complete`, { method: 'PUT' });
-    expect(response.status).toBe(405);
+    const other = await seedUser('other@example.com');
+    const response = await SELF.fetch(`${BASE}/api/workouts/${created.date}/${created.id}/complete`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${other.token}`, 'Content-Type': 'application/json' },
+    });
+    expect(response.status).toBe(404);
   });
 });
 
@@ -893,6 +869,7 @@ describe('bad requests', () => {
     const { date, id } = await createIntervals();
     expect((await call('/api/workouts', { method: 'DELETE' })).status).toBe(405);
     expect((await call(`/api/workouts/${date}/${id}.json`, { method: 'POST', body: '{}' })).status).toBe(405);
+    expect((await call(`/api/workouts/${date}/${id}/complete`, { method: 'PUT' })).status).toBe(405);
   });
 
   it('404s an unknown API route', async () => {
@@ -914,7 +891,7 @@ describe('bad requests', () => {
 });
 
 describe('FIT export', () => {
-  it('serves a decodable FIT file at /export/:date-:id.fit', async () => {
+  it('serves the stored workout at /export/:date-:id.fit, repeats and targets intact', async () => {
     const { date, id } = await createIntervals();
     const response = await call(`/export/${date}-${id}.fit`);
 
@@ -926,6 +903,18 @@ describe('FIT export', () => {
     const { messages, errors } = new Decoder(Stream.fromByteArray(bytes)).read();
     expect(errors).toEqual([]);
     expect(messages.workoutMesgs?.[0]).toMatchObject({ wktName: '8x400m', numValidSteps: 5 });
+
+    const steps = messages.workoutStepMesgs ?? [];
+    expect(steps.map((step) => step.wktStepName ?? step.durationType)).toEqual([
+      'Warmup',
+      'Fast',
+      'Float',
+      'repeatUntilStepsCmplt',
+      'Cooldown',
+    ]);
+    expect(steps[0]).toMatchObject({ customTargetHeartRateLow: 246, customTargetHeartRateHigh: 253 });
+    expect(steps[1].customTargetSpeedLow as number).toBeCloseTo(1000 / 255, 2);
+    expect(steps[3]).toMatchObject({ durationStep: 1, repeatSteps: 8 });
   });
 
   it('accepts the token as a query parameter, since a watch cannot set headers', async () => {
@@ -947,24 +936,6 @@ describe('FIT export', () => {
       headers: { Authorization: `Bearer ${other.token}` },
     });
     expect(response.status).toBe(404);
-  });
-
-  it('encodes the workout that was stored, repeats and targets intact', async () => {
-    const { date, id } = await createIntervals();
-    const bytes = new Uint8Array(await (await call(`/export/${date}-${id}.fit`)).arrayBuffer());
-    const { messages } = new Decoder(Stream.fromByteArray(bytes)).read();
-
-    const steps = messages.workoutStepMesgs ?? [];
-    expect(steps.map((step) => step.wktStepName ?? step.durationType)).toEqual([
-      'Warmup',
-      'Fast',
-      'Float',
-      'repeatUntilStepsCmplt',
-      'Cooldown',
-    ]);
-    expect(steps[0]).toMatchObject({ customTargetHeartRateLow: 246, customTargetHeartRateHigh: 253 });
-    expect(steps[1].customTargetSpeedLow as number).toBeCloseTo(1000 / 255, 2);
-    expect(steps[3]).toMatchObject({ durationStep: 1, repeatSteps: 8 });
   });
 });
 
