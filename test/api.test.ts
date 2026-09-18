@@ -640,11 +640,15 @@ describe('uploading a recording', () => {
     expect(response.status).toBe(200);
 
     const body = (await response.json()) as {
+      name: string;
       completed_at: string;
       stats: { platform: string; activity_id: string; session: { avg_power_w: number } };
     };
     // The moment the recording ended, not the moment it was uploaded.
     expect(body.completed_at).toBe(`${RECORDED_ON}T06:10:00.000Z`);
+    // The iOS app names its "Synced" notification from this, rather than spending a request
+    // on a listing from a background launch that has seconds. See docs/ios.md.
+    expect(body.name).toBe('Steady ten');
     expect(body.stats).toMatchObject({ platform: 'upload', activity_id: 'HK-4C1F' });
     expect(body.stats.session.avg_power_w).toBe(210);
 

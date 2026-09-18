@@ -95,6 +95,9 @@ extension SessionUpload: URLSessionDataDelegate {
             // For a screen that may be open: the transfer finishes on its own schedule, so
             // whoever started it is long past the point of refreshing after it.
             NotificationCenter.default.post(name: .sessionUploaded, object: nil)
+            // And for the far more likely case of no screen at all. The workout's name comes
+            // back in the answer we are already holding, so this costs no request.
+            Notify.uploaded(Self.received(said)?.name)
             return
         }
 
@@ -114,6 +117,14 @@ extension SessionUpload: URLSessionDataDelegate {
         let done = whenDone
         whenDone = nil
         DispatchQueue.main.async { done?() }
+    }
+
+    /// The server's answer to the POST, which is the workout it just marked done.
+    private static func received(_ said: Data?) -> RecordingReceipt? {
+        guard let said else { return nil }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try? decoder.decode(RecordingReceipt.self, from: said)
     }
 
     private static func named(_ task: URLSessionTask) -> (activity: UUID, key: String)? {

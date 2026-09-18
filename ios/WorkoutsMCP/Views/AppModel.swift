@@ -187,6 +187,9 @@ final class AppModel: ObservableObject {
             // app's initialiser cannot have had on a first launch. Enabling it here is what
             // makes HealthKit wake the app for a session recorded today.
             BackgroundSync.enableDelivery()
+            // Here for the same reason: a background launch is the wrong moment to ask
+            // anybody for anything, and this is the one path with somebody looking.
+            await Notify.ask()
 
             // Resolved before `activities` is published, or every session draws once as
             // unplanned and again a moment later with its workout.
