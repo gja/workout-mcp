@@ -190,10 +190,16 @@ the same rules: every `PlanRefresh` turn, and opening the app.
 three weeks of plan, over the slowest link in the path — to check `isDone` on one workout,
 and a wake that ran out of time ran out of it there. Everything the POST needs is the
 workout key, which `PlanLink` already holds from scheduling it, so the only question left is
-whether this session has gone up before. `Health/Uploaded.swift` answers that locally, and
-is written **only after a POST succeeds**: a session that failed is simply not in it, so it
-is a watermark that cannot advance past one still unsent. A wake then reads Health, resolves
-one plan id and posts — no round trip before the one that matters.
+whether this session is one the app is already finished with. `Health/Settled.swift` answers
+that locally, and is written only where the answer **cannot change**: a session that went up,
+one refused for a reason another run would get again, and one the watch never named a plan
+for — which is fixed when it records the session. A failure another run might not hit is
+deliberately not settled, so it is found again. A wake then reads Health, resolves one plan
+id and posts — no round trip before the one that matters.
+
+Telling those refusals apart matters more than it sounds. The listing used to filter a
+deleted workout out before it was ever posted; without it, three deleted test workouts
+`404`'d on every wake for a day, because only a success had ever been written down.
 
 It sends **one session a run**, because a wake is about the session that just finished, and
 whatever is behind it keeps until the next run or the next time the app is opened. And **one
@@ -221,8 +227,8 @@ named — since "nothing new to upload" against three recent sessions is not one
 **Each line records whether anybody was looking**, or the act of reading the log destroys what
 is being looked for: `HKObserverQuery` fires an initial callback whenever it is executed, and
 `start()` executes it on every launch, so opening the app to see the last wake causes one.
-What separates them is that a background launch builds no view and never reaches
-`scenePhase.active` — so "this process was never on screen" is a fact that cannot be raced,
-where reading `UIApplication.applicationState` early in a HealthKit launch can still say
-`.inactive` and report a real background wake as a foreground one. Only the unattended lines
-are evidence that iOS ran the app on its own.
+What separates them is `UIApplication.didBecomeActiveNotification`, which a background launch
+never posts. Two other signals were tried and are not it: `UIApplication.applicationState`
+can still read `.inactive` early in a HealthKit launch, and `scenePhase` is worse — SwiftUI
+builds the scene and reports `.active` even there, so every wake recorded itself as a
+foreground one. Only the unattended lines are evidence that iOS ran the app on its own.

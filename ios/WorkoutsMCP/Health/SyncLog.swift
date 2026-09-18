@@ -55,10 +55,9 @@ enum SyncLog {
 
     private static var hasBeenActive = false
 
-    /// Called when the app first reaches the screen. A background launch builds no view, so
-    /// "this process was never active" is a fact that cannot be raced — where reading
-    /// `UIApplication.applicationState` early in a HealthKit launch can still say `.inactive`
-    /// and report a real background wake as a foreground one.
+    /// Called from `UIApplication.didBecomeActiveNotification`, which a background launch
+    /// never posts. `scenePhase` was tried first and is not this: SwiftUI builds the scene
+    /// and reports `.active` even on a HealthKit launch, so every wake looked foreground.
     static func becameActive() { hasBeenActive = true }
 
     /// Whether this process has run without ever being on screen.

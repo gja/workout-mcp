@@ -283,7 +283,7 @@ final class AppModel: ObservableObject {
                 activityID: activity.uuid.uuidString
             )
             // So a wake does not send it a second time.
-            Uploaded.remember(activity.uuid)
+            Settled.settle(activity.uuid)
             var said = "\(workout.name) is done"
             if let metres = receipt.stats?.session?.distanceM, metres > 0 {
                 said += " — \(Formats.distance(metres))"

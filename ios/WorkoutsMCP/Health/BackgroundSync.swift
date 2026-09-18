@@ -117,17 +117,17 @@ enum BackgroundSync {
         }
     }
 
-    /// Only the sessions the watch itself matched to a plan, and only the ones that have not
-    /// gone up already — `Uploaded` says so locally, because a wake has seconds and the
-    /// listing that used to answer it is the slowest call in the path. Everything the POST
-    /// needs is the workout key, which `PlanLink` already holds.
+    /// Only the sessions the watch itself matched to a plan, and only the ones this app is
+    /// not already finished with — `Settled` says so locally, because a wake has seconds and
+    /// the listing that used to answer it is the slowest call in the path. Everything the
+    /// POST needs is the workout key, which `PlanLink` already holds.
     ///
     /// Not private, and not only for a wake: `PlanRefresh` and opening the app run it too,
     /// because `.immediate` delivery is a request rather than a guarantee.
     ///
     /// **One run at a time.** Opening the app starts the observer's own fire and the catch-up
     /// within a moment of each other, and both used to reach the POST before either finished
-    /// — one walk went up three times. `Uploaded` cannot stop that on its own, because none
+    /// — one walk went up three times. `Settled` cannot stop that on its own, because none
     /// of them has recorded anything yet; a second caller joins the run already going instead.
     @discardableResult
     static func uploadWhatIsCertain() async -> SyncLog.Outcome {
@@ -175,9 +175,18 @@ enum BackgroundSync {
 
             // Before `planID`, which is a round trip to the store per session: the cheap
             // question first, so a wake spends its seconds on what it might actually send.
-            guard !Uploaded.contains(activity.uuid) else { alreadySent += 1; continue }
-            guard let planID = await HealthAccess.planID(of: activity),
-                  let key = PlanLink.workoutKey(forPlan: planID) else { unplanned += 1; continue }
+            guard !Settled.contains(activity.uuid) else { alreadySent += 1; continue }
+
+            guard let planID = await HealthAccess.planID(of: activity) else {
+                // Whether the watch named a plan is fixed when it records the session, so
+                // this answer will not change — and asking costs a round trip to the store.
+                Settled.settle(activity.uuid)
+                unplanned += 1
+                continue
+            }
+            // Not settled: this one *can* change, since scheduling the workout again writes
+            // the link that is missing here.
+            guard let key = PlanLink.workoutKey(forPlan: planID) else { unplanned += 1; continue }
 
             // Before the work, not only after it: reading the session, encoding the file and
             // posting it are where a wake runs out of time, and a line written only on
@@ -191,7 +200,7 @@ enum BackgroundSync {
                     to: key,
                     activityID: activity.uuid.uuidString
                 )
-                Uploaded.remember(activity.uuid)
+                Settled.settle(activity.uuid)
                 uploaded += 1
                 SyncLog.record(.upload, "finished uploading \(key)")
                 // One a run. A wake is about the session that just finished, and the next
@@ -205,6 +214,15 @@ enum BackgroundSync {
                 // Worth telling apart: a server that refused the file is a different morning
                 // from a phone that had no network when it woke.
                 if (error as NSError).domain == NSURLErrorDomain { unreachable = true }
+
+                // A refusal another run would get the same answer to is not worth another
+                // run. The listing used to filter a deleted workout out before it was ever
+                // posted; without it, three deleted test workouts 404'd on every wake for a
+                // day, because only a success was ever written down.
+                if isPermanent(error) {
+                    Settled.settle(activity.uuid)
+                    SyncLog.record(.upload, "not offering \(key) again")
+                }
             }
         }
 
@@ -218,5 +236,13 @@ enum BackgroundSync {
         if uploaded > 0 { SyncLog.uploaded(uploaded) }
         if refused { return unreachable ? .unreachable : .failed }
         return uploaded > 0 ? .uploaded : .nothing
+    }
+
+    /// Whether another run would get the same refusal. A workout deleted upstream, or a file
+    /// this server will not take, is settled; 401 is not, because a credential can come back,
+    /// and neither is a timeout, a rate limit or anything the network did.
+    private static func isPermanent(_ error: Error) -> Bool {
+        guard let api = error as? ApiError else { return false }
+        return (400 ..< 500).contains(api.status) && ![401, 408, 429].contains(api.status)
     }
 }
