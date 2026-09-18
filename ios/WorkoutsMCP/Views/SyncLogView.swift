@@ -30,7 +30,7 @@ struct SyncLogView: View {
                     Text("Events")
                 } footer: {
                     Text(
-                        "Newest first. A moon marks an event with nobody looking — only those "
+                        "Newest first. A 💤 marks an event with nobody looking — only those "
                             + "say iOS ran the app on its own. Copy sends the whole log as text."
                     )
                 }
@@ -74,11 +74,11 @@ struct SyncLogView: View {
             "Last background wake: \(summary.lastBackgroundWake)",
             "Uploaded on its own: \(summary.uploaded)",
             "",
-            "Events, newest first (🌙 = nobody looking)",
+            "Events, newest first (💤 = nobody looking)",
         ]
         lines += entries.map { entry in
-            let moon = entry.unattended ? " 🌙" : ""
-            return "\(Formats.precise(entry.at))  \(entry.kind.rawValue)  \(entry.said)\(moon)"
+            let asleep = entry.unattended ? " 💤" : ""
+            return "\(Formats.precise(entry.at))  \(entry.kind.rawValue)  \(entry.said)\(asleep)"
         }
         if entries.isEmpty { lines.append("(nothing yet)") }
         return lines.joined(separator: "\n")
@@ -99,7 +99,7 @@ private struct EventRow: View {
                 HStack(spacing: 6) {
                     Text(Formats.moment(entry.at))
                     // The whole point of the log: an event nobody was watching.
-                    if entry.unattended { Image(systemName: "moon.fill") }
+                    if entry.unattended { Image(systemName: "zzz") }
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)

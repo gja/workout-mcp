@@ -34,6 +34,7 @@ enum SyncLog {
     /// rather than the code's: this is read by somebody asking why a session is not there.
     enum Outcome: String {
         case uploaded = "uploaded a session"
+        case handedOver = "handed a session to iOS"
         case nothing = "nothing new to upload"
         case signedOut = "signed out"
         case unreachable = "could not reach the server"

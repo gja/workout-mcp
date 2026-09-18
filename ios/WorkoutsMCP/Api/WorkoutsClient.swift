@@ -61,16 +61,28 @@ struct WorkoutsClient: Sendable {
     }
 
     /// The FIT file as the body. Comes back with the workout marked done. See docs/stats.md.
+    ///
+    /// Waits for the answer, so this is the foreground path — *Export*, and the catch-up on
+    /// opening the app. A wake uses `SessionUpload` instead, which cannot wait for one.
     @discardableResult
+    func upload(_ fit: Data, to workoutKey: String, activityID: String) async throws -> RecordingReceipt {
+        var request = try await uploadRequest(to: workoutKey, activityID: activityID)
+        request.httpBody = fit
+        return try await send(request)
+    }
+
+    /// The same request without its body, for a background `URLSession` to attach a file to
+    /// and finish on its own. Signed here because that is the only part needing a token, and
+    /// a transfer running an hour from now cannot ask for a fresh one.
+    ///
     /// Keyed by `<date>/<id>` rather than by a `PlannedWorkout`, because the route needs
     /// nothing else — and a wake holds the key from `PlanLink` without asking the server.
-    func upload(_ fit: Data, to workoutKey: String, activityID: String) async throws -> RecordingReceipt {
+    func uploadRequest(to workoutKey: String, activityID: String) async throws -> URLRequest {
         let escaped = activityID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "upload"
         var request = try await signed("/api/workouts/\(workoutKey)/recording?activity_id=\(escaped)")
         request.httpMethod = "POST"
         request.setValue("application/vnd.ant.fit", forHTTPHeaderField: "Content-Type")
-        request.httpBody = fit
-        return try await send(request)
+        return request
     }
 
     // --- The plumbing ------------------------------------------------------------
@@ -125,6 +137,7 @@ private struct WorkoutListing: Decodable {
     let workouts: [PlannedWorkout]
 }
 
-private struct ServerError: Decodable {
+/// Also read by `SessionUpload`, which decodes a refusal outside this file.
+struct ServerError: Decodable {
     let error: String
 }

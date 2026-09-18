@@ -73,10 +73,21 @@ final class AppModel: ObservableObject {
     private let recentDays = 7
     private let plannedDays = 14
 
+    /// Bumped each time a background transfer lands, so a screen that is open reads the plan
+    /// again. A recording is sent by a `URLSession` that finishes on its own schedule, long
+    /// after whichever call handed it over returned.
+    @Published private(set) var landed = 0
+
     init() {
         // Whatever last reached the watch, including a turn iOS granted `PlanRefresh` in the
         // night: the status line is about the watch, not about this run of the app.
         if let last = PlanSync.lastSynced { sync = .synced(at: last.at, count: last.count) }
+
+        NotificationCenter.default.addObserver(
+            forName: .sessionUploaded, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.landed += 1 }
+        }
     }
 
     // --- What the tabs show ------------------------------------------------------------
@@ -197,7 +208,11 @@ final class AppModel: ObservableObject {
         // than a promise, and opening the app is the moment that is certain to happen. On
         // exactly a wake's terms — only sessions the watch named, only ones the server has
         // no recording for.
-        if await BackgroundSync.uploadWhatIsCertain() == .uploaded { await refresh(using: client) }
+        //
+        // Not refreshed after: the file goes to a background `URLSession` and is still in
+        // flight when this returns. `sessionUploaded` says when there is something new to
+        // read, and reaches this screen whether a wake or this call sent it.
+        await BackgroundSync.uploadWhatIsCertain()
 
         if case .syncing = sync { return }
         guard PlanSync.isStale || PlanSync.hasChanged(PlanSync.due(in: workouts)) else { return }

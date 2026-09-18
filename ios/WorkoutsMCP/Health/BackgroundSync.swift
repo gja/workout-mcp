@@ -122,6 +122,10 @@ enum BackgroundSync {
     /// the listing that used to answer it is the slowest call in the path. Everything the
     /// POST needs is the workout key, which `PlanLink` already holds.
     ///
+    /// **The POST itself is not waited for.** It goes to a background `URLSession`, which
+    /// finishes it after this process is suspended; `Handed` keeps the next run from sending
+    /// the same session again while it is in flight. See `SessionUpload`.
+    ///
     /// Not private, and not only for a wake: `PlanRefresh` and opening the app run it too,
     /// because `.immediate` delivery is a request rather than a guarantee.
     ///
@@ -175,7 +179,10 @@ enum BackgroundSync {
 
             // Before `planID`, which is a round trip to the store per session: the cheap
             // question first, so a wake spends its seconds on what it might actually send.
-            guard !Settled.contains(activity.uuid) else { alreadySent += 1; continue }
+            guard !Settled.contains(activity.uuid), !Handed.contains(activity.uuid) else {
+                alreadySent += 1
+                continue
+            }
 
             guard let planID = await HealthAccess.planID(of: activity) else {
                 // Whether the watch named a plan is fixed when it records the session, so
@@ -195,14 +202,15 @@ enum BackgroundSync {
 
             do {
                 let recorded = try await SessionReader.read(activity, as: key)
-                try await client.upload(
+                try await SessionUpload.shared.hand(
                     try ActivityFit.encode(recorded),
                     to: key,
-                    activityID: activity.uuid.uuidString
+                    activity: activity.uuid,
+                    using: client
                 )
-                Settled.settle(activity.uuid)
+                Handed.hold(activity.uuid)
                 uploaded += 1
-                SyncLog.record(.upload, "finished uploading \(key)")
+                SyncLog.record(.upload, "handed \(key) to iOS to finish")
                 // One a run. A wake is about the session that just finished, and the next
                 // run — or the catch-up on opening the app — takes whatever is behind it.
                 break
@@ -233,9 +241,10 @@ enum BackgroundSync {
             )
         }
 
-        if uploaded > 0 { SyncLog.uploaded(uploaded) }
+        // Not counted here any more: the transfer is the system's now, and `SessionUpload`
+        // counts it when the server has actually taken it.
         if refused { return unreachable ? .unreachable : .failed }
-        return uploaded > 0 ? .uploaded : .nothing
+        return uploaded > 0 ? .handedOver : .nothing
     }
 
     /// Whether another run would get the same refusal. A workout deleted upstream, or a file

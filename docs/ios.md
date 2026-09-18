@@ -261,6 +261,39 @@ for — which is fixed when it records the session. A failure another run might 
 deliberately not settled, so it is found again. A wake then reads Health, resolves one plan
 id and posts — no round trip before the one that matters.
 
+### The transfer does not belong to the wake
+
+Even with nothing wasted, it did not fit. On device, one upload took **17 to 34 seconds** —
+read the session out of Health, encode the FIT, post it — against the roughly thirty a
+background-task assertion is given. A 90-second walk was woken promptly three times and wrote
+`ran out of time` twice before a fourth attempt scraped through, twenty minutes after the
+session ended. Delivery was never the problem: the *first* wake arrived 59 seconds after the
+watch saved it. The work simply did not fit in the window, and whether it did was a coin toss.
+
+So the part that does not fit is no longer done here. `Api/SessionUpload.swift` hands the file
+to a **background `URLSession`**: the wake writes a FIT to a temporary file, creates an upload
+task and returns, and iOS performs the transfer on its own schedule — after this process is
+suspended, and if need be after it is gone. What the wake has to finish in its thirty seconds
+is now reading Health and encoding a file, with no network in it at all.
+
+Three consequences, all of which the code has to carry:
+
+- **The answer arrives somewhere else.** `didCompleteWithError` is what settles a session, and
+  it can run in a later launch than the one that sent it — one iOS makes for no other purpose,
+  which is what the `AppDelegate` at the bottom of `WorkoutsMCPApp.swift` exists to finish. So
+  the session identifier is fixed and the session is recreated on **every** launch: until it
+  exists, iOS has nowhere to deliver what it finished while the app was away.
+- **A session is in flight for a while with nothing to show for it.** `Health/Handed.swift` is
+  that gap — not `Settled`, which means finished with. It is held for six hours rather than
+  for ever, so a transfer the system quietly loses is offered again the same morning instead
+  of never.
+- **Nobody can refresh after the upload**, because everyone who could has already returned.
+  A `sessionUploaded` notification is posted when one lands, and `RootView` reads the plan
+  again on it — so an open screen catches a recording whichever path sent it.
+
+The foreground still waits: *Export* and the catch-up on opening the app go through
+`WorkoutsClient.upload`, which has a whole app lifetime to spend and an athlete watching.
+
 Telling those refusals apart matters more than it sounds. The listing used to filter a
 deleted workout out before it was ever posted; without it, three deleted test workouts
 `404`'d on every wake for a day, because only a success had ever been written down.
@@ -295,7 +328,7 @@ What separates them is `UIApplication.didBecomeActiveNotification`, which a back
 never posts. Two other signals were tried and are not it: `UIApplication.applicationState`
 can still read `.inactive` early in a HealthKit launch, and `scenePhase` is worse — SwiftUI
 builds the scene and reports `.active` even there, so every wake recorded itself as a
-foreground one. Only the unattended lines are evidence that iOS ran the app on its own.
+foreground one. Only the unattended lines — marked 💤 — are evidence that iOS ran the app on its own.
 
 **And the flag is corrected after the fact, because writing it once is not enough.** `start()`
 runs from `App.init()` and the observer's first fire lands immediately, before the scene has
