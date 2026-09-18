@@ -46,10 +46,39 @@ enum PlanLink {
         allIDs(for: key).first(where: onWatch.contains) ?? planID(for: key)
     }
 
-    /// The key back, from the id alone where it was packed, and from the index where the
-    /// workout was scheduled by a build that hashed.
+    /// The key back. The index first, because it is the one of the two that can be *corrected*
+    /// — a workout moved to another day is followed there by `follow`, where the id packed
+    /// into the plan still spells the day it was scheduled on. The id itself is the fallback,
+    /// because it is the one of the two that cannot go missing.
     static func workoutKey(forPlan planID: UUID) -> String? {
-        unpacked(planID) ?? all()[planID.uuidString]
+        all()[planID.uuidString] ?? unpacked(planID)
+    }
+
+    /// Follows a workout the plan has moved to another day.
+    ///
+    /// The server keeps a workout's id when it moves one, so a link whose id appears in the
+    /// plan under a different date is the same workout — and without this, the session
+    /// already recorded against it names a date the workout is no longer on, and the upload
+    /// 404s for as long as the link lasts. Ambiguity is left alone rather than guessed at:
+    /// an id is only unique within a day, so two current keys sharing one move nothing.
+    static func follow(_ keys: Set<String>) {
+        var byID: [Substring: String] = [:]
+        var ambiguous: Set<Substring> = []
+        for key in keys {
+            guard let id = key.split(separator: "/").last else { continue }
+            if byID.updateValue(key, forKey: id) != nil { ambiguous.insert(id) }
+        }
+
+        var links = all()
+        var followed = false
+        for (planID, was) in links {
+            guard let id = was.split(separator: "/").last, !ambiguous.contains(id),
+                  let now = byID[id], now != was else { continue }
+            links[planID] = now
+            followed = true
+        }
+        guard followed else { return }
+        UserDefaults.standard.set(links, forKey: defaultsKey)
     }
 
     // --- The key, in a UUID -----------------------------------------------------------

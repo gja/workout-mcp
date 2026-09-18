@@ -121,8 +121,14 @@ exactly this: a layout the application defines.
 
 So the id is still **derived** rather than allocated, which is what makes scheduling a
 workout twice replace the plan on the watch instead of leaving two. What is new is that it
-comes apart again: `workoutKey(forPlan:)` reads the key straight back out of a session
-recorded weeks later, with nothing in between to have been lost.
+comes apart again: the key reads straight back out of a session recorded weeks later, with
+nothing in between to have been lost.
+
+**The index is asked first all the same**, and the id is the fallback. It is the wrong way
+round from how it reads until you notice which of the two can be *corrected*: the bytes in a
+plan id spell the day the workout was scheduled on and will spell it forever, and the index
+is the only place a move can be followed. The id's job is to be the thing that cannot go
+missing.
 
 **What it assumes, and what happens when that breaks.** The layout fits only because a
 workout id is eight characters of a known thirty-character alphabet and a date is
@@ -140,10 +146,23 @@ all on the first sync after an upgrade would be a watch full of churn for nothin
 would see, and the index still reads the old ones. What the layout is for is the sessions
 ahead.
 
-This does **not** fix a workout **moved** to another date after it was scheduled. The watch
-holds the id it was given, which spells the old key, and the POST 404s though the workout
-exists — the same shape of failure `Settled` treats as permanent. Rescheduling rewrites it;
-a wake does not.
+### A workout moved to another day
+
+Which is the one way date and id could still come apart. The watch holds the plan id it was
+given, and that spells the day the workout was on when it was scheduled; move the workout
+and the POST goes to a date it is no longer on, 404s, and `Settled` — rightly, knowing no
+better — writes it off for good.
+
+The server keeps a workout's id when it moves one, so the move is legible: a link whose id
+appears in the plan under a different date is that same workout. `PlanLink.follow` rewrites
+those links, from the window `PlanSync` has already read, so it costs no round trip. It runs
+**after** the prune rather than before, because the prune reads the same links to decide what
+comes off the watch, and a link followed first would keep the old plan there.
+
+Ambiguity is left alone rather than guessed at. An id is only unique within a day, so if two
+current keys share one, neither is followed and the link stays as it was — a session filed
+against the wrong workout is worse than one that cannot be filed at all, which is the same
+judgement the two ways above are making.
 
 
 ## Three tabs
