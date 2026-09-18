@@ -92,66 +92,26 @@ two is a question the app is in the worst position to answer, and what it produc
 was wrong was a completion to undo and a page of stats to distrust. A session the app cannot
 place says so and is not uploaded.
 
-### The plan id is the workout key
+**WorkoutKit plan ids are derived**, a SHA-256 of the workout key rather than something
+allocated, so scheduling a workout again replaces the plan on the watch instead of leaving
+two, and nothing has to be read back before a workout can go out. A digest does not come
+apart again, so `PlanLink` writes the pair down when it schedules and reads the key back from
+that index.
 
-The id used to be a SHA-256 of `<date>/<id>`, and a digest does not come apart again, so a
-`UserDefaults` index carried the way back. That index was the one thing in this path that
-could go missing — a reinstall, a restore, a prune that ran a day early — and a session whose
-link is gone is a session nobody can file. It was also the one thing a wake could not repair.
-
-WorkoutKit's id is a `UUID` and nothing else, so the key cannot be stored there as itself.
-But a UUID is sixteen bytes and the key is small, so `PlanLink` writes it in:
-
-```
-2026-06-04/wktt8yc3  ->  77202606-041a-8011-8018-18081c0b0300
-```
-
-| byte | value | |
-|---|---|---|
-| 0 | `77` | magic: says this app wrote the id, rather than Apple or anyone else |
-| 1–4 | `20 26 06 04` | the day, BCD — legible in the hex, which is a happy accident |
-| 6 | `8x` | the version nibble, stamped by the UUID itself |
-| 8 | `8x` | the RFC 4122 variant bits, likewise |
-| 5, 7, 9–14 | `1a 11 18 18 08 1c 0b 03` | `wktt8yc3`, one byte an index into the server's `ID_ALPHABET` |
-| 15 | `00` | spare |
-
-Thirteen bytes of payload laid into the fourteen a UUID leaves free, stepping over the two
-it reserves rather than fighting them. The version is **8**, which RFC 4122 leaves for
-exactly this: a layout the application defines.
-
-So the id is still **derived** rather than allocated, which is what makes scheduling a
-workout twice replace the plan on the watch instead of leaving two. What is new is that it
-comes apart again: the key reads straight back out of a session recorded weeks later, with
-nothing in between to have been lost.
-
-**The index is asked first all the same**, and the id is the fallback. It is the wrong way
-round from how it reads until you notice which of the two can be *corrected*: the bytes in a
-plan id spell the day the workout was scheduled on and will spell it forever, and the index
-is the only place a move can be followed. The id's job is to be the thing that cannot go
-missing.
-
-**What it assumes, and what happens when that breaks.** The layout fits only because a
-workout id is eight characters of a known thirty-character alphabet and a date is
-`yyyy-MM-dd` — both `src/db.ts`'s, and neither a promise it makes to this app. If either
-changes, `packed` returns nil and that key falls back to the SHA-256 digest and the index,
-which is what every key used to get. Nothing breaks; the app goes back to needing the index
-for those. It is still written for every key, because it costs a short string and the failure
-it covers is a session nobody can file.
-
-Ids from before this are version **5** and packed ones version **8**, so the two never
-collide and are told apart at a glance. **A workout already on the watch keeps its digest.**
-`PlanLink.planID(for:onWatch:)` hands back whichever id the scheduler is already holding the
-workout under, and only a workout that is not there yet gets the new layout. Rewriting them
-all on the first sync after an upgrade would be a watch full of churn for nothing an athlete
-would see, and the index still reads the old ones. What the layout is for is the sessions
-ahead.
+Packing the key into the id itself — the day in BCD, a byte an id character, into the bytes a
+UUID leaves free — was tried and removed. It worked, but the only thing it bought over the
+index was a session recorded in the last two days surviving a delete-and-reinstall, since the
+credential is in the keychain and the index is not. For that it cost two id schemes at once,
+a silent dependency on `src/db.ts`'s id length and alphabet that nothing here enforces, and a
+lookup order that needed a paragraph to justify. The move below, which is what actually went
+wrong in practice, was fixed in the index and never needed it.
 
 ### A workout moved to another day
 
-Which is the one way date and id could still come apart. The watch holds the plan id it was
-given, and that spells the day the workout was on when it was scheduled; move the workout
-and the POST goes to a date it is no longer on, 404s, and `Settled` — rightly, knowing no
-better — writes it off for good.
+Which is the one way date and id could still come apart. The link was written when the
+workout was scheduled and names the day it was on then; move the workout and the POST goes to
+a date it is no longer on, 404s, and `Settled` — rightly, knowing no better — writes it off
+for good.
 
 The server keeps a workout's id when it moves one, so the move is legible: a link whose id
 appears in the plan under a different date is that same workout. `PlanLink.follow` rewrites
@@ -163,7 +123,6 @@ Ambiguity is left alone rather than guessed at. An id is only unique within a da
 current keys share one, neither is followed and the link stays as it was — a session filed
 against the wrong workout is worse than one that cannot be filed at all, which is the same
 judgement the two ways above are making.
-
 
 ## Three tabs
 
@@ -294,7 +253,7 @@ the same rules: every `PlanRefresh` turn, and opening the app.
 **And a wake asks the server nothing before it posts.** It used to read the listing first —
 three weeks of plan, over the slowest link in the path — to check `isDone` on one workout,
 and a wake that ran out of time ran out of it there. Everything the POST needs is the
-workout key, which the plan id carries, so the only question left is
+workout key, which `PlanLink` already holds from scheduling it, so the only question left is
 whether this session is one the app is already finished with. `Health/Settled.swift` answers
 that locally, and is written only where the answer **cannot change**: a session that went up,
 one refused for a reason another run would get again, and one the watch never named a plan
