@@ -37,6 +37,12 @@ enum Formats {
         date.formatted(date: .abbreviated, time: .shortened)
     }
 
+    /// "18 Sep, 09:24:11" — for the sync log copied out as text, where the order of two
+    /// things written in the same minute is the whole question being asked.
+    static func precise(_ date: Date) -> String {
+        date.formatted(.dateTime.day().month(.abbreviated).hour().minute().second())
+    }
+
     /// "Fri, 19 Sep" — the day a workout sits on, without the time it does not have.
     static func day(_ date: Date) -> String {
         date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
