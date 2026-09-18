@@ -21,14 +21,17 @@ enum HealthError: LocalizedError {
 enum HealthAccess {
     static let store = HKHealthStore()
 
-    /// Every channel a FIT file of a run or a ride can carry, and nothing else. A type the
-    /// athlete declines, or a sensor they were not wearing, comes back empty rather than
-    /// failing: a run with no power meter is still a run worth uploading.
+    /// Every channel a FIT file of a run or a ride can carry, plus the one figure that is
+    /// about the athlete rather than a session — resting heart rate, which `HeartRate.swift`
+    /// reads a year of. A type the athlete declines, or a sensor they were not wearing,
+    /// comes back empty rather than failing: a run with no power meter is still a run worth
+    /// uploading.
     static var readTypes: Set<HKObjectType> {
         [
             HKObjectType.workoutType(),
             HKSeriesType.workoutRoute(),
             HKQuantityType(.heartRate),
+            HKQuantityType(.restingHeartRate),
             HKQuantityType(.distanceWalkingRunning),
             HKQuantityType(.distanceCycling),
             HKQuantityType(.stepCount),
