@@ -2,11 +2,13 @@
 // on the server. See docs/ios.md.
 
 import SwiftUI
+import UIKit
 
 struct SyncLogView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var entries: [SyncLog.Entry] = []
     @State private var summary = SyncSummary()
+    @State private var copied = false
 
     var body: some View {
         NavigationStack {
@@ -29,7 +31,7 @@ struct SyncLogView: View {
                 } footer: {
                     Text(
                         "Newest first. A moon marks an event with nobody looking — only those "
-                            + "say iOS ran the app on its own, since opening it fires the observer too."
+                            + "say iOS ran the app on its own. Copy sends the whole log as text."
                     )
                 }
             }
@@ -37,6 +39,15 @@ struct SyncLogView: View {
             .navigationTitle("Sync log")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    // The whole log rather than what is on screen: this is read by somebody
+                    // who is not holding the phone, and a screenshot is three of these.
+                    Button(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") {
+                        UIPasteboard.general.string = transcript
+                        copied = true
+                    }
+                    .disabled(copied)
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
@@ -49,6 +60,28 @@ struct SyncLogView: View {
     private func load() {
         entries = SyncLog.entries.reversed()
         summary = SyncSummary()
+        copied = false
+    }
+
+    /// The sheet as text, for pasting into a conversation about why a session is not there.
+    /// Seconds are kept where the list rounds to the minute: what this is usually asked is
+    /// the order of two things written moments apart.
+    private var transcript: String {
+        var lines = [
+            "Sync log — \(Formats.moment(Date()))",
+            "",
+            "Health can wake the app: \(summary.delivery)",
+            "Last background wake: \(summary.lastBackgroundWake)",
+            "Uploaded on its own: \(summary.uploaded)",
+            "",
+            "Events, newest first (🌙 = nobody looking)",
+        ]
+        lines += entries.map { entry in
+            let moon = entry.unattended ? " 🌙" : ""
+            return "\(Formats.precise(entry.at))  \(entry.kind.rawValue)  \(entry.said)\(moon)"
+        }
+        if entries.isEmpty { lines.append("(nothing yet)") }
+        return lines.joined(separator: "\n")
     }
 }
 

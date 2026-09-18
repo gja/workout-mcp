@@ -49,16 +49,49 @@ enum SyncLog {
         let said: String
         /// Whether this happened with nobody looking — see `isUnattended`.
         let unattended: Bool
+
+        /// The same entry, known after the fact to have had somebody there.
+        var attended: Entry { Entry(id: id, at: at, kind: kind, said: said, unattended: false) }
     }
 
     // --- Was anybody looking -------------------------------------------------------------
 
     private static var hasBeenActive = false
+    private static let started = Date()
+
+    /// How long after a launch its own activation still counts as part of it. A launch
+    /// somebody made is on screen within a moment; one iOS made is not, ever.
+    private static let launchWindow: TimeInterval = 5
 
     /// Called from `UIApplication.didBecomeActiveNotification`, which a background launch
     /// never posts. `scenePhase` was tried first and is not this: SwiftUI builds the scene
     /// and reports `.active` even on a HealthKit launch, so every wake looked foreground.
-    static func becameActive() { hasBeenActive = true }
+    ///
+    /// **And what this process already wrote is corrected, not just what it writes next.**
+    /// `start()` runs from `App.init()`, and `HKObserverQuery` fires once the moment it is
+    /// executed — so a launch somebody made records a wake before its scene has connected,
+    /// and now that nothing is left to send that run finishes in milliseconds and always
+    /// wins the race. Force-quitting the app and opening it read `just now` for the last
+    /// background wake, which is how this was found.
+    static func becameActive() {
+        let wasLaunch = Date().timeIntervalSince(started) <= launchWindow
+        hasBeenActive = true
+        guard wasLaunch else { return }
+
+        // Only within the window: a background launch somebody opens ten minutes later
+        // really did run unattended until they did, and keeps its moons.
+        var log = entries
+        var wakes = 0
+        for index in log.indices where log[index].unattended && log[index].at >= started {
+            if log[index].kind == .wake { wakes += 1 }
+            log[index] = log[index].attended
+        }
+        guard wakes > 0 || log.contains(where: { $0.at >= started }) else { return }
+
+        defaults.set(max(0, defaults.integer(forKey: backgroundKey) - wakes), forKey: backgroundKey)
+        guard let data = try? JSONEncoder().encode(log) else { return }
+        defaults.set(data, forKey: entriesKey)
+    }
 
     /// Whether this process has run without ever being on screen.
     static var isUnattended: Bool { !hasBeenActive }

@@ -296,3 +296,18 @@ never posts. Two other signals were tried and are not it: `UIApplication.applica
 can still read `.inactive` early in a HealthKit launch, and `scenePhase` is worse — SwiftUI
 builds the scene and reports `.active` even there, so every wake recorded itself as a
 foreground one. Only the unattended lines are evidence that iOS ran the app on its own.
+
+**And the flag is corrected after the fact, because writing it once is not enough.** `start()`
+runs from `App.init()` and the observer's first fire lands immediately, before the scene has
+connected and so before that notification can arrive — so a launch somebody made writes a wake
+marked unattended, and once nothing is left to send, that run finishes in milliseconds and
+wins the race every time. Force-quitting the app and opening it read *last background wake:
+just now*, which is how this was found. So becoming active within a few seconds of the process
+starting clears the flag on everything that process has written, and takes those wakes back out
+of the count. A few seconds and not ever: a background launch somebody opens ten minutes later
+really did run unattended until they did, and keeps its moons.
+
+**Copy** puts the whole sheet on the pasteboard as text — the three counters and every line,
+timed to the second where the list rounds to the minute. The log is read by somebody who is not
+holding the phone, and the question asked of it is usually the order of two things written
+moments apart.
