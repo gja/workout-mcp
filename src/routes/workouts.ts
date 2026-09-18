@@ -8,13 +8,14 @@ import * as plan from '../plan';
 import { resolveSteps } from '../resolve';
 import type { Router } from '../router';
 import { MAX_RECORDING_BYTES, StatsError } from '../stats';
-import { callTool, present, presentBrief } from '../tools';
+import { callTool, missing, present, presentBrief } from '../tools';
 import { fail, parseDate, parseTimestamp } from '../units';
 import type { Workout } from '../workout';
 import { parseComment, parseWorkout } from '../workout';
 
-/** The `:date`/`:id` pair every single-workout route is addressed by. */
+/** Addressed by the pair, resolved by the id alone: the date is ignored. See docs/api.md. */
 type WorkoutRoute = '/api/workouts/:date(\\d{4}-\\d{2}-\\d{2})/:id([0-9a-z]+)';
+type DateRoute = `${WorkoutRoute}/date`;
 type CompletionRoute = `${WorkoutRoute}/complete`;
 type CommentRoute = `${WorkoutRoute}/comment`;
 type StatsRoute = `${WorkoutRoute}/stats`;
@@ -40,36 +41,29 @@ const createWorkout: AuthedRoute = async ({ request, url, env, user }) => {
 };
 
 const getWorkout: AuthedRoute<WorkoutRoute> = async ({ url, env, user, params }) => {
-  const date = parseDate(params.date, 'date');
-  const workout = await db.getWorkout(env, user.id, date, params.id);
-  return workout ? json(present(workout, url.origin)) : error(`no workout ${params.id} on ${date}`, 404);
+  const workout = await db.getWorkout(env, user.id, params.id);
+  return workout ? json(present(workout, url.origin)) : error(missing(params.id), 404);
 };
 
 /** The laps a workout row leaves off, for the reason `get_workout_stats` is its own tool. */
 const getWorkoutStats: AuthedRoute<StatsRoute> = async ({ env, user, params }) => {
-  const date = parseDate(params.date, 'date');
   // Both: the note is what says why the numbers look as they do. See the tool.
   const [stats, workout] = await Promise.all([
-    db.getStats(env, user.id, date, params.id),
-    db.getWorkout(env, user.id, date, params.id),
+    db.getStats(env, user.id, params.id),
+    db.getWorkout(env, user.id, params.id),
   ]);
   if (stats) return json({ ...stats, comment: workout?.comment ?? null });
 
-  return error(
-    workout
-      ? `nothing has been recorded against ${params.id} on ${date} yet`
-      : `no workout ${params.id} on ${date}`,
-    404,
-  );
+  return error(workout ? `nothing has been recorded against ${params.id} yet` : missing(params.id), 404);
 };
 
-/** `2026-09-12-a1b2c3d4` -> its parts. The one spelling of a plan id, here and in `/export`. */
-function splitDateId(slug: string): { date: string; id: string } | null {
+/** `2026-09-12-a1b2c3d4` -> the id in it. The day is required of the caller, and ignored. */
+function idFromSlug(slug: string): string | null {
   if (slug.length < 12 || slug[10] !== '-') return null;
   const date = slug.slice(0, 10);
   const id = slug.slice(11);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^[0-9a-z]+$/.test(id)) return null;
-  return { date, id };
+  return id;
 }
 
 /** The plan resolved: one duration and up to two targets a step, for a client that schedules it. */
@@ -85,10 +79,10 @@ const resolvedPlan = (workout: Workout) => ({
 /**
  * Every plan a client is about to schedule, in one round trip: a route addressed by one
  * workout cost a request, an authentication and a read each. Ids are `YYYY-MM-DD-<id>`,
- * because the short id alone is only unique within its date.
+ * and one naming the day a workout has left still finds it.
  *
  * A plan that is not there is named in `missing` rather than failing the batch — it may
- * have been deleted or moved since the listing, which is the answer to the question.
+ * have been deleted since the listing, which is the answer to the question.
  */
 const getWorkoutPlans: AuthedRoute = async ({ url, env, user }) => {
   const asked = [
@@ -110,23 +104,23 @@ const getWorkoutPlans: AuthedRoute = async ({ url, env, user }) => {
     );
   }
 
-  const keys: { date: string; id: string }[] = [];
+  const ids: string[] = [];
   const malformed: string[] = [];
   for (const slug of asked) {
-    const parts = splitDateId(slug);
-    if (parts) keys.push(parts);
+    const id = idFromSlug(slug);
+    if (id) ids.push(id);
     else malformed.push(slug);
   }
   if (malformed.length > 0) {
     return error(`expected each plan id as YYYY-MM-DD-<id>, got ${malformed.join(', ')}`, 400);
   }
 
-  const workouts = await db.getWorkouts(env, user.id, keys);
-  const found = new Set(workouts.map((workout) => `${workout.date}-${workout.id}`));
+  const workouts = await db.getWorkouts(env, user.id, ids);
+  const found = new Set(workouts.map((workout) => workout.id));
 
   return json({
     plans: workouts.map(resolvedPlan),
-    missing: asked.filter((slug) => !found.has(slug)),
+    missing: asked.filter((slug) => !found.has(idFromSlug(slug) ?? slug)),
   });
 };
 
@@ -142,7 +136,6 @@ const activityId = (raw: string | null): string => {
  * cost a third of the Worker's budget to wrap them. Read for their numbers and dropped.
  */
 const recordWorkout: AuthedRoute<RecordingRoute> = async ({ request, url, env, user, params }) => {
-  const date = parseDate(params.date, 'date');
   const tooBig = `a recording may be at most ${MAX_RECORDING_BYTES} bytes`;
 
   // Checked before the body is read as well as after: a client that declares its size
@@ -158,7 +151,7 @@ const recordWorkout: AuthedRoute<RecordingRoute> = async ({ request, url, env, u
 
   let recorded;
   try {
-    recorded = await plan.recordSession(env, user, date, params.id, bytes, source);
+    recorded = await plan.recordSession(env, user, params.id, bytes, source);
   } catch (err) {
     // Unreadable is the caller's file, not our failure — and unlike the platform sync
     // there is nobody to retry, so it is answered rather than stored as a bad read.
@@ -166,22 +159,29 @@ const recordWorkout: AuthedRoute<RecordingRoute> = async ({ request, url, env, u
     return error(`the recording could not be read: ${err instanceof Error ? err.message : String(err)}`, 400);
   }
 
-  return recorded
-    ? json(presentBrief(recorded.workout, url.origin))
-    : error(`no workout ${params.id} on ${date}`, 404);
+  return recorded ? json(presentBrief(recorded.workout, url.origin)) : error(missing(params.id), 404);
 };
 
 const replaceWorkout: AuthedRoute<WorkoutRoute> = async ({ request, url, env, user, params }) => {
-  const date = parseDate(params.date, 'date');
   const input = parseWorkout(await request.json());
-  const workout = await plan.replaceWorkout(env, user, date, params.id, input);
-  return workout ? json(presentBrief(workout, url.origin)) : error(`no workout ${params.id} on ${date}`, 404);
+  const workout = await plan.replaceWorkout(env, user, params.id, input);
+  return workout ? json(presentBrief(workout, url.origin)) : error(missing(params.id), 404);
+};
+
+/** Its own verb, so moving a session to another day never means resending the plan. */
+const moveWorkout: AuthedRoute<DateRoute> = async ({ request, url, env, user, params }) => {
+  const body = (await request.json().catch(() => ({}))) as { date?: unknown };
+  const date = parseDate(body?.date, 'date');
+
+  const workout = await plan.moveWorkout(env, user, params.id, date);
+  return workout ? json(presentBrief(workout, url.origin)) : error(missing(params.id), 404);
 };
 
 const deleteWorkout: AuthedRoute<WorkoutRoute> = async ({ env, user, params }) => {
-  const date = parseDate(params.date, 'date');
-  const deleted = await plan.deleteWorkout(env, user, date, params.id);
-  return deleted ? json({ deleted: true, date, id: params.id }) : error(`no workout ${params.id} on ${date}`, 404);
+  const deleted = await plan.deleteWorkout(env, user, params.id);
+  return deleted
+    ? json({ deleted: true, date: deleted.date, id: deleted.id })
+    : error(missing(params.id), 404);
 };
 
 /** Its own verb, so marking a session done never means resending the plan. */
@@ -190,9 +190,8 @@ const setCompletion = async (
   completedAt: string | null,
 ): Promise<Response> => {
   const { url, env, user, params } = context;
-  const date = parseDate(params.date, 'date');
-  const workout = await plan.setCompleted(env, user, date, params.id, completedAt);
-  return workout ? json(presentBrief(workout, url.origin)) : error(`no workout ${params.id} on ${date}`, 404);
+  const workout = await plan.setCompleted(env, user, params.id, completedAt);
+  return workout ? json(presentBrief(workout, url.origin)) : error(missing(params.id), 404);
 };
 
 const completeWorkout: AuthedRoute<CompletionRoute> = async (context) => {
@@ -213,9 +212,8 @@ const setComment = async (
   comment: string | null,
 ): Promise<Response> => {
   const { url, env, user, params } = context;
-  const date = parseDate(params.date, 'date');
-  const workout = await plan.setComment(env, user, date, params.id, comment);
-  return workout ? json(presentBrief(workout, url.origin)) : error(`no workout ${params.id} on ${date}`, 404);
+  const workout = await plan.setComment(env, user, params.id, comment);
+  return workout ? json(presentBrief(workout, url.origin)) : error(missing(params.id), 404);
 };
 
 const commentWorkout: AuthedRoute<CommentRoute> = async (context) => {
@@ -230,11 +228,11 @@ const runTool: AuthedRoute<'/api/tools/:name([a-z_]+)'> = async ({ request, url,
   json(await callTool(params.name, await request.json(), env, user, url.origin));
 
 const exportFit: AuthedRoute<'/export/:slug'> = async ({ env, user, params }) => {
-  const parts = splitDateId(params.slug.replace(/\.fit$/, ''));
-  if (!parts) return error('expected /export/YYYY-MM-DD-<id>.fit', 400);
+  const id = idFromSlug(params.slug.replace(/\.fit$/, ''));
+  if (!id) return error('expected /export/YYYY-MM-DD-<id>.fit', 400);
 
-  const workout = await db.getWorkout(env, user.id, parts.date, parts.id);
-  if (!workout) return error(`no workout ${parts.id} on ${parts.date}`, 404);
+  const workout = await db.getWorkout(env, user.id, id);
+  if (!workout) return error(missing(id), 404);
 
   return new Response(encodeWorkoutFit(workout), {
     headers: {
@@ -255,6 +253,7 @@ export const routes = (app: Router<Context>): void => {
     .get(`${WORKOUT}/stats`, withUser(getWorkoutStats))
     .post(`${WORKOUT}/recording`, withUser(recordWorkout))
     .put(WORKOUT, withUser(replaceWorkout))
+    .put(`${WORKOUT}/date`, withUser(moveWorkout))
     .delete(WORKOUT, withUser(deleteWorkout))
     .post(`${WORKOUT}/complete`, withUser(completeWorkout))
     .delete(`${WORKOUT}/complete`, withUser(uncompleteWorkout))

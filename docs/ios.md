@@ -111,7 +111,7 @@ is legible — a link whose id appears under a different date is that same worko
 `PlanLink.follow` rewrites those from the window `PlanSync` has already read, at no round trip.
 It runs **after** the prune, because the prune reads the same links to decide what comes off
 the watch and a link followed first would keep the old plan there. Two current keys sharing an
-id move nothing: an id is only unique within a day, and a session filed against the wrong
+id move nothing: the app will not guess between them, and a session filed against the wrong
 workout is worse than one that cannot be filed at all.
 
 ## Three tabs

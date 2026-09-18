@@ -218,8 +218,15 @@ describe('workout CRUD', () => {
       body: JSON.stringify({ ...INTERVALS, date: NEXT_DAY }),
     });
 
-    expect((await call(`/api/workouts/${date}/${id}.json`)).status).toBe(404);
     expect((await call(`/api/workouts/${NEXT_DAY}/${id}.json`)).status).toBe(200);
+
+    // The address a client already holds still finds it: the id is what it resolves by.
+    const stale = await call(`/api/workouts/${date}/${id}.json`);
+    expect(stale.status).toBe(200);
+    expect(await stale.json()).toMatchObject({ id, date: NEXT_DAY });
+
+    const { workouts } = (await (await call('/api/workouts.json')).json()) as { workouts: unknown[] };
+    expect(workouts).toHaveLength(1);
   });
 
   it('deletes a workout', async () => {
@@ -331,6 +338,106 @@ describe('an external id', () => {
       body: JSON.stringify({ ...INTERVALS, external_id: 'watchletic-8891' }),
     });
     expect(response.status).toBe(201);
+  });
+});
+
+describe('the date in the path', () => {
+  /** A day the workout is not on, which every route but the listing takes and ignores. */
+  const stale = (id: string, suffix = '.json') => `/api/workouts/${shiftDate(today(), 9)}/${id}${suffix}`;
+
+  it('is ignored by every verb, so a stale address still edits the right workout', async () => {
+    const { date, id } = await createIntervals();
+
+    expect((await call(stale(id))).status).toBe(200);
+    expect(
+      (
+        await call(`${stale(id, '')}/complete`, {
+          method: 'POST',
+          body: JSON.stringify({ completed_at: `${date}T06:30:00Z` }),
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (await call(`${stale(id, '')}/comment`, { method: 'PUT', body: JSON.stringify({ comment: 'Wrong day' }) }))
+        .status,
+    ).toBe(200);
+
+    const read = (await (await call(`/api/workouts/${date}/${id}.json`)).json()) as {
+      completed_at: string;
+      comment: string;
+    };
+    expect(read).toMatchObject({ completed_at: `${date}T06:30:00.000Z`, comment: 'Wrong day' });
+
+    expect((await call(stale(id), { method: 'DELETE' })).status).toBe(200);
+    expect((await call(`/api/workouts/${date}/${id}.json`)).status).toBe(404);
+  });
+
+  // The window is applied to the day the row is stored with, so a lenient path cannot
+  // reach past it by naming one inside the window. The 404 names no day either.
+  it('cannot reach a workout that has aged out by naming a day inside the window', async () => {
+    await env.DB.prepare(
+      `INSERT INTO workouts (user_id, date, id, name, sport, steps, created_at, updated_at)
+       VALUES (?1, ?2, 'aged0000', 'Old', 'running', '[]', '', '')`,
+    )
+      .bind(userId, shiftDate(today(), -9))
+      .run();
+
+    const response = await call(`/api/workouts/${today()}/aged0000.json`);
+    expect(response.status).toBe(404);
+    expect(((await response.json()) as { error: string }).error).toBe('no workout aged0000');
+  });
+
+  it('finds a plan whose slug names the day it has left', async () => {
+    const created = await createIntervals();
+    await call(`/api/workouts/${created.date}/${created.id}/date`, {
+      method: 'PUT',
+      body: JSON.stringify({ date: NEXT_DAY }),
+    });
+
+    const body = (await (
+      await call(`/api/workout-plans?plan-ids=${created.date}-${created.id}`)
+    ).json()) as { plans: { date: string; id: string }[]; missing: string[] };
+    expect(body.missing).toEqual([]);
+    expect(body.plans).toEqual([expect.objectContaining({ id: created.id, date: NEXT_DAY })]);
+  });
+});
+
+describe('moving a workout to another day', () => {
+  const move = (workout: { date: string; id: string }, date: string) =>
+    call(`/api/workouts/${workout.date}/${workout.id}/date`, { method: 'PUT', body: JSON.stringify({ date }) });
+
+  // Its own verb, so what is recorded against the session comes with it — which is what
+  // lets a session already done move at all: its steps are not rewritten.
+  it('keeps the id, the plan and the record of it being done', async () => {
+    const created = await createIntervals();
+    await call(`/api/workouts/${created.date}/${created.id}/complete`, {
+      method: 'POST',
+      body: JSON.stringify({ completed_at: `${created.date}T06:30:00Z` }),
+    });
+
+    expect(await (await move(created, NEXT_DAY)).json()).toMatchObject({ id: created.id, date: NEXT_DAY });
+
+    const { workouts } = (await (await call('/api/workouts.json')).json()) as {
+      workouts: { id: string; date: string; steps: unknown[]; completed_at: string }[];
+    };
+    expect(workouts).toHaveLength(1);
+    expect(workouts[0]).toMatchObject({
+      id: created.id,
+      date: NEXT_DAY,
+      completed_at: `${created.date}T06:30:00.000Z`,
+    });
+    expect(workouts[0].steps).toHaveLength(INTERVALS.steps.length);
+  });
+
+  it('refuses a day it could not be read back from, leaving it where it is', async () => {
+    const created = await createIntervals();
+    expect((await move(created, shiftDate(today(), 400))).status).toBe(400);
+    expect((await move(created, 'next tuesday')).status).toBe(400);
+    expect((await call(`/api/workouts/${created.date}/${created.id}.json`)).status).toBe(200);
+  });
+
+  it('answers 404 for a workout that is not there', async () => {
+    expect((await move({ date: DAY, id: 'nosuchid' }, NEXT_DAY)).status).toBe(404);
   });
 });
 
@@ -895,7 +1002,7 @@ describe('retention', () => {
 
     expect(await rowCount()).toBe(2);
     expect(await listWorkouts(env, userId)).toHaveLength(1);
-    expect(await getWorkout(env, userId, '2020-08-01', 'old00000')).toBeNull();
+    expect(await getWorkout(env, userId, 'old00000')).toBeNull();
   });
 
   it('refuses a new workout past the cap rather than deleting an older one', async () => {
@@ -1005,9 +1112,9 @@ describe('the read window', () => {
     await stow(before, 'oldone00');
     await stow(after, 'newone00');
 
-    // Directly, by date and id.
-    expect(await getWorkout(env, userId, before, 'oldone00')).toBeNull();
-    expect(await getWorkout(env, userId, after, 'newone00')).toBeNull();
+    // Directly, by id.
+    expect(await getWorkout(env, userId, 'oldone00')).toBeNull();
+    expect(await getWorkout(env, userId, 'newone00')).toBeNull();
 
     // Through the API, and as a FIT download.
     expect((await call(`/api/workouts/${before}/oldone00.json`)).status).toBe(404);

@@ -1,6 +1,8 @@
 # The database
 
-D1, one row per workout, keyed by `(user, date, id)`. Scalar fields are real columns;
+D1, one row per workout, keyed by `(user, id)`. The date is an ordinary column with an
+index on it, not part of the key, so moving a workout is an update of one column and the
+id it was created with names it for as long as it exists. Scalar fields are real columns;
 the steps, the tags and the stats are JSON.
 
 ## Migrations
@@ -44,17 +46,22 @@ being visible and stays in the table: storage is not the binding constraint (5 G
 a few hundred bytes a workout). The cap counts only what is inside the window, so it is a
 rolling limit rather than a wall after a year of training.
 
+Every single-workout read and write narrows on the row's *stored* date — `... AND id = ?
+AND date >= ? AND date <= ?` — never on one the caller gave, which is how the window
+survives the caller's date being ignored.
+
 Two lookups are deliberately **not** narrowed, because both read a row that is about to
 be written over: `findByExternalId`, since its unique index is not narrowed either and a
-re-sync would otherwise insert a duplicate under the same key; and `storedCompletion`,
-which a rewrite carries across.
+re-sync would otherwise insert a duplicate under the same key; and `storedRecord`, which
+a rewrite carries across.
 
 ## Ordering rules for writes
 
-- **Check the date before deleting.** A move deletes the old row first, so
-  `assertRetainable` has to be asked before that — failing in between would 400 and still
-  have lost the workout.
-- **Read the completion before the delete.**
+- **Check the date before writing it.** `assertRetainable` is asked first, so a day
+  nothing could be read back from is a 400 rather than a row nobody can see.
+- **Read what a rewrite carries before overwriting it.** The completion, the note and the
+  stats are read off the stored row, and the stats are kept only where the steps are
+  unchanged — see `putWorkout`.
 - **The cap only counts new rows.** Every path that reuses an id has checked the row
   exists, so the only write that adds to the count is the one with no id named.
 

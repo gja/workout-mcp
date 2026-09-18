@@ -145,8 +145,8 @@ describe('protocol', () => {
       'list_workouts',
     ]);
     expect(destructive.sort()).toEqual(['delete_workout', 'update_context', 'update_workout']);
-    // Completing and commenting are writes, but neither can lose the plan it is recorded against.
-    for (const name of ['complete_workout', 'comment_workout']) {
+    // Completing, commenting and moving are writes, but none can lose the plan they are against.
+    for (const name of ['complete_workout', 'comment_workout', 'reschedule_workout']) {
       expect(tools.find((tool) => tool.name === name)?.annotations).toMatchObject({
         readOnlyHint: false,
         destructiveHint: false,
@@ -778,6 +778,31 @@ describe('tools', () => {
 
     const read = (await callTool('get_workout', { date: NEXT_DAY, id: created.id })) as { completed_at: string };
     expect(read.completed_at).toBe(`${DAY}T06:30:00.000Z`);
+  });
+
+  it('moves a workout by id alone, and ignores a date that is not its own', async () => {
+    const created = (await callTool('create_workout', intervals)) as { id: string };
+    expect(await callTool('get_workout', { id: created.id })).toMatchObject({ id: created.id, date: DAY });
+    await callTool('complete_workout', { id: created.id, completed_at: `${DAY}T06:30:00Z` });
+
+    // The date argument is the wrong day on purpose: it is taken and ignored.
+    const moved = await callTool('reschedule_workout', { date: NEXT_DAY, id: created.id, to_date: NEXT_DAY });
+    expect(moved).toMatchObject({ id: created.id, date: NEXT_DAY, completed_at: `${DAY}T06:30:00.000Z` });
+
+    const listed = (await callTool('list_workouts', {})) as { workouts: { date: string; steps: unknown[] }[] };
+    expect(listed.workouts).toHaveLength(1);
+    expect(listed.workouts[0]).toMatchObject({ date: NEXT_DAY });
+    expect(listed.workouts[0].steps).toHaveLength(intervals.steps.length);
+
+    expect(await callTool('delete_workout', { id: created.id })).toMatchObject({ deleted: true, date: NEXT_DAY });
+  });
+
+  it('reports moving a workout that is not there', async () => {
+    const response = await rpc('tools/call', {
+      name: 'reschedule_workout',
+      arguments: { id: 'nosuchid', to_date: NEXT_DAY },
+    });
+    expect(response.result?.isError).toBe(true);
   });
 
   it('records the athlete’s note on how a session went, and hands it back', async () => {

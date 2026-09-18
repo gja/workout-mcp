@@ -24,7 +24,7 @@ function Dashboard({ me }: { me: Me }) {
   const [error, setError] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
-  // Resolved against the first list that arrives, because an id is only unique within a date.
+  // Resolved against the first list that arrives, which is where the day it is on comes from.
   const pending = useRef(linkedWorkout());
 
   const reload = useCallback(() => {

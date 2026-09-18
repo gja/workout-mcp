@@ -717,7 +717,8 @@ describe('the intervals.icu webhook', () => {
     expect(moved.status).toBe(200);
 
     expect((await statsFor({ date: OTHER_DAY, id: planned.id })).laps).toHaveLength(9);
-    expect((await call(`/api/workouts/${planned.date}/${planned.id}/stats`)).status).toBe(404);
+    // And by the day it was on, which names the same session: the id is what is read by.
+    expect((await statsFor(planned)).laps).toHaveLength(9);
   });
 
   it('asks for the FIT they build when the athlete uploaded something else', async () => {

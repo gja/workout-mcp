@@ -26,6 +26,7 @@ set at login.
 | `GET /api/workouts/:date/:id/stats` | What was actually recorded against it, laps and all; 404 until a session comes back |
 | `POST /api/workouts/:date/:id/recording` | The recorded FIT file itself as the body; read for its stats, marks the session done, keeps nothing |
 | `PUT /api/workouts/:date/:id.json` | Replace one; change `date` to move it |
+| `PUT /api/workouts/:date/:id/date` | Move it to another day; `{date}` in the body, keeping the id and the record of it being done |
 | `DELETE /api/workouts/:date/:id.json` | Delete one |
 | `POST /api/workouts/:date/:id/complete` | Mark it done; `{completed_at}` optional, defaults to now |
 | `DELETE /api/workouts/:date/:id/complete` | Clear that, leaving the plan alone |
@@ -61,6 +62,18 @@ is declared once.
 
 A date may hold several workouts, each with its own short id.
 
+## The `:date` in a path is ignored
+
+A workout id is unique per athlete, so **the id is what every single-workout route
+resolves by**: a client holding the address of a workout that has since moved still
+reaches it, and a 404 (`no workout a1b2c3d4`, no date in it) means the workout is gone.
+The segment stays because every link and client already carries it; the same goes for
+`plan-ids` and for a tool's `date` argument. `get_workout` is the exception — a date with
+no id is a question about the day.
+
+The retention window is applied to the date the row is *stored* with, so a workout that
+has aged out is invisible whichever address asks for it.
+
 ## The routes outside `/api/`
 
 Two carry their own authentication, and so must not meet `withUser`:
@@ -88,12 +101,13 @@ status codes back.
 `/api/workout-plans` takes every plan in one call because the client that wants them
 wants a week: a route per workout was a request, an authentication and a read each, and a
 watch app syncing a fortnight spent nearly all its time on round trips. `plan-ids` is a
-comma-separated list of `YYYY-MM-DD-<id>` — the pair, because an id is only unique within
-its date — at most fifty, duplicates answered once.
+comma-separated list of `YYYY-MM-DD-<id>`, at most fifty, duplicates answered once. The
+day in each is the ignored one: a plan the client listed yesterday and that has moved
+since is returned, on the day it is on now.
 
 A plan that is not there is named in `missing` rather than failing the request: between
 the listing a client scheduled from and the plans it asks for, a workout may have been
-deleted or moved, and one workout gone should not cost the caller the rest of the week.
+deleted, and one workout gone should not cost the caller the rest of the week.
 
 `/api/me` returns the retention window because it is computed in UTC; a client deriving
 it from local midnight would disagree at the edges.
