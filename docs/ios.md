@@ -87,21 +87,64 @@ reaching an athlete by three routes is recognisable as one file.
 recorded, read off `HKWorkout.workoutPlan` — there is no metadata key to look it up by —
 then the one workout of that sport planned for that day, where there is exactly one.
 
-**The plan id is the workout key.** WorkoutKit's id is a UUID and nothing else, so
-`<date>/<id>` cannot be stored there as itself, but it fits with room over in the 122 bits a
-UUID leaves free: `PlanLink` writes the day in as four BCD bytes and the id as one byte a
-character, under version 8, and reads it back out again. So the id is still **derived**
-rather than allocated — scheduling a workout again replaces the plan on the watch instead of
-leaving two — and a session recorded weeks later names its workout from the id alone, with
-nothing to have been lost in between. A key that will not fit that layout falls back to a
-SHA-256 digest and the index of ids the app has always written when scheduling, which is
-also what answers for anything an older build put on the watch. Because those older ids are
-version 5, scheduling knows both and replaces either.
-
 There is deliberately no third way. A picker was tried and removed: everything past those
 two is a question the app is in the worst position to answer, and what it produced when it
 was wrong was a completion to undo and a page of stats to distrust. A session the app cannot
 place says so and is not uploaded.
+
+### The plan id is the workout key
+
+The id used to be a SHA-256 of `<date>/<id>`, and a digest does not come apart again, so a
+`UserDefaults` index carried the way back. That index was the one thing in this path that
+could go missing — a reinstall, a restore, a prune that ran a day early — and a session whose
+link is gone is a session nobody can file. It was also the one thing a wake could not repair.
+
+WorkoutKit's id is a `UUID` and nothing else, so the key cannot be stored there as itself.
+But a UUID is sixteen bytes and the key is small, so `PlanLink` writes it in:
+
+```
+2026-06-04/wktt8yc3  ->  77202606-041a-8011-8018-18081c0b0300
+```
+
+| byte | value | |
+|---|---|---|
+| 0 | `77` | magic: says this app wrote the id, rather than Apple or anyone else |
+| 1–4 | `20 26 06 04` | the day, BCD — legible in the hex, which is a happy accident |
+| 6 | `8x` | the version nibble, stamped by the UUID itself |
+| 8 | `8x` | the RFC 4122 variant bits, likewise |
+| 5, 7, 9–14 | `1a 11 18 18 08 1c 0b 03` | `wktt8yc3`, one byte an index into the server's `ID_ALPHABET` |
+| 15 | `00` | spare |
+
+Thirteen bytes of payload laid into the fourteen a UUID leaves free, stepping over the two
+it reserves rather than fighting them. The version is **8**, which RFC 4122 leaves for
+exactly this: a layout the application defines.
+
+So the id is still **derived** rather than allocated, which is what makes scheduling a
+workout twice replace the plan on the watch instead of leaving two. What is new is that it
+comes apart again: `workoutKey(forPlan:)` reads the key straight back out of a session
+recorded weeks later, with nothing in between to have been lost.
+
+**What it assumes, and what happens when that breaks.** The layout fits only because a
+workout id is eight characters of a known thirty-character alphabet and a date is
+`yyyy-MM-dd` — both `src/db.ts`'s, and neither a promise it makes to this app. If either
+changes, `packed` returns nil and that key falls back to the SHA-256 digest and the index,
+which is what every key used to get. Nothing breaks; the app goes back to needing the index
+for those. It is still written for every key, because it costs a short string and the failure
+it covers is a session nobody can file.
+
+Ids from before this are version **5** and packed ones version **8**, so the two never
+collide and are told apart at a glance. **A workout already on the watch keeps its digest.**
+`PlanLink.planID(for:onWatch:)` hands back whichever id the scheduler is already holding the
+workout under, and only a workout that is not there yet gets the new layout. Rewriting them
+all on the first sync after an upgrade would be a watch full of churn for nothing an athlete
+would see, and the index still reads the old ones. What the layout is for is the sessions
+ahead.
+
+This does **not** fix a workout **moved** to another date after it was scheduled. The watch
+holds the id it was given, which spells the old key, and the POST 404s though the workout
+exists — the same shape of failure `Settled` treats as permanent. Rescheduling rewrites it;
+a wake does not.
+
 
 ## Three tabs
 

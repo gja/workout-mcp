@@ -31,11 +31,19 @@ enum PlanLink {
         packed(key) ?? hashed(key)
     }
 
-    /// Every id this app has ever derived for a key, newest first. What `WorkoutKitSync`
-    /// replaces on the watch: a build that packed where the last one hashed would otherwise
-    /// schedule alongside the old plan instead of over it.
+    /// Every id this app has ever derived for a key, preferred first.
     static func allIDs(for key: String) -> [UUID] {
         [packed(key), hashed(key)].compactMap { $0 }
+    }
+
+    /// The id a key already sits under on the watch, or the one it would be given.
+    ///
+    /// **A workout scheduled by an earlier build keeps its digest.** Changing how an id is
+    /// derived would otherwise rewrite every workout on the watch on the first sync after an
+    /// upgrade, for nothing an athlete would see — and the index below still reads those.
+    /// What the new layout is for is the sessions ahead, which get it as they are scheduled.
+    static func planID(for key: String, onWatch: Set<UUID>) -> UUID {
+        allIDs(for: key).first(where: onWatch.contains) ?? planID(for: key)
     }
 
     /// The key back, from the id alone where it was packed, and from the index where the

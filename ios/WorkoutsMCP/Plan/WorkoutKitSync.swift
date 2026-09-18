@@ -59,15 +59,14 @@ enum WorkoutKitSync {
     ) async throws {
         let custom = try build(plan)
         let key = "\(plan.date)/\(plan.id)"
-        let planID = PlanLink.planID(for: key)
+        // Whichever id the watch already holds this workout under, so a build that derives
+        // them differently leaves what the last one scheduled where it is.
+        let planID = PlanLink.planID(for: key, onWatch: existing.ids)
         let when = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: time)
 
         // Replaced rather than added to: the id is derived from the key, so an edit upstream
         // that is re-sent lands on the same plan instead of leaving the old one on the watch.
-        // Every id the key has ever had, so the build that changed how one is derived
-        // replaces what the last build left rather than scheduling beside it.
-        let mine = Set(PlanLink.allIDs(for: key))
-        for scheduled in existing.workouts where mine.contains(scheduled.plan.id) {
+        for scheduled in existing.workouts where scheduled.plan.id == planID {
             await WorkoutScheduler.shared.remove(scheduled.plan, at: scheduled.date)
         }
         let scheduling = WorkoutPlan(.custom(custom), id: planID)
