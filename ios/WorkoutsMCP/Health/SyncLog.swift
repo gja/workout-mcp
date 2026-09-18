@@ -15,8 +15,11 @@ enum SyncLog {
     private static let uploadedKey = "sync-uploaded-count"
     private static let backgroundKey = "sync-background-wake-count"
 
-    /// The last few days of a diagnostic, not an archive.
-    private static let limit = 200
+    /// Two days of a diagnostic, not an archive: long enough to cover the window a wake
+    /// reads and a night of not looking, short enough that it never becomes a file to manage.
+    private static let keepHours: TimeInterval = 48
+    /// A backstop on the hours, for the day something logs in a loop.
+    private static let limit = 500
 
     enum Kind: String, Codable {
         /// HealthKit's answer to being asked to wake this app.
@@ -70,7 +73,7 @@ enum SyncLog {
     static func record(_ kind: Kind, _ said: String) {
         var log = entries
         log.append(Entry(id: UUID(), at: Date(), kind: kind, said: said, unattended: isUnattended))
-        if log.count > limit { log.removeFirst(log.count - limit) }
+        log = pruned(log)
 
         if kind == .wake, isUnattended {
             defaults.set(defaults.integer(forKey: backgroundKey) + 1, forKey: backgroundKey)
@@ -88,7 +91,22 @@ enum SyncLog {
     static func deliveryRefused(_ error: Error) {
         defaults.set(Date(), forKey: deliveryAtKey)
         defaults.set(error.localizedDescription, forKey: deliveryProblemKey)
-        record(.delivery, error.localizedDescription)
+        record(.delivery, "HealthKit refused to wake the app: \(describe(error))")
+    }
+
+    /// More than `localizedDescription`, which for a network failure is a sentence that names
+    /// neither the status nor the code — and a log read at arm's length needs both.
+    static func describe(_ error: Error) -> String {
+        if let api = error as? ApiError { return "HTTP \(api.status) — \(api.message)" }
+        let ns = error as NSError
+        return "\(ns.localizedDescription) [\(ns.domain) \(ns.code)]"
+    }
+
+    private static func pruned(_ log: [Entry]) -> [Entry] {
+        let oldest = Date(timeIntervalSinceNow: -keepHours * 3600)
+        var kept = log.filter { $0.at >= oldest }
+        if kept.count > limit { kept.removeFirst(kept.count - limit) }
+        return kept
     }
 
     /// Never reset, where the log above is trimmed: one session that went up without anybody

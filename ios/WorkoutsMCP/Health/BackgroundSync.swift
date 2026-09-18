@@ -124,26 +124,60 @@ enum BackgroundSync {
     ///
     /// Not private, and not only for a wake: `PlanRefresh` and opening the app run it too,
     /// because `.immediate` delivery is a request rather than a guarantee.
+    ///
+    /// **One run at a time.** Opening the app starts the observer's own fire and the catch-up
+    /// within a moment of each other, and both used to reach the POST before either finished
+    /// — one walk went up three times. `Uploaded` cannot stop that on its own, because none
+    /// of them has recorded anything yet; a second caller joins the run already going instead.
     @discardableResult
     static func uploadWhatIsCertain() async -> SyncLog.Outcome {
+        await join()
+    }
+
+    @MainActor private static var inFlight: Task<SyncLog.Outcome, Never>?
+
+    @MainActor
+    private static func join() async -> SyncLog.Outcome {
+        if let running = inFlight { return await running.value }
+
+        let run = Task { await send() }
+        inFlight = run
+        let outcome = await run.value
+        inFlight = nil
+        return outcome
+    }
+
+    private static func send() async -> SyncLog.Outcome {
         guard let client = StoredSession.load()?.client else { return .signedOut }
-        // Two days: a wake is for what just finished, and a background launch has
-        // seconds rather than minutes to spend.
-        guard let activities = try? await HealthAccess.recentActivities(days: 2) else { return .unreadable }
+
+        let activities: [HKWorkout]
+        do {
+            // Two days: a wake is for what just finished, and a background launch has
+            // seconds rather than minutes to spend.
+            activities = try await HealthAccess.recentActivities(days: 2)
+        } catch {
+            SyncLog.record(.upload, "could not read Health: \(SyncLog.describe(error))")
+            return .unreadable
+        }
 
         var uploaded = 0
         var refused = false
+        var unreachable = false
+        // Counted so a run that sends nothing can say why, which is the silence that has been
+        // hardest to read: three recent sessions and no upload is not one fact but three.
+        var alreadySent = 0
+        var unplanned = 0
 
         for activity in activities {
-            // A turn iOS is about to take back. What is left is the next run's, and nothing
-            // is recorded as sent until it is.
+            // Cancellation reaches here when the run itself is cancelled; a caller that gave
+            // up does not stop it, since another may still be waiting on the same run.
             if Task.isCancelled { break }
 
             // Before `planID`, which is a round trip to the store per session: the cheap
             // question first, so a wake spends its seconds on what it might actually send.
-            guard !Uploaded.contains(activity.uuid),
-                  let planID = await HealthAccess.planID(of: activity),
-                  let key = PlanLink.workoutKey(forPlan: planID) else { continue }
+            guard !Uploaded.contains(activity.uuid) else { alreadySent += 1; continue }
+            guard let planID = await HealthAccess.planID(of: activity),
+                  let key = PlanLink.workoutKey(forPlan: planID) else { unplanned += 1; continue }
 
             do {
                 let recorded = try await SessionReader.read(activity, as: key)
@@ -161,13 +195,23 @@ enum BackgroundSync {
             } catch {
                 // Continue, not return: one session that cannot be read or sent must not
                 // hide every session behind it for as long as it stays stuck.
-                SyncLog.record(.upload, "\(key) would not go up: \(error.localizedDescription)")
+                SyncLog.record(.upload, "\(key) would not go up: \(SyncLog.describe(error))")
                 refused = true
+                // Worth telling apart: a server that refused the file is a different morning
+                // from a phone that had no network when it woke.
+                if (error as NSError).domain == NSURLErrorDomain { unreachable = true }
             }
         }
 
+        if uploaded == 0, !refused {
+            SyncLog.record(
+                .upload,
+                "nothing to send: \(activities.count) recent, \(alreadySent) already up, \(unplanned) with no plan"
+            )
+        }
+
         if uploaded > 0 { SyncLog.uploaded(uploaded) }
-        if refused { return .failed }
+        if refused { return unreachable ? .unreachable : .failed }
         return uploaded > 0 ? .uploaded : .nothing
     }
 }
