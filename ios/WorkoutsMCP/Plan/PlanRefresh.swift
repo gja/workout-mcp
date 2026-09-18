@@ -56,12 +56,11 @@ enum PlanRefresh {
         schedule()
 
         let work = Task {
-            SyncLog.record(.plan, "background refresh turn")
-            // The session first, and unconditionally: this is the slow path behind
-            // HealthKit's wake, which `.immediate` delivery does not promise. Deliberately
-            // ahead of the staleness check below, which is about the plan going out — a sync
-            // ten minutes ago is exactly the state a session finishing arrives in.
-            await BackgroundSync.uploadWhatIsCertain()
+            // The session first and unconditionally: the backstop for a wake `.immediate`
+            // delivery did not deliver. Recorded with its outcome, because a turn whose
+            // upload failed used to write nothing, which reads exactly like one that skipped it.
+            let outcome = await BackgroundSync.uploadWhatIsCertain()
+            SyncLog.record(.plan, "refresh turn — \(outcome.rawValue)")
 
             let placed = await sync()
             task.setTaskCompleted(success: placed)

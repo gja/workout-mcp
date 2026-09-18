@@ -117,20 +117,16 @@ enum BackgroundSync {
         }
     }
 
-    /// Only the sessions the watch itself matched to a plan, and only the ones the server has
-    /// not already read — `isDone` on the listing is what says so, so nothing needs a ledger
-    /// and a failed upload is simply still not done.
+    /// Only the sessions the watch itself matched to a plan, and only the ones that have not
+    /// gone up already — `Uploaded` says so locally, because a wake has seconds and the
+    /// listing that used to answer it is the slowest call in the path. Everything the POST
+    /// needs is the workout key, which `PlanLink` already holds.
     ///
     /// Not private, and not only for a wake: `PlanRefresh` and opening the app run it too,
     /// because `.immediate` delivery is a request rather than a guarantee.
     @discardableResult
     static func uploadWhatIsCertain() async -> SyncLog.Outcome {
         guard let client = StoredSession.load()?.client else { return .signedOut }
-
-        let from = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
-        let to = Calendar.current.date(byAdding: .day, value: 14, to: Date()) ?? Date()
-
-        guard let planned = try? await client.workouts(from: from, to: to) else { return .unreachable }
         // Two days: a wake is for what just finished, and a background launch has
         // seconds rather than minutes to spend.
         guard let activities = try? await HealthAccess.recentActivities(days: 2) else { return .unreadable }
@@ -139,28 +135,33 @@ enum BackgroundSync {
         var refused = false
 
         for activity in activities {
-            // A turn iOS is about to take back. What is left is the next run's, and the
-            // server's own record of what is done is what makes that safe.
+            // A turn iOS is about to take back. What is left is the next run's, and nothing
+            // is recorded as sent until it is.
             if Task.isCancelled { break }
 
-            guard let planID = await HealthAccess.planID(of: activity),
-                  let key = PlanLink.workoutKey(forPlan: planID),
-                  let workout = planned.first(where: { $0.key == key }),
-                  !workout.isDone else { continue }
+            // Before `planID`, which is a round trip to the store per session: the cheap
+            // question first, so a wake spends its seconds on what it might actually send.
+            guard !Uploaded.contains(activity.uuid),
+                  let planID = await HealthAccess.planID(of: activity),
+                  let key = PlanLink.workoutKey(forPlan: planID) else { continue }
 
             do {
-                let recorded = try await SessionReader.read(activity, as: workout.key)
+                let recorded = try await SessionReader.read(activity, as: key)
                 try await client.upload(
                     try ActivityFit.encode(recorded),
-                    to: workout,
+                    to: key,
                     activityID: activity.uuid.uuidString
                 )
+                Uploaded.remember(activity.uuid)
                 uploaded += 1
-                SyncLog.record(.upload, "\(workout.name) went up")
+                SyncLog.record(.upload, "\(key) went up")
+                // One a run. A wake is about the session that just finished, and the next
+                // run — or the catch-up on opening the app — takes whatever is behind it.
+                break
             } catch {
                 // Continue, not return: one session that cannot be read or sent must not
                 // hide every session behind it for as long as it stays stuck.
-                SyncLog.record(.upload, "\(workout.name) would not go up: \(error.localizedDescription)")
+                SyncLog.record(.upload, "\(key) would not go up: \(error.localizedDescription)")
                 refused = true
             }
         }

@@ -279,9 +279,11 @@ final class AppModel: ObservableObject {
             let bytes = try await Task.detached(priority: .userInitiated) { try Data(contentsOf: fit) }.value
             let receipt = try await client.upload(
                 bytes,
-                to: workout,
+                to: workout.key,
                 activityID: activity.uuid.uuidString
             )
+            // So a wake does not send it a second time.
+            Uploaded.remember(activity.uuid)
             var said = "\(workout.name) is done"
             if let metres = receipt.stats?.session?.distanceM, metres > 0 {
                 said += " — \(Formats.distance(metres))"

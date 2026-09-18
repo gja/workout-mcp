@@ -184,9 +184,19 @@ Being woken is three things, and they fail on different days.
 **A wake is a request, not a promise.** Low Power Mode, a watch that has not synced the
 session over, and the system's own view of this app all delay it; a force-quit stops it
 until the app is opened by hand. So the same upload runs from two other places under exactly
-the same rules: every `PlanRefresh` turn, and opening the app. A session that failed to
-upload is simply one the server still has no recording for, so the next run finds it again —
-there is no watermark to advance past it.
+the same rules: every `PlanRefresh` turn, and opening the app.
+
+**And a wake asks the server nothing before it posts.** It used to read the listing first —
+three weeks of plan, over the slowest link in the path — to check `isDone` on one workout,
+and a wake that ran out of time ran out of it there. Everything the POST needs is the
+workout key, which `PlanLink` already holds from scheduling it, so the only question left is
+whether this session has gone up before. `Health/Uploaded.swift` answers that locally, and
+is written **only after a POST succeeds**: a session that failed is simply not in it, so it
+is a watermark that cannot advance past one still unsent. A wake then reads Health, resolves
+one plan id and posts — no round trip before the one that matters.
+
+It sends **one session a run**, because a wake is about the session that just finished, and
+whatever is behind it keeps until the next run or the next time the app is opened.
 
 `Health/SyncLog.swift` records what each step did, because a wake that never arrives and a
 wake that arrives and finds nothing are the same silence from outside the app. Delivery being
