@@ -23,6 +23,9 @@ struct RootView: View {
         }
         .environmentObject(model)
         .task { await model.refreshAndSyncIfStale(using: session.client) }
+        // A recording reaches the server after the call that sent it has returned, so the
+        // plan is read again when one lands rather than when one is handed over.
+        .onChange(of: model.landed) { Task { await model.refresh(using: session.client) } }
         // At the root rather than on the screen that starts it: an upload finishes after the
         // athlete has moved on, and the answer should reach them wherever they are.
         .alert("Done", isPresented: Binding(

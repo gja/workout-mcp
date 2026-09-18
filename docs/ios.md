@@ -99,30 +99,20 @@ apart again, so `PlanLink` writes the pair down when it schedules and reads the 
 that index.
 
 Packing the key into the id itself — the day in BCD, a byte an id character, into the bytes a
-UUID leaves free — was tried and removed. It worked, but the only thing it bought over the
-index was a session recorded in the last two days surviving a delete-and-reinstall, since the
-credential is in the keychain and the index is not. For that it cost two id schemes at once,
-a silent dependency on `src/db.ts`'s id length and alphabet that nothing here enforces, and a
-lookup order that needed a paragraph to justify. The move below, which is what actually went
-wrong in practice, was fixed in the index and never needed it.
+UUID leaves free — was tried and removed. All it bought over the index was surviving a
+delete-and-reinstall, the credential being in the keychain where the index is not, and for
+that it cost two id schemes at once and a silent dependency on `src/db.ts`'s id length and
+alphabet. The move below is what actually goes wrong, and the index is where it was fixed.
 
-### A workout moved to another day
-
-Which is the one way date and id could still come apart. The link was written when the
-workout was scheduled and names the day it was on then; move the workout and the POST goes to
-a date it is no longer on, 404s, and `Settled` — rightly, knowing no better — writes it off
-for good.
-
-The server keeps a workout's id when it moves one, so the move is legible: a link whose id
-appears in the plan under a different date is that same workout. `PlanLink.follow` rewrites
-those links, from the window `PlanSync` has already read, so it costs no round trip. It runs
-**after** the prune rather than before, because the prune reads the same links to decide what
-comes off the watch, and a link followed first would keep the old plan there.
-
-Ambiguity is left alone rather than guessed at. An id is only unique within a day, so if two
-current keys share one, neither is followed and the link stays as it was — a session filed
-against the wrong workout is worse than one that cannot be filed at all, which is the same
-judgement the two ways above are making.
+**A workout moved to another day** is the one way date and id still come apart: the link names
+the day the workout was on when it was scheduled, so the POST 404s and `Settled`, knowing no
+better, writes it off for good. The server keeps a workout's id when it moves one, so the move
+is legible — a link whose id appears under a different date is that same workout — and
+`PlanLink.follow` rewrites those from the window `PlanSync` has already read, at no round trip.
+It runs **after** the prune, because the prune reads the same links to decide what comes off
+the watch and a link followed first would keep the old plan there. Two current keys sharing an
+id move nothing: an id is only unique within a day, and a session filed against the wrong
+workout is worse than one that cannot be filed at all.
 
 ## Three tabs
 
@@ -261,6 +251,30 @@ for — which is fixed when it records the session. A failure another run might 
 deliberately not settled, so it is found again. A wake then reads Health, resolves one plan
 id and posts — no round trip before the one that matters.
 
+### The transfer does not belong to the wake
+
+Even with nothing wasted it did not fit. An upload takes **17 to 34 seconds** on device
+against the roughly thirty a background-task assertion is given, so a 90-second walk was woken
+59 seconds after the watch saved it, wrote `ran out of time`, and did that twice more before a
+fourth attempt scraped through twenty minutes later. Delivery was never the problem; the work
+was, and whether it fit was a coin toss.
+
+So the network left the wake. `Api/SessionUpload.swift` hands the file to a **background
+`URLSession`** — write a FIT to a temporary file, create an upload task, return — and iOS
+transfers it after this process is suspended or gone, then relaunches the app purely to report
+the result, which is a fresh budget for three `UserDefaults` writes.
+
+The answer therefore arrives somewhere else, and three things follow from that.
+`didCompleteWithError` settles the session and may run in a later launch, so the session
+identifier is fixed, the session is recreated on **every** launch, and an `AppDelegate`
+finishes the launch iOS makes to report. `Health/Handed.swift` holds the gap before `Settled`
+— six hours rather than for ever, so a transfer the system loses is offered again the same
+morning. And nobody is left to refresh afterwards, so a landing posts `sessionUploaded` and
+`RootView` reads the plan again on it.
+
+The foreground still waits: *Export* and the catch-up on opening the app have a whole app
+lifetime and somebody watching.
+
 Telling those refusals apart matters more than it sounds. The listing used to filter a
 deleted workout out before it was ever posted; without it, three deleted test workouts
 `404`'d on every wake for a day, because only a success had ever been written down.
@@ -269,7 +283,7 @@ It sends **one session a run**, because a wake is about the session that just fi
 whatever is behind it keeps until the next run or the next time the app is opened. And **one
 run at a time**: opening the app starts the observer's own fire and the catch-up within a
 moment of each other, and both used to reach the POST before either finished — one walk went
-up three times. `Uploaded` cannot stop that by itself, since none of them has recorded
+up three times. `Settled` cannot stop that by itself, since none of them has recorded
 anything yet, so a second caller joins the run already going instead of starting another.
 
 `Health/SyncLog.swift` records what each step did, because a wake that never arrives and a
@@ -295,19 +309,17 @@ What separates them is `UIApplication.didBecomeActiveNotification`, which a back
 never posts. Two other signals were tried and are not it: `UIApplication.applicationState`
 can still read `.inactive` early in a HealthKit launch, and `scenePhase` is worse — SwiftUI
 builds the scene and reports `.active` even there, so every wake recorded itself as a
-foreground one. Only the unattended lines are evidence that iOS ran the app on its own.
+foreground one. Only the unattended lines — marked 💤 — are evidence that iOS ran the app on its own.
 
-**And the flag is corrected after the fact, because writing it once is not enough.** `start()`
-runs from `App.init()` and the observer's first fire lands immediately, before the scene has
-connected and so before that notification can arrive — so a launch somebody made writes a wake
-marked unattended, and once nothing is left to send, that run finishes in milliseconds and
-wins the race every time. Force-quitting the app and opening it read *last background wake:
-just now*, which is how this was found. So becoming active within a few seconds of the process
-starting clears the flag on everything that process has written, and takes those wakes back out
-of the count. A few seconds and not ever: a background launch somebody opens ten minutes later
-really did run unattended until they did, and keeps its moons.
+**And the flag is corrected after the fact.** The observer's first fire lands before the scene
+has connected and so before that notification can arrive, so a launch somebody made wrote a
+wake marked unattended — and once nothing is left to send, that run finishes in milliseconds
+and wins the race every time. Force-quitting the app and opening it read *last background wake:
+just now*, which is how this was found. Becoming active within a few seconds of process start
+therefore clears the flag on everything that process wrote, and takes those wakes back out of
+the count. A few seconds and not ever: a background launch opened ten minutes later really did
+run unattended until then.
 
-**Copy** puts the whole sheet on the pasteboard as text — the three counters and every line,
-timed to the second where the list rounds to the minute. The log is read by somebody who is not
-holding the phone, and the question asked of it is usually the order of two things written
-moments apart.
+**Copy** puts the sheet on the pasteboard as text, timed to the second where the list rounds to
+the minute: it is read by somebody not holding the phone, and usually asked the order of two
+things written moments apart.
