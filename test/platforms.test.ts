@@ -190,20 +190,16 @@ describe('connecting a platform', () => {
     expect(row!.account_id).toBe('i99999');
   });
 
-  it('lists a platform that is not connected, so the dashboard can offer it', async () => {
-    const status = await platformStatus();
-    expect(status.credentials_configured).toBe(true);
-    expect(status.intervals).toMatchObject({ connected: false, synced: 0 });
-  });
-
   /**
    * intervals.icu reads every target against a threshold on the athlete's own
    * profile, so a plan we encode correctly still lands without a usable target
    * when one is missing. The dashboard says so; nothing here can supply them.
    */
-  it('carries the note pointing an athlete at their thresholds', async () => {
-    const { intervals } = await platformStatus();
-    expect(intervals.connected_note).toContain('threshold pace and FTP');
+  it('lists a platform that is not connected, with the note about their thresholds', async () => {
+    const status = await platformStatus();
+    expect(status.credentials_configured).toBe(true);
+    expect(status.intervals).toMatchObject({ connected: false, synced: 0 });
+    expect(status.intervals.connected_note).toContain('threshold pace and FTP');
   });
 
   it('404s an unknown platform', async () => {
@@ -528,14 +524,9 @@ describe('the intervals.icu webhook', () => {
     expect(await (await post(analysed())).json()).toMatchObject({ matched: 1, marked: 0 });
   });
 
-  it('refuses a body whose secret is not the one they were given', async () => {
+  it('refuses a delivery that does not carry both halves of what makes it theirs', async () => {
     await connect();
-    const response = await post({ ...analysed(), secret: 'not-the-secret' });
-    expect(response.status).toBe(401);
-  });
-
-  it('refuses a request without the authorization header configured on their end', async () => {
-    await connect();
+    expect((await post({ ...analysed(), secret: 'not-the-secret' })).status).toBe(401);
     expect((await post(analysed(), {})).status).toBe(401);
     expect((await post(analysed(), { Authorization: 'Bearer wrong' })).status).toBe(401);
   });
@@ -550,27 +541,9 @@ describe('the intervals.icu webhook', () => {
     expect(await response.json()).toMatchObject({ athletes: 0, marked: 0 });
   });
 
-  // Their earlier event, which usually beats the pairing but sometimes does not.
-  it('acts on an upload event too, not only the analysed one', async () => {
-    await connect();
-    const planned = await createWorkout();
-    const [event] = await calendar();
-    await pairAnActivity(event.id);
-
-    const response = await post({
-      secret: SECRET,
-      events: [{ athlete_id: ATHLETE_ID, type: 'ACTIVITY_UPLOADED' }],
-    });
-    expect(await response.json()).toMatchObject({ matched: 1, marked: 1 });
-
-    const workout = (await (await call(`/api/workouts/${planned.date}/${planned.id}`)).json()) as {
-      completed_at?: string;
-    };
-    expect(workout.completed_at).toBeTruthy();
-  });
-
-  // Both fire for one session; the link remembers the completion, so it lands once.
-  it('marks a session once when both events arrive for it', async () => {
+  // Their upload event usually beats the pairing but sometimes does not, so both are
+  // acted on. Both fire for one session; the link remembers the completion, so it lands once.
+  it('acts on the upload event as well as the analysed one, and marks the session once', async () => {
     await connect();
     const planned = await createWorkout();
     const [event] = await calendar();

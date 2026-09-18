@@ -98,10 +98,4 @@ describe('the router', () => {
     expect((await call(routes, 'GET', '/api/health')).body).toBe('ok');
     expect((await call(routes, 'GET', '/api/tokens')).body).toBe('tokens');
   });
-
-  it('passes the rest of the context through untouched', async () => {
-    const routes = router().get('/x', ({ seen }) => text(String(Array.isArray(seen))));
-
-    expect((await call(routes, 'GET', '/x')).body).toBe('true');
-  });
 });

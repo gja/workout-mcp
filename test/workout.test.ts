@@ -45,6 +45,19 @@ describe('workout basics', () => {
   it('allows only one duration per step', () => {
     expect(() => workout([{ goal_s: 60, goal_meters: 400 }])).toThrow(/only have one duration/);
   });
+
+  // A duration is time or distance alone, and a zone names the metric it is on.
+  it('rejects the fields the format no longer has', () => {
+    const gone = [
+      'goal_calories',
+      'goal_reps',
+      'until_hr_below',
+      'until_watts_above',
+      'target_zone',
+      'target_cadence_zone',
+    ];
+    for (const key of gone) expect(() => workout([{ [key]: 3 }]), key).toThrow(/unknown field/);
+  });
 });
 
 describe('durations', () => {
@@ -62,12 +75,6 @@ describe('durations', () => {
 
   it('runs until lap press when no duration is given', () => {
     expect(step(workout([{ name: 'Cooldown' }])).duration).toEqual({ type: 'open' });
-  });
-
-  it('knows only time and distance — the gym durations are gone', () => {
-    for (const key of ['goal_calories', 'goal_reps', 'until_hr_below', 'until_watts_above']) {
-      expect(() => workout([{ [key]: 100 }]), key).toThrow(/unknown field/);
-    }
   });
 });
 
@@ -166,11 +173,6 @@ describe('targets', () => {
       zone: 7,
     });
     expect(() => workout([{ goal_s: 60, target_hr_zone: 9 }])).toThrow(/between 1 and 5/);
-  });
-
-  it('no longer has the ambiguous target_zone or a cadence zone', () => {
-    expect(() => workout([{ goal_s: 60, target_zone: 3 }])).toThrow(/unknown field target_zone/);
-    expect(() => workout([{ goal_s: 60, target_cadence_zone: 3 }])).toThrow(/unknown field/);
   });
 
   it('leaves a step open when no target is given', () => {
@@ -311,22 +313,19 @@ describe('repeats', () => {
 });
 
 describe('workout fields', () => {
-  it('takes a sub-sport from the known list', () => {
-    expect(parseWorkout({ date: '2026-09-12', sub_sport: 'treadmill', steps: [{ goal_s: 60 }] })).toMatchObject({
-      sub_sport: 'treadmill',
-    });
+  it('takes a sub-sport and an external id, and leaves out the ones not given', () => {
+    expect(
+      parseWorkout({
+        date: '2026-09-12',
+        sub_sport: 'treadmill',
+        external_id: 'watchletic-8891',
+        steps: [{ goal_s: 60 }],
+      }),
+    ).toMatchObject({ sub_sport: 'treadmill', external_id: 'watchletic-8891' });
     expect(() => parseWorkout({ date: '2026-09-12', sub_sport: 'moonwalking', steps: [{ goal_s: 60 }] })).toThrow(
       /unknown sub_sport/,
     );
-  });
 
-  it('takes an external id', () => {
-    expect(
-      parseWorkout({ date: '2026-09-12', external_id: 'watchletic-8891', steps: [{ goal_s: 60 }] }),
-    ).toMatchObject({ external_id: 'watchletic-8891' });
-  });
-
-  it('leaves both out when they are not given', () => {
     const plain = parseWorkout({ date: '2026-09-12', steps: [{ goal_s: 60 }] });
     expect(plain).not.toHaveProperty('sub_sport');
     expect(plain).not.toHaveProperty('external_id');

@@ -120,19 +120,18 @@ describe('finishing a sign-in', () => {
     const forged = await SELF.fetch(`${BASE}/auth/google/callback?code=ok&state=${state}`, { redirect: 'manual' });
     expect(sessionFrom(forged)).toBe('');
     expect(forged.headers.get('Location')).toContain('error=');
-    expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM users').first<{ n: number }>())?.n).toBe(0);
-  });
 
-  it('refuses a callback carrying some other sign-in\'s cookie', async () => {
+    // And some other sign-in's cookie is not this sign-in's either.
     const mine = await startLogin();
     const theirs = await startLogin();
-
     const crossed = await SELF.fetch(`${BASE}/auth/google/callback?code=ok&state=${theirs.state}`, {
       headers: { Cookie: mine.cookie },
       redirect: 'manual',
     });
     expect(sessionFrom(crossed)).toBe('');
     expect(crossed.headers.get('Location')).toContain('error=');
+
+    expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM users').first<{ n: number }>())?.n).toBe(0);
   });
 
   it('refuses an unknown or expired state', async () => {
@@ -172,16 +171,14 @@ describe('finishing a sign-in', () => {
     expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM users').first<{ n: number }>())?.n).toBe(0);
   });
 
-  it('reports a refusal from the provider', async () => {
-    const response = await signIn('google', 'denied');
-    expect(sessionFrom(response)).toBe('');
-  });
+  it('passes a refused or cancelled sign-in back to the dashboard', async () => {
+    const refused = await signIn('google', 'denied');
+    expect(sessionFrom(refused)).toBe('');
 
-  it('passes a cancelled sign-in back to the dashboard', async () => {
-    const response = await SELF.fetch(`${BASE}/auth/google/callback?error=access_denied&state=x`, {
+    const cancelled = await SELF.fetch(`${BASE}/auth/google/callback?error=access_denied&state=x`, {
       redirect: 'manual',
     });
-    expect(response.headers.get('Location')).toContain('error=');
+    expect(cancelled.headers.get('Location')).toContain('error=');
   });
 
   it('returns to where the sign-in started, but only within this site', async () => {

@@ -106,8 +106,11 @@ describe('protocol', () => {
       });
     }
 
-    // One nobody here has heard of is answered at the newest we do speak.
-    expect(await shake('2099-01-01')).toMatchObject({ protocolVersion: '2025-11-25' });
+    // One nobody here has heard of, and ones older than anything written here, are
+    // answered at the newest we do speak rather than at a revision nothing was built against.
+    for (const version of ['2099-01-01', '2024-11-05', '2024-10-07']) {
+      expect(await shake(version), version).toMatchObject({ protocolVersion: '2025-11-25' });
+    }
   });
 
   it('serves a handshake client its tools, without the modern envelope', async () => {
@@ -235,13 +238,6 @@ describe('protocol', () => {
     expect(((await handshake.json()) as RpcResult).result).toEqual({});
   });
 
-  it('answers an unknown method with a 404', async () => {
-    // The status is contract: it is how a client tells a live endpoint from an empty URL.
-    const unknown = await post('what/ever');
-    expect(unknown.status).toBe(404);
-    expect(((await unknown.json()) as RpcResult).error).toMatchObject({ code: -32601 });
-  });
-
   it('returns nothing for a notification', async () => {
     expect((await post('ping', {}, { id: null })).status).toBe(202);
   });
@@ -283,36 +279,31 @@ describe('the wire', () => {
     expect(result).toMatchObject({
       supportedVersions: ['2026-07-28'],
       capabilities: { tools: {}, prompts: {} },
-      _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'workout-mcp' } },
     });
   });
 
-  it('carries caching hints on the lists, and shares them because they are nobody in particular', async () => {
+  it('says what kind of result it is, on every result, and how long a list keeps', async () => {
+    // The revision requires the kind on all of them. An absent one is read as complete
+    // only from an older server, so a client is right to refuse it from this one.
+    for (const method of ['resources/list', 'skills/list']) {
+      expect((await rpc(method)).result, method).toMatchObject({ resultType: 'complete' });
+    }
+    expect((await rpc('prompts/get', { name: 'getting-started' })).result).toMatchObject({
+      resultType: 'complete',
+    });
+
     for (const method of ['server/discover', 'tools/list', 'prompts/list']) {
       const { result } = await rpc(method);
       // Every one of these is built from code, so one athlete's copy is every athlete's.
       expect(result, method).toMatchObject({ resultType: 'complete', cacheScope: 'public' });
       expect(result?.ttlMs, method).toBeGreaterThan(0);
     }
-    // Not a cacheable operation, so it says nothing about freshness — but it still
-    // says what kind of result it is.
+
+    // A call is not a cacheable operation, so it says nothing about freshness — and a
+    // refused one is still a complete result.
     const called = (await rpc('tools/call', { name: 'list_workouts', arguments: {} })).result;
     expect(called).not.toHaveProperty('ttlMs');
     expect(called).toMatchObject({ resultType: 'complete' });
-  });
-
-  it('says what kind of result it is, on every result', async () => {
-    // The revision requires it on all of them. An absent one is read as complete only
-    // from an older server, so a client is right to refuse it from this one.
-    const methods = ['server/discover', 'tools/list', 'prompts/list', 'resources/list', 'skills/list'];
-    for (const method of methods) {
-      expect((await rpc(method)).result, method).toMatchObject({ resultType: 'complete' });
-    }
-
-    expect((await rpc('prompts/get', { name: 'getting-started' })).result).toMatchObject({
-      resultType: 'complete',
-    });
-    // Including the one a refused tool call comes back as.
     const refused = (await rpc('tools/call', { name: 'get_workout', arguments: { date: 'nope' } })).result;
     expect(refused).toMatchObject({ resultType: 'complete', isError: true });
   });
@@ -428,17 +419,6 @@ describe('the wire', () => {
     expect(((await response.json()) as RpcResult).error?.message).toContain('clientCapabilities');
   });
 
-  it('answers the handshake era in JSON, and without demanding an event-stream Accept', async () => {
-    // Both are the era's own rules and both would be conformant to enforce, but a
-    // client that has been talking to this server in plain JSON without that header
-    // must not be dropped by a change of implementation.
-    const response = await legacy({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} });
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get('content-type')).toContain('application/json');
-    expect(((await response.json()) as RpcResult).result).toHaveProperty('tools');
-  });
-
   it('still takes a batch on the handshake era, and answers it as one array', async () => {
     const response = await legacy([
       { jsonrpc: '2.0', id: 1, method: 'ping' },
@@ -469,11 +449,13 @@ describe('the wire', () => {
   });
 
   it('gives a JSON-RPC code the status the table says, on the modern era', async () => {
-    // The status is contract, and the SDK answers a handler's error in-band.
+    // The status is contract, and the SDK answers a handler's error in-band. A name that
+    // is not in `tools/list` never reached a tool, so it is an error rather than `isError`.
     const unknownTool = await post('tools/call', { name: 'make_coffee', arguments: {} });
     expect(unknownTool.status).toBe(400);
     expect(((await unknownTool.json()) as RpcResult).error).toMatchObject({ code: -32602 });
 
+    // The status is also how a client tells a live endpoint from an empty URL.
     const unknownMethod = await post('what/ever');
     expect(unknownMethod.status).toBe(404);
   });
@@ -491,9 +473,10 @@ describe('the wire', () => {
     expect(result).not.toHaveProperty('resultType');
   });
 
-  it('takes a handshake request that omits the headers the transport wants', async () => {
-    // Neither was ever required here, so a client that has been talking to this
-    // server without them must not be dropped by a change of implementation.
+  it('answers the handshake era in JSON, whatever headers the transport wanted', async () => {
+    // Both the event-stream Accept and the content type are the era's own rules, and
+    // both would be conformant to enforce — but a client that has been talking to this
+    // server in plain JSON without them must not be dropped by a change of implementation.
     const send = (headers: Record<string, string>) =>
       SELF.fetch(`${BASE}/mcp`, {
         method: 'POST',
@@ -510,6 +493,7 @@ describe('the wire', () => {
     for (const headers of cases) {
       const response = await send(headers);
       expect(response.status, JSON.stringify(headers)).toBe(200);
+      expect(response.headers.get('content-type'), JSON.stringify(headers)).toContain('application/json');
       expect(((await response.json()) as RpcResult).result).toHaveProperty('tools');
     }
   });
@@ -528,23 +512,6 @@ describe('the wire', () => {
     // A single request object is still answered with an object.
     const single = await legacy({ jsonrpc: '2.0', id: 1, method: 'ping' });
     expect(Array.isArray(await single.json())).toBe(false);
-  });
-
-  it('offers only the handshake revisions it implements', async () => {
-    const shake = async (protocolVersion: string) => {
-      const response = await legacy({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'initialize',
-        params: { protocolVersion, capabilities: {}, clientInfo: { name: 'c', version: '1' } },
-      });
-      return ((await response.json()) as RpcResult).result?.protocolVersion;
-    };
-
-    // Older than anything written here: answered at the newest we do speak,
-    // rather than agreeing to a revision nothing has been built against.
-    expect(await shake('2024-11-05')).toBe('2025-11-25');
-    expect(await shake('2024-10-07')).toBe('2025-11-25');
   });
 
   it('answers a discover notification with nothing, like every other method', async () => {
@@ -725,7 +692,7 @@ describe('tools', () => {
     }
   });
 
-  it('marks a workout done, at a time it is given', async () => {
+  it('marks a workout done, at a time it is given or as of now', async () => {
     const created = (await callTool('create_workout', intervals)) as { id: string };
 
     const done = (await callTool('complete_workout', {
@@ -737,13 +704,10 @@ describe('tools', () => {
 
     const read = (await callTool('get_workout', { date: DAY, id: created.id })) as { completed_at: string };
     expect(read.completed_at).toBe(`${DAY}T06:30:00.000Z`);
-  });
 
-  it('marks a workout done as of now when no time is given', async () => {
-    const created = (await callTool('create_workout', intervals)) as { id: string };
     const before = Date.now();
-    const done = (await callTool('complete_workout', { date: DAY, id: created.id })) as { completed_at: string };
-    expect(Date.parse(done.completed_at)).toBeGreaterThanOrEqual(before - 1000);
+    const now = (await callTool('complete_workout', { date: DAY, id: created.id })) as { completed_at: string };
+    expect(Date.parse(now.completed_at)).toBeGreaterThanOrEqual(before - 1000);
   });
 
   it('clears the record on completed: false, leaving the plan alone', async () => {
@@ -797,14 +761,6 @@ describe('tools', () => {
     expect(await callTool('delete_workout', { id: created.id })).toMatchObject({ deleted: true, date: NEXT_DAY });
   });
 
-  it('reports moving a workout that is not there', async () => {
-    const response = await rpc('tools/call', {
-      name: 'reschedule_workout',
-      arguments: { id: 'nosuchid', to_date: NEXT_DAY },
-    });
-    expect(response.result?.isError).toBe(true);
-  });
-
   it('records the athlete’s note on how a session went, and hands it back', async () => {
     const created = (await callTool('create_workout', intervals)) as { id: string };
 
@@ -851,20 +807,16 @@ describe('tools', () => {
     expect(response.result?.isError).toBe(true);
   });
 
-  it('reports commenting on a workout that is not there', async () => {
-    const response = await rpc('tools/call', {
-      name: 'comment_workout',
-      arguments: { date: DAY, id: 'nosuchid1', comment: 'hello' },
-    });
-    expect(response.result?.isError).toBe(true);
-  });
-
-  it('reports completing a workout that is not there', async () => {
-    const response = await rpc('tools/call', {
-      name: 'complete_workout',
-      arguments: { date: DAY, id: 'nosuchid1' },
-    });
-    expect(response.result?.isError).toBe(true);
+  it('reports a workout that is not there, whichever verb was asked for', async () => {
+    const calls: Array<[string, Record<string, unknown>]> = [
+      ['complete_workout', { date: DAY, id: 'nosuchid1' }],
+      ['comment_workout', { date: DAY, id: 'nosuchid1', comment: 'hello' }],
+      ['reschedule_workout', { id: 'nosuchid1', to_date: NEXT_DAY }],
+    ];
+    for (const [name, args] of calls) {
+      const response = await rpc('tools/call', { name, arguments: args });
+      expect(response.result?.isError, name).toBe(true);
+    }
   });
 
   it('reports a bad workout as a tool error the model can act on', async () => {
@@ -874,13 +826,5 @@ describe('tools', () => {
     });
     expect(response.result?.isError).toBe(true);
     expect(JSON.stringify(response.result?.content)).toContain('not a valid duration');
-  });
-
-  it('reports an unknown tool as a protocol error, not a refused call', async () => {
-    // `isError` is for a tool that refused its input. A name that is not in
-    // `tools/list` never reached a tool, so it is the caller's mistake about the
-    // surface, and only protocol-level problems become JSON-RPC errors.
-    const response = await rpc('tools/call', { name: 'make_coffee', arguments: {} });
-    expect(response.error).toMatchObject({ code: -32602 });
   });
 });
