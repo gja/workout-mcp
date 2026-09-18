@@ -59,7 +59,9 @@ enum WorkoutKitSync {
     ) async throws {
         let custom = try build(plan)
         let key = "\(plan.date)/\(plan.id)"
-        let planID = PlanLink.planID(for: key)
+        // Whichever id the watch already holds this workout under, so a build that derives
+        // them differently leaves what the last one scheduled where it is.
+        let planID = PlanLink.planID(for: key, onWatch: existing.ids)
         let when = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: time)
 
         // Replaced rather than added to: the id is derived from the key, so an edit upstream

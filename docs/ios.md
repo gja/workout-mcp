@@ -85,15 +85,85 @@ reaching an athlete by three routes is recognisable as one file.
 
 **Matching a session to its plan is tried two ways, in order**: the plan id the watch
 recorded, read off `HKWorkout.workoutPlan` — there is no metadata key to look it up by —
-against an index the app wrote when it scheduled the workout; then the one workout of that
-sport planned for that day, where there is exactly one. WorkoutKit plan ids are **derived**
-from the workout key rather than allocated, so scheduling a workout again replaces the plan
-on the watch instead of leaving two.
+then the one workout of that sport planned for that day, where there is exactly one.
 
 There is deliberately no third way. A picker was tried and removed: everything past those
 two is a question the app is in the worst position to answer, and what it produced when it
 was wrong was a completion to undo and a page of stats to distrust. A session the app cannot
 place says so and is not uploaded.
+
+### The plan id is the workout key
+
+The id used to be a SHA-256 of `<date>/<id>`, and a digest does not come apart again, so a
+`UserDefaults` index carried the way back. That index was the one thing in this path that
+could go missing — a reinstall, a restore, a prune that ran a day early — and a session whose
+link is gone is a session nobody can file. It was also the one thing a wake could not repair.
+
+WorkoutKit's id is a `UUID` and nothing else, so the key cannot be stored there as itself.
+But a UUID is sixteen bytes and the key is small, so `PlanLink` writes it in:
+
+```
+2026-06-04/wktt8yc3  ->  77202606-041a-8011-8018-18081c0b0300
+```
+
+| byte | value | |
+|---|---|---|
+| 0 | `77` | magic: says this app wrote the id, rather than Apple or anyone else |
+| 1–4 | `20 26 06 04` | the day, BCD — legible in the hex, which is a happy accident |
+| 6 | `8x` | the version nibble, stamped by the UUID itself |
+| 8 | `8x` | the RFC 4122 variant bits, likewise |
+| 5, 7, 9–14 | `1a 11 18 18 08 1c 0b 03` | `wktt8yc3`, one byte an index into the server's `ID_ALPHABET` |
+| 15 | `00` | spare |
+
+Thirteen bytes of payload laid into the fourteen a UUID leaves free, stepping over the two
+it reserves rather than fighting them. The version is **8**, which RFC 4122 leaves for
+exactly this: a layout the application defines.
+
+So the id is still **derived** rather than allocated, which is what makes scheduling a
+workout twice replace the plan on the watch instead of leaving two. What is new is that it
+comes apart again: the key reads straight back out of a session recorded weeks later, with
+nothing in between to have been lost.
+
+**The index is asked first all the same**, and the id is the fallback. It is the wrong way
+round from how it reads until you notice which of the two can be *corrected*: the bytes in a
+plan id spell the day the workout was scheduled on and will spell it forever, and the index
+is the only place a move can be followed. The id's job is to be the thing that cannot go
+missing.
+
+**What it assumes, and what happens when that breaks.** The layout fits only because a
+workout id is eight characters of a known thirty-character alphabet and a date is
+`yyyy-MM-dd` — both `src/db.ts`'s, and neither a promise it makes to this app. If either
+changes, `packed` returns nil and that key falls back to the SHA-256 digest and the index,
+which is what every key used to get. Nothing breaks; the app goes back to needing the index
+for those. It is still written for every key, because it costs a short string and the failure
+it covers is a session nobody can file.
+
+Ids from before this are version **5** and packed ones version **8**, so the two never
+collide and are told apart at a glance. **A workout already on the watch keeps its digest.**
+`PlanLink.planID(for:onWatch:)` hands back whichever id the scheduler is already holding the
+workout under, and only a workout that is not there yet gets the new layout. Rewriting them
+all on the first sync after an upgrade would be a watch full of churn for nothing an athlete
+would see, and the index still reads the old ones. What the layout is for is the sessions
+ahead.
+
+### A workout moved to another day
+
+Which is the one way date and id could still come apart. The watch holds the plan id it was
+given, and that spells the day the workout was on when it was scheduled; move the workout
+and the POST goes to a date it is no longer on, 404s, and `Settled` — rightly, knowing no
+better — writes it off for good.
+
+The server keeps a workout's id when it moves one, so the move is legible: a link whose id
+appears in the plan under a different date is that same workout. `PlanLink.follow` rewrites
+those links, from the window `PlanSync` has already read, so it costs no round trip. It runs
+**after** the prune rather than before, because the prune reads the same links to decide what
+comes off the watch, and a link followed first would keep the old plan there.
+
+Ambiguity is left alone rather than guessed at. An id is only unique within a day, so if two
+current keys share one, neither is followed and the link stays as it was — a session filed
+against the wrong workout is worse than one that cannot be filed at all, which is the same
+judgement the two ways above are making.
+
 
 ## Three tabs
 
@@ -224,11 +294,17 @@ the same rules: every `PlanRefresh` turn, and opening the app.
 **And a wake asks the server nothing before it posts.** It used to read the listing first —
 three weeks of plan, over the slowest link in the path — to check `isDone` on one workout,
 and a wake that ran out of time ran out of it there. Everything the POST needs is the
-workout key, which `PlanLink` already holds from scheduling it, so the only question left is
-whether this session has gone up before. `Health/Uploaded.swift` answers that locally, and
-is written **only after a POST succeeds**: a session that failed is simply not in it, so it
-is a watermark that cannot advance past one still unsent. A wake then reads Health, resolves
-one plan id and posts — no round trip before the one that matters.
+workout key, which the plan id carries, so the only question left is
+whether this session is one the app is already finished with. `Health/Settled.swift` answers
+that locally, and is written only where the answer **cannot change**: a session that went up,
+one refused for a reason another run would get again, and one the watch never named a plan
+for — which is fixed when it records the session. A failure another run might not hit is
+deliberately not settled, so it is found again. A wake then reads Health, resolves one plan
+id and posts — no round trip before the one that matters.
+
+Telling those refusals apart matters more than it sounds. The listing used to filter a
+deleted workout out before it was ever posted; without it, three deleted test workouts
+`404`'d on every wake for a day, because only a success had ever been written down.
 
 It sends **one session a run**, because a wake is about the session that just finished, and
 whatever is behind it keeps until the next run or the next time the app is opened. And **one
@@ -256,8 +332,8 @@ named — since "nothing new to upload" against three recent sessions is not one
 **Each line records whether anybody was looking**, or the act of reading the log destroys what
 is being looked for: `HKObserverQuery` fires an initial callback whenever it is executed, and
 `start()` executes it on every launch, so opening the app to see the last wake causes one.
-What separates them is that a background launch builds no view and never reaches
-`scenePhase.active` — so "this process was never on screen" is a fact that cannot be raced,
-where reading `UIApplication.applicationState` early in a HealthKit launch can still say
-`.inactive` and report a real background wake as a foreground one. Only the unattended lines
-are evidence that iOS ran the app on its own.
+What separates them is `UIApplication.didBecomeActiveNotification`, which a background launch
+never posts. Two other signals were tried and are not it: `UIApplication.applicationState`
+can still read `.inactive` early in a HealthKit launch, and `scenePhase` is worse — SwiftUI
+builds the scene and reports `.active` even there, so every wake recorded itself as a
+foreground one. Only the unattended lines are evidence that iOS ran the app on its own.

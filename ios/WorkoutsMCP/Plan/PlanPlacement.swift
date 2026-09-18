@@ -39,7 +39,9 @@ enum PlanPlacement {
         onWatch: WorkoutKitSync.Schedule
     ) -> Bool {
         guard let wanted = fingerprint(workout, at: time), placed[workout.key] == wanted else { return false }
-        let planID = PlanLink.planID(for: workout.key)
+        // Either id, since a workout scheduled by an earlier build keeps the one it was
+        // given: asking only for the current one would read every one of them as gone.
+        let planID = PlanLink.planID(for: workout.key, onWatch: onWatch.ids)
         return onWatch.ids.contains(planID) && onWatch.ticked.contains(planID) == workout.isDone
     }
 

@@ -128,6 +128,10 @@ enum PlanSync {
         if !plans.isEmpty || Set(already.keys) != keys {
             await WorkoutKitSync.pruneTo(keys: keys, among: onWatch)
             PlanPlacement.keep(keys)
+            // After the prune and not before it: the prune reads the same links to decide
+            // what to take off the watch, and a link followed first would keep the old plan
+            // there. The session already recorded under it is what this is for.
+            PlanLink.follow(keys)
         }
 
         // `written`, not `count`: the latter counts the whole window so a caller can show
