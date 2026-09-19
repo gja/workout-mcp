@@ -144,26 +144,17 @@ enum PlanSync {
         return count
     }
 
-    /// Early on the day it is planned for, and never in the past, where the scheduler has
-    /// nothing to show for it. A day already gone is scheduled for the next *whole* hour —
-    /// whole, so a resync ten minutes later lands on the same time and does not rewrite the
-    /// watch for nothing — and a minute apart per workout, so two missed days are two
-    /// entries.
+    /// Early on the day it is planned for, done or not, and a minute apart per workout so
+    /// two on the same day are two entries rather than one.
     ///
-    /// **A workout already done keeps its own day.** The bump exists so a session still to
-    /// run is reachable, and moved forward a finished Sunday long run would file under
-    /// today, which is the one fact the tick is claiming.
+    /// A day already gone keeps its own day: the scheduler takes a past date — which a ticked
+    /// session behind us already relies on — and a missed Friday bumped into today reads in
+    /// Apple Fitness as a session planned for today, the one thing it is not.
     static func scheduledTime(for workout: PlannedWorkout, slot: Int) -> Date {
         let calendar = Calendar.current
         let planned = workout.day ?? Date()
         let early = calendar.date(bySettingHour: scheduledHour, minute: 0, second: 0, of: planned) ?? planned
-        if workout.isDone { return early.addingTimeInterval(Double(60 * slot)) }
-
-        var hour = calendar.dateComponents([.year, .month, .day, .hour], from: Date())
-        hour.hour = (hour.hour ?? 0) + 1
-        let soon = calendar.date(from: hour) ?? Date()
-
-        return max(early, soon).addingTimeInterval(Double(60 * slot))
+        return early.addingTimeInterval(Double(60 * slot))
     }
 
     private static func day(_ offset: Int) -> String {
