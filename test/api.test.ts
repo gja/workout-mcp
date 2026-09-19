@@ -4,7 +4,7 @@ import { Decoder, Stream } from '@garmin/fitsdk';
 import { plannedTotals } from '../src/describe';
 import { MAX_WORKOUTS_PER_USER, getWorkout, listWorkouts, putWorkout, readWindow } from '../src/db';
 import { shiftDate, today } from '../src/units';
-import { parseWorkout } from '../src/workout';
+import { MAX_CHANGES, parseWorkout } from '../src/workout';
 import { encodeActivityFit } from './activity-fit';
 import { resetDatabase, seedUser } from './helpers';
 
@@ -381,6 +381,64 @@ describe('the date in the path', () => {
     ).json()) as { plans: { date: string; id: string }[]; missing: string[] };
     expect(body.missing).toEqual([]);
     expect(body.plans).toEqual([expect.objectContaining({ id: created.id, date: NEXT_DAY })]);
+  });
+});
+
+describe('saying why the plan changed', () => {
+  const read = async (workout: { date: string; id: string }) =>
+    (await (await call(`/api/workouts/${workout.date}/${workout.id}.json`)).json()) as {
+      changes?: { at: string; reason: string }[];
+      name: string;
+    };
+
+  const rewrite = (workout: { date: string; id: string }, body: Record<string, unknown>) =>
+    call(`/api/workouts/${workout.date}/${workout.id}.json`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...INTERVALS, ...body }),
+    });
+
+  it('keeps one entry per explained change, and leaves the history alone for the rest', async () => {
+    const created = await createIntervals();
+    expect((await read(created)).changes).toBeUndefined();
+
+    await rewrite(created, { name: 'Shortened', change_reason: '  Cut to 6 reps: calf tight.  ' });
+    await call(`/api/workouts/${created.date}/${created.id}/date`, {
+      method: 'PUT',
+      body: JSON.stringify({ date: NEXT_DAY, change_reason: 'Moved to Sunday: away Saturday.' }),
+    });
+    // Unexplained, and so neither recorded nor able to erase what came before.
+    await rewrite(created, { date: NEXT_DAY, name: 'Renamed again' });
+
+    const after = await read({ date: NEXT_DAY, id: created.id });
+    expect(after.name).toBe('Renamed again');
+    expect(after.changes?.map((change) => change.reason)).toEqual([
+      'Cut to 6 reps: calf tight.',
+      'Moved to Sunday: away Saturday.',
+    ]);
+    expect(Date.parse(after.changes![0].at)).toBeLessThanOrEqual(Date.parse(after.changes![1].at));
+  });
+
+  it('refuses a reason too long to be one sentence, naming the field', async () => {
+    const created = await createIntervals();
+    const response = await rewrite(created, { change_reason: 'x'.repeat(151) });
+
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { error: string }).error).toMatch(/change_reason/);
+    expect((await read(created)).changes).toBeUndefined();
+  });
+
+  it(`keeps the newest ${MAX_CHANGES}, because a plan rewritten twenty times is not twenty stories`, async () => {
+    const { id } = await createIntervals();
+    for (let i = 0; i < MAX_CHANGES + 2; i++) {
+      await putWorkout(env, userId, parseWorkout(INTERVALS), id, `Reason ${i}`);
+    }
+
+    const { changes } = (await (await call(`/api/workouts/${DAY}/${id}.json`)).json()) as {
+      changes: { reason: string }[];
+    };
+    expect(changes).toHaveLength(MAX_CHANGES);
+    expect(changes[0].reason).toBe('Reason 2');
+    expect(changes[MAX_CHANGES - 1].reason).toBe(`Reason ${MAX_CHANGES + 1}`);
   });
 });
 

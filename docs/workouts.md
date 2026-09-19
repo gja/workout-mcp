@@ -167,6 +167,32 @@ already done, whose steps a rewrite may not touch. Over REST it is
 `PUT /api/workouts/:date/:id/date` with `{"date": "2026-09-14"}`; a day outside the
 retention window is refused rather than written where it could not be read back.
 
+## Saying why it changed
+
+Every update and every move takes an optional `change_reason` — one sentence on why, which
+is kept on the workout as history:
+
+```
+update_workout      { "id": "a1b2c3d4", "date": "2026-09-12", "steps": [...], "change_reason": "Cut to 6 reps: calf tight." }
+reschedule_workout  { "id": "a1b2c3d4", "to_date": "2026-09-14", "change_reason": "Moved to Sunday: away Saturday." }
+```
+
+It comes back as `changes`, oldest first, one entry per explained write:
+
+```jsonc
+"changes": [{ "at": "2026-09-12T19:04:11.008Z", "reason": "Cut to 6 reps: calf tight." }]
+```
+
+**Optional, and worth giving.** A change nobody explained is recorded as nothing at all —
+it neither adds an entry nor erases the ones already there, so the history stays true as
+far as it goes rather than becoming a list of unattributed edits. At most 150 characters,
+refused rather than truncated, and the newest ten are kept. Over REST it is a field in the
+`PUT` body, beside the plan for a rewrite and beside `date` for a move.
+
+Not the same thing as `comment`, below: that is how the session *went*, written after it
+and pushed to the platform. This is why the plan is not the one first written, it stays
+here, and nothing rewrites an entry once it is made.
+
 ## Saying how it went
 
 `comment` is the athlete's own note on the session, in their words. Not `notes` — those are
