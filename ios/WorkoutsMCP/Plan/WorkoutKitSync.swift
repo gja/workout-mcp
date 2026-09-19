@@ -49,18 +49,23 @@ enum WorkoutKitSync {
         )
     }
 
-    /// Puts one planned workout on the athlete's watch, at `time` on the day it is planned
-    /// for, and ticks it where the session has already been done.
+    /// Puts one planned workout on the athlete's watch, on the day it is planned for, and
+    /// ticks it where the session has already been done.
+    ///
+    /// The day and no time: `WorkoutScheduler` takes the date components it is given, so a
+    /// workout the plan puts on Friday is Friday's in the Workout app — including a Friday
+    /// behind us. A day the phone cannot read falls back to today, which is where a workout
+    /// with no day it could be put on belongs.
     static func schedule(
         _ plan: ResolvedPlan,
-        at time: Date,
+        on day: Date?,
         done: Bool,
         replacing existing: Schedule
     ) async throws {
         let custom = try build(plan)
         let key = "\(plan.date)/\(plan.id)"
         let planID = PlanLink.planID(for: key)
-        let when = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: time)
+        let when = Calendar.current.dateComponents([.year, .month, .day], from: day ?? Date())
 
         // Replaced rather than added to: the id is derived from the key, so an edit upstream
         // that is re-sent lands on the same plan instead of leaving the old one on the watch.
