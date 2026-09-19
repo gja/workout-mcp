@@ -18,14 +18,23 @@ export async function createWorkout(env: Env, user: User, input: WorkoutInput): 
   return workout;
 }
 
-/** The id says which workout; where it currently sits is the row's business, not the caller's. */
-export async function replaceWorkout(env: Env, user: User, id: string, input: WorkoutInput): Promise<Workout | null> {
+/**
+ * The id says which workout; where it currently sits is the row's business, not the caller's.
+ * `changeReason` is theirs to give and is kept as history — see docs/workouts.md.
+ */
+export async function replaceWorkout(
+  env: Env,
+  user: User,
+  id: string,
+  input: WorkoutInput,
+  changeReason?: string | null,
+): Promise<Workout | null> {
   const existing = await db.getWorkout(env, user.id, id);
   if (!existing) return null;
 
   if (existing.completed_at) input.completed_at = existing.completed_at;
 
-  const workout = await db.putWorkout(env, user.id, input, id);
+  const workout = await db.putWorkout(env, user.id, input, id, changeReason);
   await platforms.onWorkoutSaved(env, user, workout, { date: existing.date, id });
   return workout;
 }
@@ -35,12 +44,19 @@ export async function replaceWorkout(env: Env, user: User, id: string, input: Wo
  * resend the plan — and resending it is what a recorded session refuses. Nothing but the
  * date changes, so the completion, the note and the stats need no carrying.
  */
-export async function moveWorkout(env: Env, user: User, id: string, date: string): Promise<Workout | null> {
+export async function moveWorkout(
+  env: Env,
+  user: User,
+  id: string,
+  date: string,
+  changeReason?: string | null,
+): Promise<Workout | null> {
   const existing = await db.getWorkout(env, user.id, id);
   if (!existing) return null;
+  // A move to the day it is already on explains nothing, because nothing changed.
   if (date === existing.date) return existing;
 
-  const workout = await db.setDate(env, user.id, id, date);
+  const workout = await db.setDate(env, user.id, id, date, changeReason);
   if (workout) await platforms.onWorkoutSaved(env, user, workout, { date: existing.date, id });
   return workout;
 }

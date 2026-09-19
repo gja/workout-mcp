@@ -4,7 +4,8 @@ import type { OAuthHelpers } from '@cloudflare/workers-oauth-provider';
 import { sessionOnly } from './stats';
 import type { StatsSummary, WorkoutStats } from './stats';
 import { fail, shiftDate, today } from './units';
-import type { PlanStep, Sport, SubSport, Workout, WorkoutInput } from './workout';
+import { MAX_CHANGES } from './workout';
+import type { PlanChange, PlanStep, Sport, SubSport, Workout, WorkoutInput } from './workout';
 
 export const RETENTION_DAYS_PAST = 7;
 export const RETENTION_DAYS_FUTURE = 14;
@@ -69,12 +70,14 @@ type WorkoutRow = {
   comment: string | null;
   /** The recorded session's stats, as `src/stats.ts` wrote them, or null until one comes back. */
   stats: string | null;
+  /** A JSON array of `{at, reason}`, or null while nothing has been explained. */
+  changes: string | null;
   updated_at: string;
 };
 
 /** The laps are dropped in SQL, not after parsing: they are the bulk of the stats and only `getStats` wants them. */
 const WORKOUT_COLUMNS =
-  'id, date, name, sport, sub_sport, notes, tags, external_id, steps, completed_at, comment, ' +
+  'id, date, name, sport, sub_sport, notes, tags, external_id, steps, completed_at, comment, changes, ' +
   "json_remove(stats, '$.laps') AS stats, updated_at";
 
 /** Short, URL-safe, unambiguous — no vowels, so no accidental words. */
@@ -120,6 +123,10 @@ function parseRow(row: WorkoutRow): Workout {
   if (row.completed_at) workout.completed_at = row.completed_at;
   if (row.comment) workout.comment = row.comment;
   if (row.stats) workout.stats = JSON.parse(row.stats) as StatsSummary;
+  if (row.changes) {
+    const changes = JSON.parse(row.changes) as PlanChange[];
+    if (changes.length > 0) workout.changes = changes;
+  }
   return workout;
 }
 
@@ -209,16 +216,24 @@ type StoredRecord = {
   comment: string | null;
   stats: string | null;
   steps: string | null;
+  changes: string | null;
 };
 
 // Not window-narrowed: asked about a row that is about to be written over, not read back.
 async function storedRecord(env: Env, userId: string, id: string): Promise<StoredRecord> {
   const row = await env.DB.prepare(
-    'SELECT completed_at, comment, stats, steps FROM workouts WHERE user_id = ? AND id = ?',
+    'SELECT completed_at, comment, stats, steps, changes FROM workouts WHERE user_id = ? AND id = ?',
   )
     .bind(userId, id)
     .first<StoredRecord>();
-  return row ?? { completed_at: null, comment: null, stats: null, steps: null };
+  return row ?? { completed_at: null, comment: null, stats: null, steps: null, changes: null };
+}
+
+/** The history a write leaves behind: what was there, the reason it came with, the oldest dropped. */
+function withChange(stored: string | null, reason: string | null | undefined): string | null {
+  const changes = stored ? (JSON.parse(stored) as PlanChange[]) : [];
+  if (reason) changes.push({ at: new Date().toISOString(), reason });
+  return changes.length > 0 ? JSON.stringify(changes.slice(-MAX_CHANGES)) : null;
 }
 
 /** With an `id`, the row that id names is rewritten wherever it sits — the date moves with it. */
@@ -227,6 +242,7 @@ export async function putWorkout(
   userId: string,
   input: WorkoutInput,
   id?: string,
+  changeReason?: string | null,
 ): Promise<Workout> {
   let workoutId = id;
 
@@ -244,6 +260,7 @@ export async function putWorkout(
   let completedAt = input.completed_at ?? null;
   let comment = input.comment ?? null;
   let stats: string | null = null;
+  let changes = withChange(null, changeReason);
   const carryFrom = async (rowId: string) => {
     const stored = await storedRecord(env, userId, rowId);
     const samePlan = stored.steps === JSON.stringify(input.steps);
@@ -260,6 +277,8 @@ export async function putWorkout(
     // athlete's own words about the session untrue.
     if (input.comment === undefined) comment = stored.comment;
     stats = samePlan ? stored.stats : null;
+    // Carried whatever became of the plan, for the same reason: why it changed stays true.
+    changes = withChange(stored.changes, changeReason);
   };
 
   // A caller with its own key is re-syncing: land on the row that key already names.
@@ -285,14 +304,16 @@ export async function putWorkout(
   else delete workout.comment;
   if (stats) workout.stats = sessionOnly(JSON.parse(stats) as WorkoutStats);
   else delete workout.stats;
+  if (changes) workout.changes = JSON.parse(changes) as PlanChange[];
+  else delete workout.changes;
   await env.DB.prepare(
-    `INSERT INTO workouts (user_id, date, id, name, sport, sub_sport, notes, tags, external_id, steps, completed_at, comment, stats, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14)
+    `INSERT INTO workouts (user_id, date, id, name, sport, sub_sport, notes, tags, external_id, steps, completed_at, comment, stats, changes, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?15)
      ON CONFLICT (user_id, id) DO UPDATE SET
        date = excluded.date, name = excluded.name, sport = excluded.sport, sub_sport = excluded.sub_sport,
        notes = excluded.notes, tags = excluded.tags, external_id = excluded.external_id,
        steps = excluded.steps, completed_at = excluded.completed_at, comment = excluded.comment,
-       stats = excluded.stats, updated_at = excluded.updated_at`,
+       stats = excluded.stats, changes = excluded.changes, updated_at = excluded.updated_at`,
   )
     .bind(
       userId,
@@ -308,6 +329,7 @@ export async function putWorkout(
       workout.completed_at ?? null,
       workout.comment ?? null,
       stats,
+      changes,
       workout.updated_at,
     )
     .run();
@@ -336,15 +358,22 @@ export async function setCompleted(
  * One column, now that a row is keyed by its id, so nothing else has to be carried.
  * `updated_at` is bumped: the platform holding this session does have to hear about it.
  */
-export async function setDate(env: Env, userId: string, id: string, date: string): Promise<Workout | null> {
+export async function setDate(
+  env: Env,
+  userId: string,
+  id: string,
+  date: string,
+  changeReason?: string | null,
+): Promise<Workout | null> {
   assertRetainable(date);
 
   const window = readWindow();
+  const changes = withChange((await storedRecord(env, userId, id)).changes, changeReason);
   const result = await env.DB.prepare(
-    `UPDATE workouts SET date = ?, updated_at = ?
+    `UPDATE workouts SET date = ?, changes = ?, updated_at = ?
      WHERE user_id = ? AND id = ? AND date >= ? AND date <= ?`,
   )
-    .bind(date, new Date().toISOString(), userId, id, window.from, window.to)
+    .bind(date, changes, new Date().toISOString(), userId, id, window.from, window.to)
     .run();
   if ((result.meta.changes ?? 0) === 0) return null;
   return getWorkout(env, userId, id);

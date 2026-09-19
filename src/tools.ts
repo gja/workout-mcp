@@ -10,10 +10,10 @@ import * as plan from './plan';
 import { ONBOARDING_INSTRUCTIONS } from './prompts';
 import { PLATFORMS } from './platforms';
 import * as recordings from './recordings';
-import { WorkoutError, parseComment, parseWorkout } from './workout';
+import { WorkoutError, parseChangeReason, parseComment, parseWorkout } from './workout';
 import type { Workout } from './workout';
 import { parseDate, parseTimestamp } from './units';
-import { MAX_COMMENT_LENGTH, MAX_TAGS, MAX_TAG_LENGTH, SPORTS } from './workout';
+import { MAX_CHANGE_REASON_LENGTH, MAX_COMMENT_LENGTH, MAX_TAGS, MAX_TAG_LENGTH, SPORTS } from './workout';
 
 const RANGE_DOC =
   'A range as [floor, ceiling]; either end may be "-" to leave it open, ' +
@@ -149,6 +149,14 @@ const ON_DATE = { type: 'string', description: 'Optional and ignored; the id nam
 
 const WORKOUT_ID = { type: 'string', description: 'The workout id.' } as const;
 
+/** Optional, and worth having: a plan nobody can account for is one nobody can review. */
+const CHANGE_REASON = {
+  type: 'string',
+  description:
+    'Why you are changing it, in one sentence the athlete would recognise, e.g. "Moved to Sunday: ' +
+    `away Saturday." Optional but expected; kept as history on the workout, at most ${MAX_CHANGE_REASON_LENGTH} characters.`,
+} as const;
+
 /** `"a", "b" and "c"` — kinds named in prose, from one list, so no description can drift from it. */
 const nameKinds = (kinds: readonly context.ContextKind[]): string =>
   kinds
@@ -252,12 +260,13 @@ export const TOOLS = [
     annotations: { title: 'Replace a planned workout', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     description:
       'Replace a workout in full, keeping its id; a changed date moves it. As with create_workout, ' +
-      `read ${nameTools(context.CONTEXT_KINDS)} first.`,
+      `read ${nameTools(context.CONTEXT_KINDS)} first, and say why in change_reason.`,
     inputSchema: {
       type: 'object',
       properties: {
         id: { type: 'string', description: 'The id of the workout to replace.' },
         current_date: ON_DATE,
+        change_reason: CHANGE_REASON,
         ...WORKOUT_PROPERTIES,
       },
       required: ['id', 'date', 'steps'],
@@ -276,6 +285,7 @@ export const TOOLS = [
         date: ON_DATE,
         id: WORKOUT_ID,
         to_date: { type: 'string', description: 'The day to move it to, YYYY-MM-DD.' },
+        change_reason: CHANGE_REASON,
       },
       required: ['id', 'to_date'],
     },
@@ -534,9 +544,9 @@ export async function callTool(
 
     case 'update_workout': {
       const id = requireString(args, 'id');
-      const { id: _id, current_date: _currentDate, ...rest } = args;
+      const { id: _id, current_date: _currentDate, change_reason: reason, ...rest } = args;
 
-      const workout = await plan.replaceWorkout(env, user, id, parseWorkout(rest));
+      const workout = await plan.replaceWorkout(env, user, id, parseWorkout(rest), parseChangeReason(reason));
       if (!workout) throw new ToolError(missing(id));
       return presentBrief(workout);
     }
@@ -545,7 +555,7 @@ export async function callTool(
       const id = requireString(args, 'id');
       const toDate = parseDate(requireString(args, 'to_date'), 'to_date');
 
-      const workout = await plan.moveWorkout(env, user, id, toDate);
+      const workout = await plan.moveWorkout(env, user, id, toDate, parseChangeReason(args.change_reason));
       if (!workout) throw new ToolError(missing(id));
       return presentBrief(workout);
     }

@@ -25,8 +25,8 @@ set at login.
 | `GET /api/workouts/:date/:id.json` | Read one |
 | `GET /api/workouts/:date/:id/stats` | What was actually recorded against it, laps and all; 404 until a session comes back |
 | `POST /api/workouts/:date/:id/recording` | The recorded FIT file itself as the body; read for its stats, marks the session done, keeps nothing |
-| `PUT /api/workouts/:date/:id.json` | Replace one; change `date` to move it |
-| `PUT /api/workouts/:date/:id/date` | Move it to another day; `{date}` in the body, keeping the id and the record of it being done |
+| `PUT /api/workouts/:date/:id.json` | Replace one; change `date` to move it. Optional `change_reason` says why |
+| `PUT /api/workouts/:date/:id/date` | Move it to another day; `{date, change_reason?}`, keeping the id and the record of it being done |
 | `DELETE /api/workouts/:date/:id.json` | Delete one |
 | `POST /api/workouts/:date/:id/complete` | Mark it done; `{completed_at}` optional, defaults to now |
 | `DELETE /api/workouts/:date/:id/complete` | Clear that, leaving the plan alone |

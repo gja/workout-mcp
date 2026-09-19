@@ -761,6 +761,28 @@ describe('tools', () => {
     expect(await callTool('delete_workout', { id: created.id })).toMatchObject({ deleted: true, date: NEXT_DAY });
   });
 
+  it('records why the plan changed, from either verb', async () => {
+    const created = (await callTool('create_workout', intervals)) as { id: string };
+
+    await callTool('update_workout', {
+      id: created.id,
+      ...intervals,
+      name: 'Shortened',
+      change_reason: 'Cut to 6 reps: calf tight.',
+    });
+    await callTool('reschedule_workout', {
+      id: created.id,
+      to_date: NEXT_DAY,
+      change_reason: 'Moved to Sunday: away Saturday.',
+    });
+
+    const read = (await callTool('get_workout', { id: created.id })) as { changes: { reason: string }[] };
+    expect(read.changes.map((change) => change.reason)).toEqual([
+      'Cut to 6 reps: calf tight.',
+      'Moved to Sunday: away Saturday.',
+    ]);
+  });
+
   it('records the athlete’s note on how a session went, and hands it back', async () => {
     const created = (await callTool('create_workout', intervals)) as { id: string };
 

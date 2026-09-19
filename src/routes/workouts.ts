@@ -11,7 +11,7 @@ import { MAX_RECORDING_BYTES, StatsError } from '../stats';
 import { callTool, missing, present, presentBrief } from '../tools';
 import { fail, parseDate, parseTimestamp } from '../units';
 import type { Workout } from '../workout';
-import { parseComment, parseWorkout } from '../workout';
+import { parseChangeReason, parseComment, parseWorkout } from '../workout';
 
 /** Addressed by the pair, resolved by the id alone: the date is ignored. See docs/api.md. */
 type WorkoutRoute = '/api/workouts/:date(\\d{4}-\\d{2}-\\d{2})/:id([0-9a-z]+)';
@@ -163,17 +163,20 @@ const recordWorkout: AuthedRoute<RecordingRoute> = async ({ request, url, env, u
 };
 
 const replaceWorkout: AuthedRoute<WorkoutRoute> = async ({ request, url, env, user, params }) => {
-  const input = parseWorkout(await request.json());
-  const workout = await plan.replaceWorkout(env, user, params.id, input);
+  // Taken out before the rest is parsed: it says why this write happened, not what the plan is.
+  const { change_reason: reason, ...body } = (await request.json()) as Record<string, unknown>;
+  const input = parseWorkout(body);
+
+  const workout = await plan.replaceWorkout(env, user, params.id, input, parseChangeReason(reason));
   return workout ? json(presentBrief(workout, url.origin)) : error(missing(params.id), 404);
 };
 
 /** Its own verb, so moving a session to another day never means resending the plan. */
 const moveWorkout: AuthedRoute<DateRoute> = async ({ request, url, env, user, params }) => {
-  const body = (await request.json().catch(() => ({}))) as { date?: unknown };
+  const body = (await request.json().catch(() => ({}))) as { date?: unknown; change_reason?: unknown };
   const date = parseDate(body?.date, 'date');
 
-  const workout = await plan.moveWorkout(env, user, params.id, date);
+  const workout = await plan.moveWorkout(env, user, params.id, date, parseChangeReason(body?.change_reason));
   return workout ? json(presentBrief(workout, url.origin)) : error(missing(params.id), 404);
 };
 

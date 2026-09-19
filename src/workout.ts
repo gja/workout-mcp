@@ -45,6 +45,9 @@ export type PlanEffort = {
 
 export type PlanStep = PlanRepeat | PlanEffort;
 
+/** Why the plan changed, and when. Appended by a write, never edited or read back out of one. */
+export type PlanChange = { at: string; reason: string };
+
 export type Workout = {
   id: string;
   date: string;
@@ -70,6 +73,12 @@ export type Workout = {
    * caller. The laps behind them are a page of JSON each, so `db.getStats` reads those.
    */
   stats?: StatsSummary;
+  /**
+   * Why this workout is not the one first planned: one entry per explained update or
+   * move, oldest first. Its own argument rather than a field, because it describes the
+   * write rather than the plan. See docs/workouts.md.
+   */
+  changes?: PlanChange[];
   updated_at: string;
 };
 
@@ -95,6 +104,12 @@ export const MAX_TAG_LENGTH = 30;
 
 /** Room for how a session felt, not for an essay. Refused rather than truncated. */
 export const MAX_COMMENT_LENGTH = 2000;
+
+/** One sentence on why. Refused rather than truncated, so nobody's reason is cut in half. */
+export const MAX_CHANGE_REASON_LENGTH = 150;
+
+/** The newest kept, the oldest dropped: a plan rewritten twenty times is not twenty stories. */
+export const MAX_CHANGES = 10;
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -191,6 +206,12 @@ export function countSteps(steps: PlanStep[]): number {
 export function parseComment(value: unknown): string | null {
   if (value === undefined || value === null) return null;
   return parseText(value, 'comment', MAX_COMMENT_LENGTH) || null;
+}
+
+/** Absent, empty and blank are one thing: a change nobody explained. */
+export function parseChangeReason(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  return parseText(value, 'change_reason', MAX_CHANGE_REASON_LENGTH) || null;
 }
 
 export function parseWorkout(value: unknown): WorkoutInput {

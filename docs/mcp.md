@@ -69,6 +69,10 @@ optional and ignored, kept because callers hold it. `get_workout` is the excepti
 date with no id reads the day, and answers with the workouts on it when there is more
 than one.
 
+`update_workout` and `reschedule_workout` take an optional `change_reason`: one sentence
+on why, kept as history on the workout. See
+[workouts.md](workouts.md#saying-why-it-changed).
+
 Each is also `POST /api/tools/<name>` with the same arguments. The schemas live in
 `src/tools.ts` and are the contract an assistant reads before writing a workout, which is
 why they carry worked examples. For what the fields mean, see [workouts.md](workouts.md).
