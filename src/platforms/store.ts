@@ -3,6 +3,7 @@
 
 import { retentionWindow } from '../db';
 import type { Env } from '../db';
+import { all, batch, changes, one, qb, run } from '../sql';
 import type { Account, PlatformId } from './types';
 
 /** Connection state as the rest of the app sees it: never the token. */
@@ -63,7 +64,7 @@ export async function decryptSecret(env: Env, stored: string): Promise<string | 
 
 // --- Connections -----------------------------------------------------------
 
-const CONNECTION_COLUMNS = 'platform, account, last_error, created_at, updated_at';
+const CONNECTION_COLUMNS = ['platform', 'account', 'last_error', 'created_at', 'updated_at'] as const;
 
 /** Re-authorizing replaces the token, so a fresh grant lands on the same row. */
 export async function saveConnection(
@@ -74,26 +75,42 @@ export async function saveConnection(
   account: Account,
 ): Promise<void> {
   const now = new Date().toISOString();
-  await env.DB.prepare(
-    `INSERT INTO platform_connections
-       (user_id, platform, secret, account, account_id, last_error, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?6)
-     ON CONFLICT (user_id, platform) DO UPDATE SET
-       secret = excluded.secret,
-       account = excluded.account, account_id = excluded.account_id,
-       last_error = NULL, updated_at = excluded.updated_at`,
-  )
-    .bind(userId, platform, await encryptSecret(env, token), account.name ?? account.id, account.id, now)
-    .run();
+  await run(
+    env,
+    qb
+      .insertInto('platform_connections')
+      .values({
+        user_id: userId,
+        platform,
+        secret: await encryptSecret(env, token),
+        account: account.name ?? account.id,
+        account_id: account.id,
+        last_error: null,
+        created_at: now,
+        updated_at: now,
+      })
+      // A fresh grant clears the last failure: it was the old token's.
+      .onConflict((clash) =>
+        clash.columns(['user_id', 'platform']).doUpdateSet((eb) => ({
+          secret: eb.ref('excluded.secret'),
+          account: eb.ref('excluded.account'),
+          account_id: eb.ref('excluded.account_id'),
+          last_error: null,
+          updated_at: eb.ref('excluded.updated_at'),
+        })),
+      ),
+  );
 }
 
 export async function listConnections(env: Env, userId: string): Promise<Connection[]> {
-  const { results } = await env.DB.prepare(
-    `SELECT ${CONNECTION_COLUMNS} FROM platform_connections WHERE user_id = ? ORDER BY platform`,
-  )
-    .bind(userId)
-    .all<Connection>();
-  return results ?? [];
+  return all(
+    env,
+    qb
+      .selectFrom('platform_connections')
+      .select([...CONNECTION_COLUMNS])
+      .where('user_id', '=', userId)
+      .orderBy('platform'),
+  ) as Promise<Connection[]>;
 }
 
 /** Least recently visited first, which is what makes consecutive sweeps work round. */
@@ -102,14 +119,18 @@ export async function connectionBatch(
   platform: PlatformId,
   limit: number,
 ): Promise<Array<{ user_id: string; token: string | null }>> {
-  const { results } = await env.DB.prepare(
-    'SELECT user_id, secret FROM platform_connections WHERE platform = ? ORDER BY updated_at LIMIT ?',
-  )
-    .bind(platform, limit)
-    .all<{ user_id: string; secret: string }>();
+  const rows = await all(
+    env,
+    qb
+      .selectFrom('platform_connections')
+      .select(['user_id', 'secret'])
+      .where('platform', '=', platform)
+      .orderBy('updated_at')
+      .limit(limit),
+  );
 
   return Promise.all(
-    (results ?? []).map(async (row) => ({ user_id: row.user_id, token: await decryptSecret(env, row.secret) })),
+    rows.map(async (row) => ({ user_id: row.user_id, token: await decryptSecret(env, row.secret) })),
   );
 }
 
@@ -123,14 +144,17 @@ export async function connectionsForAccount(
   platform: PlatformId,
   accountId: string,
 ): Promise<Array<{ user_id: string; token: string | null }>> {
-  const { results } = await env.DB.prepare(
-    'SELECT user_id, secret FROM platform_connections WHERE platform = ? AND account_id = ?',
-  )
-    .bind(platform, accountId)
-    .all<{ user_id: string; secret: string }>();
+  const rows = await all(
+    env,
+    qb
+      .selectFrom('platform_connections')
+      .select(['user_id', 'secret'])
+      .where('platform', '=', platform)
+      .where('account_id', '=', accountId),
+  );
 
   return Promise.all(
-    (results ?? []).map(async (row) => ({ user_id: row.user_id, token: await decryptSecret(env, row.secret) })),
+    rows.map(async (row) => ({ user_id: row.user_id, token: await decryptSecret(env, row.secret) })),
   );
 }
 
@@ -143,21 +167,26 @@ export async function accountSharedWithOthers(
   userId: string,
   platform: PlatformId,
 ): Promise<boolean> {
-  const row = await env.DB.prepare(
-    `SELECT COUNT(*) AS others FROM platform_connections
-     WHERE platform = ?1 AND user_id <> ?2 AND account_id IS NOT NULL
-       AND account_id = (SELECT account_id FROM platform_connections WHERE user_id = ?2 AND platform = ?1)`,
-  )
-    .bind(platform, userId)
-    .first<{ others: number }>();
+  // Hand-written: the correlated subquery reads better as the SQL it is.
+  const row = await one<{ others: number }>(env, {
+    sql: `SELECT COUNT(*) AS others FROM platform_connections
+          WHERE platform = ?1 AND user_id <> ?2 AND account_id IS NOT NULL
+            AND account_id = (SELECT account_id FROM platform_connections WHERE user_id = ?2 AND platform = ?1)`,
+    parameters: [platform, userId],
+  });
   return (row?.others ?? 0) > 0;
 }
 
 /** The token in the clear, or null when there is no usable connection. */
 export async function credentialFor(env: Env, userId: string, platform: PlatformId): Promise<string | null> {
-  const row = await env.DB.prepare('SELECT secret FROM platform_connections WHERE user_id = ? AND platform = ?')
-    .bind(userId, platform)
-    .first<{ secret: string }>();
+  const row = await one(
+    env,
+    qb
+      .selectFrom('platform_connections')
+      .select('secret')
+      .where('user_id', '=', userId)
+      .where('platform', '=', platform),
+  );
   return row ? decryptSecret(env, row.secret) : null;
 }
 
@@ -166,14 +195,17 @@ export async function usableConnections(
   env: Env,
   userId: string,
 ): Promise<Array<{ platform: PlatformId; token: string }>> {
-  const { results } = await env.DB.prepare(
-    'SELECT platform, secret FROM platform_connections WHERE user_id = ? ORDER BY platform',
-  )
-    .bind(userId)
-    .all<{ platform: PlatformId; secret: string }>();
+  const results = await all(
+    env,
+    qb
+      .selectFrom('platform_connections')
+      .select(['platform', 'secret'])
+      .where('user_id', '=', userId)
+      .orderBy('platform'),
+  );
 
   const usable: Array<{ platform: PlatformId; token: string }> = [];
-  for (const row of results ?? []) {
+  for (const row of results as Array<{ platform: PlatformId; secret: string }>) {
     const token = await decryptSecret(env, row.secret);
     if (token) usable.push({ platform: row.platform, token });
   }
@@ -186,20 +218,24 @@ export async function recordSyncError(
   platform: PlatformId,
   message: string | null,
 ): Promise<void> {
-  await env.DB.prepare(
-    'UPDATE platform_connections SET last_error = ?, updated_at = ? WHERE user_id = ? AND platform = ?',
-  )
-    .bind(message, new Date().toISOString(), userId, platform)
-    .run();
+  await run(
+    env,
+    qb
+      .updateTable('platform_connections')
+      .set({ last_error: message, updated_at: new Date().toISOString() })
+      .where('user_id', '=', userId)
+      .where('platform', '=', platform),
+  );
 }
 
 /** Forget the connection and everything we had pushed under it. */
 export async function forgetConnection(env: Env, userId: string, platform: PlatformId): Promise<boolean> {
-  const result = await env.DB.prepare('DELETE FROM platform_connections WHERE user_id = ? AND platform = ?')
-    .bind(userId, platform)
-    .run();
-  await env.DB.prepare('DELETE FROM platform_links WHERE user_id = ? AND platform = ?').bind(userId, platform).run();
-  return (result.meta.changes ?? 0) > 0;
+  const written = await changes(
+    env,
+    qb.deleteFrom('platform_connections').where('user_id', '=', userId).where('platform', '=', platform),
+  );
+  await run(env, qb.deleteFrom('platform_links').where('user_id', '=', userId).where('platform', '=', platform));
+  return written > 0;
 }
 
 // --- Links -----------------------------------------------------------------
@@ -217,8 +253,23 @@ export type Link = {
   synced_at: string;
 };
 
-const LINK_COLUMNS =
-  'date, workout_id, remote_id, fingerprint, applied_completion, applied_comment, synced_at';
+const LINK_COLUMNS = [
+  'date',
+  'workout_id',
+  'remote_id',
+  'fingerprint',
+  'applied_completion',
+  'applied_comment',
+  'synced_at',
+] as const;
+
+/** Every link read and every link write starts scoped to one athlete's platform. */
+const scopedLinks = (userId: string, platform: PlatformId) =>
+  qb
+    .selectFrom('platform_links')
+    .select([...LINK_COLUMNS])
+    .where('user_id', '=', userId)
+    .where('platform', '=', platform);
 
 /** Leaves the applied columns alone: re-pushing the plan neither changes nor un-does them. */
 export async function saveLink(
@@ -230,14 +281,29 @@ export async function saveLink(
   remoteId: string,
   fingerprint: string,
 ): Promise<void> {
-  await env.DB.prepare(
-    `INSERT INTO platform_links (user_id, platform, date, workout_id, remote_id, fingerprint, synced_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-     ON CONFLICT (user_id, platform, date, workout_id) DO UPDATE SET
-       remote_id = excluded.remote_id, fingerprint = excluded.fingerprint, synced_at = excluded.synced_at`,
-  )
-    .bind(userId, platform, date, workoutId, remoteId, fingerprint, new Date().toISOString())
-    .run();
+  await run(
+    env,
+    qb
+      .insertInto('platform_links')
+      .values({
+        user_id: userId,
+        platform,
+        date,
+        workout_id: workoutId,
+        remote_id: remoteId,
+        fingerprint,
+        applied_completion: null,
+        applied_comment: null,
+        synced_at: new Date().toISOString(),
+      })
+      .onConflict((clash) =>
+        clash.columns(['user_id', 'platform', 'date', 'workout_id']).doUpdateSet((eb) => ({
+          remote_id: eb.ref('excluded.remote_id'),
+          fingerprint: eb.ref('excluded.fingerprint'),
+          synced_at: eb.ref('excluded.synced_at'),
+        })),
+      ),
+  );
 }
 
 export async function findLink(
@@ -247,24 +313,13 @@ export async function findLink(
   date: string,
   workoutId: string,
 ): Promise<Link | null> {
-  const row = await env.DB.prepare(
-    `SELECT ${LINK_COLUMNS} FROM platform_links
-     WHERE user_id = ? AND platform = ? AND date = ? AND workout_id = ?`,
-  )
-    .bind(userId, platform, date, workoutId)
-    .first<Link>();
-  return row ?? null;
+  return one(env, scopedLinks(userId, platform).where('date', '=', date).where('workout_id', '=', workoutId));
 }
 
 /** Every link for a platform, keyed `date/workout_id`, for deciding what is stale. */
 export async function listLinks(env: Env, userId: string, platform: PlatformId): Promise<Map<string, Link>> {
-  const { results } = await env.DB.prepare(
-    `SELECT ${LINK_COLUMNS} FROM platform_links
-     WHERE user_id = ? AND platform = ?`,
-  )
-    .bind(userId, platform)
-    .all<Link>();
-  return new Map((results ?? []).map((link) => [`${link.date}/${link.workout_id}`, link]));
+  const links = await all(env, scopedLinks(userId, platform));
+  return new Map(links.map((link) => [`${link.date}/${link.workout_id}`, link]));
 }
 
 /** The workout a remote id belongs to, for a completion coming back. */
@@ -274,13 +329,7 @@ export async function findLinkByRemoteId(
   platform: PlatformId,
   remoteId: string,
 ): Promise<Link | null> {
-  const row = await env.DB.prepare(
-    `SELECT ${LINK_COLUMNS} FROM platform_links
-     WHERE user_id = ? AND platform = ? AND remote_id = ?`,
-  )
-    .bind(userId, platform, remoteId)
-    .first<Link>();
-  return row ?? null;
+  return one(env, scopedLinks(userId, platform).where('remote_id', '=', remoteId));
 }
 
 export async function dropLink(
@@ -290,11 +339,15 @@ export async function dropLink(
   date: string,
   workoutId: string,
 ): Promise<void> {
-  await env.DB.prepare(
-    'DELETE FROM platform_links WHERE user_id = ? AND platform = ? AND date = ? AND workout_id = ?',
-  )
-    .bind(userId, platform, date, workoutId)
-    .run();
+  await run(
+    env,
+    qb
+      .deleteFrom('platform_links')
+      .where('user_id', '=', userId)
+      .where('platform', '=', platform)
+      .where('date', '=', date)
+      .where('workout_id', '=', workoutId),
+  );
 }
 
 // A moved workout keeps its remote event. The delete comes first, in the same batch:
@@ -305,16 +358,18 @@ export async function moveLinks(
   from: { date: string; id: string },
   to: { date: string; id: string },
 ): Promise<void> {
-  await env.DB.batch([
-    env.DB.prepare('DELETE FROM platform_links WHERE user_id = ? AND date = ? AND workout_id = ?').bind(
-      userId,
-      to.date,
-      to.id,
-    ),
-    env.DB.prepare(
-      `UPDATE platform_links SET date = ?, workout_id = ?
-       WHERE user_id = ? AND date = ? AND workout_id = ?`,
-    ).bind(to.date, to.id, userId, from.date, from.id),
+  await batch(env, [
+    qb
+      .deleteFrom('platform_links')
+      .where('user_id', '=', userId)
+      .where('date', '=', to.date)
+      .where('workout_id', '=', to.id),
+    qb
+      .updateTable('platform_links')
+      .set({ date: to.date, workout_id: to.id })
+      .where('user_id', '=', userId)
+      .where('date', '=', from.date)
+      .where('workout_id', '=', from.id),
   ]);
 }
 
@@ -327,12 +382,16 @@ export async function recordAppliedCompletion(
   workoutId: string,
   completedAt: string,
 ): Promise<void> {
-  await env.DB.prepare(
-    `UPDATE platform_links SET applied_completion = ?
-     WHERE user_id = ? AND platform = ? AND date = ? AND workout_id = ?`,
-  )
-    .bind(completedAt, userId, platform, date, workoutId)
-    .run();
+  await run(
+    env,
+    qb
+      .updateTable('platform_links')
+      .set({ applied_completion: completedAt })
+      .where('user_id', '=', userId)
+      .where('platform', '=', platform)
+      .where('date', '=', date)
+      .where('workout_id', '=', workoutId),
+  );
 }
 
 /** Remember the note just handed over, so one note costs one attempt. See the migration. */
@@ -344,35 +403,41 @@ export async function recordAppliedComment(
   workoutId: string,
   comment: string,
 ): Promise<void> {
-  await env.DB.prepare(
-    `UPDATE platform_links SET applied_comment = ?
-     WHERE user_id = ? AND platform = ? AND date = ? AND workout_id = ?`,
-  )
-    .bind(comment, userId, platform, date, workoutId)
-    .run();
+  await run(
+    env,
+    qb
+      .updateTable('platform_links')
+      .set({ applied_comment: comment })
+      .where('user_id', '=', userId)
+      .where('platform', '=', platform)
+      .where('date', '=', date)
+      .where('workout_id', '=', workoutId),
+  );
 }
 
 export async function countLinks(env: Env, userId: string, platform: PlatformId): Promise<number> {
-  const row = await env.DB.prepare(
-    'SELECT COUNT(*) AS n FROM platform_links WHERE user_id = ? AND platform = ?',
-  )
-    .bind(userId, platform)
-    .first<{ n: number }>();
+  const row = await one(
+    env,
+    qb
+      .selectFrom('platform_links')
+      .select((eb) => eb.fn.countAll<number>().as('n'))
+      .where('user_id', '=', userId)
+      .where('platform', '=', platform),
+  );
   return row?.n ?? 0;
 }
 
 // Outside the window only: inside it, a link with no workout is a delete `syncNow` still owes.
 export async function pruneOrphanedLinks(env: Env, now: Date = new Date()): Promise<number> {
   const { from, to } = retentionWindow(now);
-  const result = await env.DB.prepare(
-    `DELETE FROM platform_links WHERE (date < ? OR date > ?) AND NOT EXISTS (
-       SELECT 1 FROM workouts
-       WHERE workouts.user_id = platform_links.user_id
-         AND workouts.date = platform_links.date
-         AND workouts.id = platform_links.workout_id
-     )`,
-  )
-    .bind(from, to)
-    .run();
-  return result.meta.changes ?? 0;
+  // Hand-written, and across every athlete: this is the nightly sweep, not a scoped read.
+  return changes(env, {
+    sql: `DELETE FROM platform_links WHERE (date < ? OR date > ?) AND NOT EXISTS (
+            SELECT 1 FROM workouts
+            WHERE workouts.user_id = platform_links.user_id
+              AND workouts.date = platform_links.date
+              AND workouts.id = platform_links.workout_id
+          )`,
+    parameters: [from, to],
+  });
 }

@@ -1,6 +1,8 @@
 // D1 storage, the retention window and the per-athlete cap. See docs/database.md.
 
 import type { OAuthHelpers } from '@cloudflare/workers-oauth-provider';
+import { sql } from 'kysely';
+import { all, changes as rowsWritten, one, qb, run } from './sql';
 import { sessionOnly } from './stats';
 import type { StatsSummary, WorkoutStats } from './stats';
 import { fail, shiftDate, today } from './units';
@@ -76,9 +78,37 @@ type WorkoutRow = {
 };
 
 /** The laps are dropped in SQL, not after parsing: they are the bulk of the stats and only `getStats` wants them. */
-const WORKOUT_COLUMNS =
-  'id, date, name, sport, sub_sport, notes, tags, external_id, steps, completed_at, comment, changes, ' +
-  "json_remove(stats, '$.laps') AS stats, updated_at";
+const WORKOUT_COLUMNS = [
+  'id',
+  'date',
+  'name',
+  'sport',
+  'sub_sport',
+  'notes',
+  'tags',
+  'external_id',
+  'steps',
+  'completed_at',
+  'comment',
+  'changes',
+  'updated_at',
+] as const;
+
+/**
+ * Every workout read starts here: the athlete and the read window are already applied,
+ * and a caller adds what it wants on top. Kysely builders are immutable, so narrowing
+ * one leaves this untouched, and an `and` is the only thing a caller can add — no read
+ * reaches outside the window by forgetting to say so.
+ */
+function scopedWorkouts(userId: string, range: { from: string; to: string }) {
+  return qb
+    .selectFrom('workouts')
+    .select([...WORKOUT_COLUMNS])
+    .select(sql<string | null>`json_remove(stats, '$.laps')`.as('stats'))
+    .where('user_id', '=', userId)
+    .where('date', '>=', range.from)
+    .where('date', '<=', range.to);
+}
 
 /** Short, URL-safe, unambiguous — no vowels, so no accidental words. */
 const ID_ALPHABET = '0123456789bcdfghjkmnpqrstvwxyz';
@@ -130,6 +160,21 @@ function parseRow(row: WorkoutRow): Workout {
   return workout;
 }
 
+/**
+ * The write counterpart of `scopedWorkouts`: one workout, inside the read window. A
+ * setter adds its own `.set(...)` and nothing else, so none of them can reach a row a
+ * read could not have returned in the first place.
+ */
+function scopedUpdate(userId: string, id: string) {
+  const window = readWindow();
+  return qb
+    .updateTable('workouts')
+    .where('user_id', '=', userId)
+    .where('id', '=', id)
+    .where('date', '>=', window.from)
+    .where('date', '<=', window.to);
+}
+
 /** A caller's range, narrowed to what a read is allowed to see. */
 function readRange(from?: string, to?: string): { from: string; to: string } {
   const window = readWindow();
@@ -140,24 +185,13 @@ function readRange(from?: string, to?: string): { from: string; to: string } {
 }
 
 export async function listWorkouts(env: Env, userId: string, from?: string, to?: string): Promise<Workout[]> {
-  const range = readRange(from, to);
-  const { results } = await env.DB.prepare(
-    `SELECT ${WORKOUT_COLUMNS} FROM workouts
-     WHERE user_id = ? AND date >= ? AND date <= ? ORDER BY date, created_at`,
-  )
-    .bind(userId, range.from, range.to)
-    .all<WorkoutRow>();
-  return (results ?? []).map(parseRow);
+  const rows = await all(env, scopedWorkouts(userId, readRange(from, to)).orderBy('date').orderBy('created_at'));
+  return rows.map(parseRow);
 }
 
 /** By id alone: the day a workout sits on is not part of what it is. See docs/database.md. */
 export async function getWorkout(env: Env, userId: string, id: string): Promise<Workout | null> {
-  const window = readWindow();
-  const row = await env.DB.prepare(
-    `SELECT ${WORKOUT_COLUMNS} FROM workouts WHERE user_id = ? AND id = ? AND date >= ? AND date <= ?`,
-  )
-    .bind(userId, id, window.from, window.to)
-    .first<WorkoutRow>();
+  const row = await one(env, scopedWorkouts(userId, readWindow()).where('id', '=', id));
   return row ? parseRow(row) : null;
 }
 
@@ -170,15 +204,11 @@ export async function getWorkouts(env: Env, userId: string, ids: readonly string
   const wanted = [...new Set(ids)];
   if (wanted.length === 0) return [];
 
-  const window = readWindow();
-  const { results } = await env.DB.prepare(
-    `SELECT ${WORKOUT_COLUMNS} FROM workouts
-     WHERE user_id = ? AND date >= ? AND date <= ? AND id IN (${wanted.map(() => '?').join(', ')})
-     ORDER BY date, created_at`,
-  )
-    .bind(userId, window.from, window.to, ...wanted)
-    .all<WorkoutRow>();
-  return (results ?? []).map(parseRow);
+  const rows = await all(
+    env,
+    scopedWorkouts(userId, readWindow()).where('id', 'in', wanted).orderBy('date').orderBy('created_at'),
+  );
+  return rows.map(parseRow);
 }
 
 // Not narrowed to the read window: the key's unique index is not either.
@@ -187,10 +217,14 @@ export async function findByExternalId(
   userId: string,
   externalId: string,
 ): Promise<{ date: string; id: string } | null> {
-  const row = await env.DB.prepare('SELECT date, id FROM workouts WHERE user_id = ? AND external_id = ?')
-    .bind(userId, externalId)
-    .first<{ date: string; id: string }>();
-  return row ?? null;
+  return one(
+    env,
+    qb
+      .selectFrom('workouts')
+      .select(['date', 'id'])
+      .where('user_id', '=', userId)
+      .where('external_id', '=', externalId),
+  );
 }
 
 /** Asked before a write, so a day nothing could be read back from is refused rather than stored. */
@@ -221,11 +255,14 @@ type StoredRecord = {
 
 // Not window-narrowed: asked about a row that is about to be written over, not read back.
 async function storedRecord(env: Env, userId: string, id: string): Promise<StoredRecord> {
-  const row = await env.DB.prepare(
-    'SELECT completed_at, comment, stats, steps, changes FROM workouts WHERE user_id = ? AND id = ?',
-  )
-    .bind(userId, id)
-    .first<StoredRecord>();
+  const row = await one(
+    env,
+    qb
+      .selectFrom('workouts')
+      .select(['completed_at', 'comment', 'stats', 'steps', 'changes'])
+      .where('user_id', '=', userId)
+      .where('id', '=', id),
+  );
   return row ?? { completed_at: null, comment: null, stats: null, steps: null, changes: null };
 }
 
@@ -306,33 +343,48 @@ export async function putWorkout(
   else delete workout.stats;
   if (changes) workout.changes = JSON.parse(changes) as PlanChange[];
   else delete workout.changes;
-  await env.DB.prepare(
-    `INSERT INTO workouts (user_id, date, id, name, sport, sub_sport, notes, tags, external_id, steps, completed_at, comment, stats, changes, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?15)
-     ON CONFLICT (user_id, id) DO UPDATE SET
-       date = excluded.date, name = excluded.name, sport = excluded.sport, sub_sport = excluded.sub_sport,
-       notes = excluded.notes, tags = excluded.tags, external_id = excluded.external_id,
-       steps = excluded.steps, completed_at = excluded.completed_at, comment = excluded.comment,
-       stats = excluded.stats, changes = excluded.changes, updated_at = excluded.updated_at`,
-  )
-    .bind(
-      userId,
-      workout.date,
-      workout.id,
-      workout.name,
-      workout.sport,
-      workout.sub_sport ?? null,
-      workout.notes ?? null,
-      workout.tags && workout.tags.length > 0 ? JSON.stringify(workout.tags) : null,
-      workout.external_id ?? null,
-      JSON.stringify(workout.steps),
-      workout.completed_at ?? null,
-      workout.comment ?? null,
-      stats,
-      changes,
-      workout.updated_at,
-    )
-    .run();
+  await run(
+    env,
+    qb
+      .insertInto('workouts')
+      .values({
+        user_id: userId,
+        id: workout.id,
+        date: workout.date,
+        name: workout.name,
+        sport: workout.sport,
+        sub_sport: workout.sub_sport ?? null,
+        notes: workout.notes ?? null,
+        tags: workout.tags && workout.tags.length > 0 ? JSON.stringify(workout.tags) : null,
+        external_id: workout.external_id ?? null,
+        steps: JSON.stringify(workout.steps),
+        completed_at: workout.completed_at ?? null,
+        comment: workout.comment ?? null,
+        stats,
+        changes,
+        created_at: workout.updated_at,
+        updated_at: workout.updated_at,
+      })
+      // `created_at` is the one column left alone: it is when the row first appeared,
+      // not when this write happened.
+      .onConflict((clash) =>
+        clash.columns(['user_id', 'id']).doUpdateSet((eb) => ({
+          date: eb.ref('excluded.date'),
+          name: eb.ref('excluded.name'),
+          sport: eb.ref('excluded.sport'),
+          sub_sport: eb.ref('excluded.sub_sport'),
+          notes: eb.ref('excluded.notes'),
+          tags: eb.ref('excluded.tags'),
+          external_id: eb.ref('excluded.external_id'),
+          steps: eb.ref('excluded.steps'),
+          completed_at: eb.ref('excluded.completed_at'),
+          comment: eb.ref('excluded.comment'),
+          stats: eb.ref('excluded.stats'),
+          changes: eb.ref('excluded.changes'),
+          updated_at: eb.ref('excluded.updated_at'),
+        })),
+      ),
+  );
   return workout;
 }
 
@@ -343,14 +395,11 @@ export async function setCompleted(
   id: string,
   completedAt: string | null,
 ): Promise<Workout | null> {
-  const window = readWindow();
-  const result = await env.DB.prepare(
-    `UPDATE workouts SET completed_at = ?, updated_at = ?
-     WHERE user_id = ? AND id = ? AND date >= ? AND date <= ?`,
-  )
-    .bind(completedAt, new Date().toISOString(), userId, id, window.from, window.to)
-    .run();
-  if ((result.meta.changes ?? 0) === 0) return null;
+  const written = await rowsWritten(
+    env,
+    scopedUpdate(userId, id).set({ completed_at: completedAt, updated_at: new Date().toISOString() }),
+  );
+  if (written === 0) return null;
   return getWorkout(env, userId, id);
 }
 
@@ -367,15 +416,12 @@ export async function setDate(
 ): Promise<Workout | null> {
   assertRetainable(date);
 
-  const window = readWindow();
   const changes = withChange((await storedRecord(env, userId, id)).changes, changeReason);
-  const result = await env.DB.prepare(
-    `UPDATE workouts SET date = ?, changes = ?, updated_at = ?
-     WHERE user_id = ? AND id = ? AND date >= ? AND date <= ?`,
-  )
-    .bind(date, changes, new Date().toISOString(), userId, id, window.from, window.to)
-    .run();
-  if ((result.meta.changes ?? 0) === 0) return null;
+  const written = await rowsWritten(
+    env,
+    scopedUpdate(userId, id).set({ date, changes, updated_at: new Date().toISOString() }),
+  );
+  if (written === 0) return null;
   return getWorkout(env, userId, id);
 }
 
@@ -390,47 +436,57 @@ export async function setComment(
   id: string,
   comment: string | null,
 ): Promise<Workout | null> {
-  const window = readWindow();
-  const result = await env.DB.prepare(
-    'UPDATE workouts SET comment = ? WHERE user_id = ? AND id = ? AND date >= ? AND date <= ?',
-  )
-    .bind(comment, userId, id, window.from, window.to)
-    .run();
-  if ((result.meta.changes ?? 0) === 0) return null;
+  const written = await rowsWritten(env, scopedUpdate(userId, id).set({ comment }));
+  if (written === 0) return null;
   return getWorkout(env, userId, id);
 }
 
 /** The whole document, laps and all. Read on its own, for the reason `WORKOUT_COLUMNS` gives. */
 export async function getStats(env: Env, userId: string, id: string): Promise<WorkoutStats | null> {
   const window = readWindow();
-  const row = await env.DB.prepare(
-    'SELECT stats FROM workouts WHERE user_id = ? AND id = ? AND date >= ? AND date <= ?',
-  )
-    .bind(userId, id, window.from, window.to)
-    .first<{ stats: string | null }>();
+  const row = await one(
+    env,
+    qb
+      .selectFrom('workouts')
+      .select('stats')
+      .where('user_id', '=', userId)
+      .where('id', '=', id)
+      .where('date', '>=', window.from)
+      .where('date', '<=', window.to),
+  );
   return row?.stats ? (JSON.parse(row.stats) as WorkoutStats) : null;
 }
 
 /** Written by the platform sync alone, once the recording behind a completion has been read. */
 export async function setStats(env: Env, userId: string, id: string, stats: WorkoutStats): Promise<void> {
-  await env.DB.prepare('UPDATE workouts SET stats = ? WHERE user_id = ? AND id = ?')
-    .bind(JSON.stringify(stats), userId, id)
-    .run();
+  await run(
+    env,
+    qb
+      .updateTable('workouts')
+      .set({ stats: JSON.stringify(stats) })
+      .where('user_id', '=', userId)
+      .where('id', '=', id),
+  );
 }
 
 export async function deleteWorkout(env: Env, userId: string, id: string): Promise<boolean> {
-  const result = await env.DB.prepare('DELETE FROM workouts WHERE user_id = ? AND id = ?')
-    .bind(userId, id)
-    .run();
-  return (result.meta.changes ?? 0) > 0;
+  const written = await rowsWritten(
+    env,
+    qb.deleteFrom('workouts').where('user_id', '=', userId).where('id', '=', id),
+  );
+  return written > 0;
 }
 
 export async function countInWindow(env: Env, userId: string, now: Date = new Date()): Promise<number> {
   const { from, to } = retentionWindow(now);
-  const row = await env.DB.prepare(
-    'SELECT COUNT(*) AS n FROM workouts WHERE user_id = ? AND date >= ? AND date <= ?',
-  )
-    .bind(userId, from, to)
-    .first<{ n: number }>();
+  const row = await one(
+    env,
+    qb
+      .selectFrom('workouts')
+      .select((eb) => eb.fn.countAll<number>().as('n'))
+      .where('user_id', '=', userId)
+      .where('date', '>=', from)
+      .where('date', '<=', to),
+  );
   return row?.n ?? 0;
 }
