@@ -153,11 +153,12 @@ what came of it, how many sessions have gone up without anybody tapping *Export*
 events behind all three.
 
 What goes to the watch is **two days back to seven days ahead**, minus anything already
-done. Back as well as forward because a day missed is a session still worth doing, and a
-past-dated one is scheduled for the next whole hour so it is reachable today. Seven ahead
-rather than the fourteen the server holds, because the far end of a fortnight has not
-settled yet. Anything this app put on the watch that is no longer in that window — done,
-older than two days, or deleted upstream — comes off.
+done. Back as well as forward because a day missed is a session still worth doing, and each
+one goes out on the day the plan gives it and no time at all — a session missed on Friday
+stays Friday's in Apple Fitness rather than joining today's. Seven ahead rather than the
+fourteen the server holds, because the far end of a fortnight has not settled yet. Anything this app put on the watch
+that is no longer in that window — done, older than two days, or deleted upstream — comes
+off.
 
 It also works with the app shut. HealthKit launches it when a session is saved, and a
 session the **watch itself** matched to a plan is built and uploaded there and then. Only

@@ -14,21 +14,15 @@ struct PlannedView: View {
             List {
                 Section {
                     SyncRow(phase: model.sync) { Task { await model.syncToAppleFitness(using: session.client) } }
-                } footer: {
-                    Text("Two days back to seven days ahead, minus anything already done. Anything this app put on the watch outside that window comes off again.")
                 }
 
                 ProblemRow(problem: model.problem)
 
                 if !model.missed.isEmpty {
-                    Section {
+                    Section("Missed") {
                         ForEach(model.missed) { workout in
                             NavigationLink(value: workout) { PlannedRow(workout: workout) }
                         }
-                    } header: {
-                        Text("Missed")
-                    } footer: {
-                        Text("Still on the watch: a sync reaches two days back, so a session missed on Sunday is there to do on Tuesday.")
                     }
                 }
 

@@ -191,21 +191,23 @@ section saying so rather than an average of nothing.
 app put on the watch outside that window comes off. Only ids in this app's own index are
 removed — plans the athlete follows from elsewhere are left alone.
 
-Back as well as forward because a missed day is a session still worth doing. A past-dated
-workout is scheduled for the next *whole* hour, since the scheduler has nothing to show for
-a time that has gone and a whole hour means resyncing ten minutes later lands on the same
-time. Seven ahead rather than fourteen: the far end of a fortnight is a plan still being
-edited.
+Back as well as forward because a missed day is a session still worth doing. Seven ahead
+rather than fourteen: the far end of a fortnight is a plan still being edited.
+
+**Every workout goes out on the day the plan gives it, and no time at all** — the date
+components handed to `WorkoutScheduler` are the year, month and day, and Apple places it
+within that day. A day already gone included: a missed Friday moved into today would show
+in Apple Fitness under *Today*, beside the session actually planned for today, which is the
+one thing it is not.
 
 **A session already done goes out ticked**, so the days behind read as finished rather than
-absent, and the workout is still there to start again. Those keep **their own day**, the one
-exception to the bump above — moved to the next whole hour, a finished Sunday long run would
-file under today. The tick is read back as well as written, because a completion cleared in
-the Workout app is one this app's record still claims.
+absent, and the workout is still there to start again. The tick is read back as well as
+written, because a completion cleared in the Workout app is one this app's record still
+claims.
 
-**Most of a sync sends nothing at all.** A workout whose `updated_at` has not moved,
-scheduled for the minute it is already scheduled for, is skipped — its id left out of the
-ask and nothing written to the scheduler. The app checks its own record against what
+**Most of a sync sends nothing at all.** A workout whose `updated_at` has not moved, on the
+day it is already scheduled for, is skipped — its id left out of the ask and nothing
+written to the scheduler. The app checks its own record against what
 `WorkoutScheduler` is actually holding, because a plan the athlete deleted in the Workout
 app is gone. A sync with nothing to do is one listing and one read of the scheduler.
 
