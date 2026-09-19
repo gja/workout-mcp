@@ -329,6 +329,9 @@ function control(request, path) {
       if (body.driveFailing) state.drive.failing = body.driveFailing;
       if (body.athlete) state.athlete = body.athlete;
       if (body.scope !== undefined) state.scope = body.scope;
+      // Events the athlete planned on their own site, which is what the import reads.
+      for (const event of body.events ?? []) state.events.set(Number(event.id), event);
+      for (const id of body.removeEvents ?? []) state.events.delete(Number(id));
       return Response.json({ ok: true });
     });
   }
@@ -418,6 +421,21 @@ async function intervals(request, url) {
     });
   }
 
+  // GET /api/v1/athlete/0/events — the calendar, ours and the athlete's own alike.
+  // `resolve` is answered by the arranged events themselves: a test writes the
+  // targets in whatever units it is standing for.
+  if (request.method === 'GET' && path.endsWith('/events')) {
+    const oldest = url.searchParams.get('oldest');
+    const newest = url.searchParams.get('newest');
+    const category = url.searchParams.get('category');
+    const within = (event) => {
+      const day = (event.start_date_local ?? '').slice(0, 10);
+      if ((oldest && day < oldest) || (newest && day > newest)) return false;
+      return !category || (event.category ?? 'WORKOUT') === category;
+    };
+    return Response.json([...state.events.entries()].map(asEvent).filter(within));
+  }
+
   // POST /api/v1/athlete/0/events/bulk?upsert=true — their documented create-or-update.
   // `uid` is theirs, not the caller's: one is minted per event and anything sent in is
   // dropped, which is why upserting on it left duplicates behind.
@@ -428,6 +446,9 @@ async function intervals(request, url) {
     const upsert = url.searchParams.get('upsert') === 'true';
     const saved = body.map((event) => {
       const { uid: _ignored, ...fields } = event;
+      // They read the file into a workout of their own, so an event of ours comes back
+      // off the calendar looking like anybody's. Stood in for rather than decoded.
+      if (fields.file_contents_base64) fields.workout_doc = { steps: [{ text: 'From the file', duration: 600 }] };
       const existing = upsert && fields.external_id ? state.byExternalId.get(fields.external_id) : undefined;
       const id = existing ?? state.nextId++;
       const uid = state.events.get(id)?.uid ?? `uid-${id}`;

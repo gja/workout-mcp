@@ -39,6 +39,7 @@ set at login.
 | `DELETE /api/context/:kind` | Forget what they wrote, going back to the built-in document or to nothing |
 | `GET /api/config` | Every integration and where each one stands |
 | `PUT /api/config/:integration` | Answers 400: a platform is connected by OAuth, not by a body |
+| `PUT /api/config/:integration/import` | `{enabled}` — whether workouts planned on the platform are copied in. Turning it on reads its calendar at once, and the report of that is the answer |
 | `DELETE /api/config/:integration` | Disconnect, forgetting what was stored for it |
 | `POST /api/sync/:integration` | Run that integration's sync now |
 | `GET /api/recordings?platform=&from=&to=&sport=` | Sessions you actually recorded, and a signed link to their files |
@@ -51,7 +52,9 @@ set at login.
 because it is connected by an OAuth round — the two `/auth/intervals/connect*` routes —
 so that path answers 400 and says so. Syncing is under `/api/sync` rather than
 `/api/config` because telling an integration to run now is not a setting; nothing has to
-call it, it is the dashboard's "Sync now" button.
+call it, it is the dashboard's "Sync now" button. Whether the platform's own planned
+workouts are copied in *is* a setting, so it sits under `/api/config` — and it has no MCP
+tool beside it on purpose. See [integrations.md](integrations.md).
 
 `:kind` is one of `workout-library`, `current-plan`, `scheduling-instructions` and
 `workout-zones`. Three are writable over MCP; the library is not. See

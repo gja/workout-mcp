@@ -63,7 +63,8 @@ Google's and Apple's redirect URIs are on the same origin, set in their own cons
 Three crons, told apart in `src/index.ts` by which one fired.
 
 - **`20 * * * *`** — read completions back off the platforms; a backstop for the
-  intervals.icu webhook, which normally lands within a minute.
+  intervals.icu webhook, which normally lands within a minute. It also reads their
+  calendars, for the athletes who asked for what is planned there to be copied in.
 - **`40 * * * *`** — the copier in `src/drive/`. Its own cron so it gets its own
   subrequest allowance rather than the sweep's leftovers.
 - **`0 3 * * *`** — the same completion pass, plus credential housekeeping, a retry of

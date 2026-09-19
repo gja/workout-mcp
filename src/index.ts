@@ -100,13 +100,14 @@ export default {
 
     // Guarded: this talks to someone else's server, and the housekeeping below
     // must not be skipped because that went wrong.
-    const completed = await platforms.pullEveryCompletion(env).catch((err: unknown) => {
+    const pulled = await platforms.pullEveryCompletion(env).catch((err: unknown) => {
       console.error('reading completions back failed', err);
-      return 0;
+      return { marked: 0, imported: 0 };
     });
+    const completed = pulled.marked;
 
     if (event.cron !== NIGHTLY) {
-      console.log(`hourly pass marked ${completed} workouts done`);
+      console.log(`hourly pass marked ${completed} workouts done and copied ${pulled.imported} in`);
       return;
     }
 
@@ -115,7 +116,8 @@ export default {
     const abandoned = await identity.pruneLoginStates(env);
     const purged = await provider.purgeExpiredData(env);
     console.log(
-      `nightly sweep marked ${completed} workouts done, and removed ${links} stale platform links, ` +
+      `nightly sweep marked ${completed} workouts done, copied ${pulled.imported} in, ` +
+        `and removed ${links} stale platform links, ` +
         `${credentials} expired sessions, ${abandoned} abandoned sign-ins and ` +
         `${purged.grantsPurged ?? 0} stale grants`,
     );

@@ -36,7 +36,7 @@ old shape.
 | `auth.test.ts` | Google and Apple sign-in, state, ID-token checks, sessions, API tokens |
 | `oauth.test.ts` | Discovery, registration, consent, the PKCE exchange, refresh, connected apps |
 | `mcp.test.ts` | The JSON-RPC protocol and every tool |
-| `platforms.test.ts` | Connecting, pushing edits and deletes, surviving an outage, completions |
+| `platforms.test.ts` | Connecting, pushing edits and deletes, surviving an outage, completions, importing what is planned there |
 | `stats.test.ts` | Reading a recorded FIT file: totals, step mapping, quarters, band, flags |
 | `format.test.ts` | The dashboard's formatting, under the client's tsconfig |
 | `drive.test.ts` | The copier: the write check, the path, the ledger claim, the per-run cap |

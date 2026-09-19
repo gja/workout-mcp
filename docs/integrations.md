@@ -2,14 +2,15 @@
 
 Connect a training platform and every workout you create, change or move is pushed to it,
 every workout you delete is taken off it, and every session you record there comes back
-here marked done.
+here marked done. Ask for it, and what you plan *on* the platform comes back too.
 
 **intervals.icu** is the first, and `src/platforms/` is built for there to be others: an
 adapter is three functions — push a workout, remove one, list completions — handed the
 athlete's access token on every call and storing nothing, so adding a platform is a new file
-and a line in `PLATFORMS`. Three more are optional: `revoke`, and `activities`/`recording`,
-which hand sessions over whole as files. `recording` is also where stats are read from when
-a completion comes back, which is why a `Completion` names the activity behind it.
+and a line in `PLATFORMS`. Four more are optional: `revoke`, `planned` — the calendar read
+back, below — and `activities`/`recording`, which hand sessions over whole as files.
+`recording` is also where stats are read from when a completion comes back, which is why a
+`Completion` names the activity behind it.
 
 ## Connecting intervals.icu
 
@@ -72,6 +73,64 @@ Targets arrive absolute and are shown against the thresholds on your athlete pro
 **a target reading wrong or showing `null-null` is a missing threshold there**, not a bad
 file. The conversion is also lossy — they store a whole percentage, so the bpm shown can
 sit a beat off what you planned.
+
+## Reading their calendar back
+
+A workout planned on intervals.icu — by the athlete, or by a coach with access there —
+is copied in as one of ours. It is **off until it is asked for**, per connection, on the
+**Import planned workouts** button beside the platform on the dashboard, and nowhere
+else: it is a decision about whose plan leads, not something an assistant should be able
+to switch on mid-conversation, so there is no MCP tool and no other door. Turning it on
+reads the calendar there and then, so the fortnight ahead is on the dashboard by the time
+the button comes back rather than within the hour. After that the hourly pass and **Sync
+now** carry it.
+
+The window is the one this keeps: today to a fortnight out, plus a day behind, because
+their calendar is keyed on the athlete's local day and ours is UTC.
+
+**Theirs leads, and it is one-way.** An imported workout is a copy of their event:
+
+- **It is never pushed back.** Their event is theirs — editing the copy here cannot put a
+  second event beside it, and cannot delete it either. The two diverge until the event
+  changes again, and then their version wins: what came from the calendar is what the
+  calendar says.
+- **A change there is copied over; anything else is left alone.** What was imported is
+  fingerprinted on the link, the same digest the push side uses, so a pass that finds the
+  event unchanged writes nothing at all.
+- **A session already recorded against it stops the rewriting**, because the plan it was
+  run to is the plan it was run to.
+- **An event deleted there is not deleted here.** Their listing is a listing, and taking
+  a session off an athlete's plan on the strength of one that came back short is worse
+  than leaving a workout they can delete themselves. It stops being updated, and ages
+  out with everything else.
+- **Deleting an imported workout here is not asking for it again.** The link outlives the
+  workout and is what says so; the nightly prune clears it once the date is outside the
+  window, which is outside where the import reads.
+- **Completions need no special case.** The link names their event, so an activity they
+  pair with it ticks the session off exactly as one of our own pushed workouts would.
+
+Our key for the copy is `intervals:<event id>` in `external_id`, so the same event lands
+on the same row every pass, and moving it upstream moves the workout rather than adding
+one.
+
+### What their workout survives being read
+
+Their calendar holds a **`workout_doc`**, not a FIT file: a file only exists for a
+workout we pushed. `src/platforms/intervals-doc.ts` reads it as steps, and the plan then
+goes through `parseWorkout` like any caller's, so there is one set of rules for what a
+workout may say. The events are asked for with **`resolve=true`**, which is what makes
+the targets readable — without it every one is a percentage of a threshold on their
+profile, and with it they arrive as the watts and the beats those percentages stand for.
+
+What is dropped is dropped rather than guessed at, and never costs the workout:
+
+| Dropped | Why |
+| --- | --- |
+| A target in units we cannot place | A percentage of a threshold we cannot name is not a number. `%hr` is theirs of a threshold, and FIT's only percentage is of maximum |
+| A target outside what the plan format takes | One daft number is not worth a lost session |
+| The third target on a step | FIT stores a primary and a secondary; the order is the one `src/resolve.ts` ranks them in |
+| An event with no structured workout | A name and a note on a calendar is not something to run |
+| A step's prose after the first line | A step has a name, and the brief is the workout's |
 
 ## Completion arrives twice: a webhook, and an hourly backstop
 
@@ -146,6 +205,11 @@ link, a workout whose plan has changed since it was pushed, and a link naming no
 delete that did not reach the platform. That last is only acted on while its date is inside
 the retention window, since taking a session off an athlete's calendar on the strength of a
 row we can no longer check is worse than leaving it; the nightly prune sweeps the rest.
+Links to events that came *from* the platform are none of those three: they are never
+pushed and never removed, whatever became of the workout here.
+
+A run also reads their calendar where the athlete asked for that, before the completions,
+so a workout copied in today is ticked off in the same run if they have already done it.
 
 One run pushes at most `PUSH_LIMIT` (40) workouts, removals included, because a Worker is
 capped on outbound subrequests. Only stale workouts are pushed, so each run makes progress
@@ -162,6 +226,9 @@ one silently would park the batch on it. Errors are per-athlete.
 ## intervals.icu API notes
 
 - The athlete id in a path may be `0`, meaning "whoever the token belongs to".
+- `GET /events?oldest=&newest=&category=WORKOUT&resolve=true` is the calendar read back.
+  `resolve` turns the percentages on a `workout_doc` into the numbers the athlete's own
+  thresholds make them; the listing carries every event, ours included.
 - `POST /events/bulk?upsert=true` is create and update in one call, matched on our
   `external_id` and scoped to this OAuth app's events. The single-event `POST /events`
   offers only `upsertOnUid`, and `uid` is theirs to generate.

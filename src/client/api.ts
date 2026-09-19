@@ -131,9 +131,15 @@ export type Platform = {
   account: string | null;
   /** False when this deployment was never given the platform's OAuth client. */
   oauth: boolean;
+  /** Whether the platform can say what is planned on it, and so offer the switch. */
+  imports: boolean;
+  /** Whether the athlete asked for those to be copied in. Off unless they did. */
+  import_plan: boolean;
   last_error: string | null;
   /** How many workouts we have pushed and still track. */
   synced: number;
+  /** How many of those came from the platform rather than went to it. */
+  imported: number;
   updated_at: string | null;
 };
 
@@ -145,8 +151,13 @@ export type SyncReport = {
   removed: number;
   remaining: number;
   completed: number;
+  /** Copied off the platform's own calendar, where that is turned on. */
+  imported: number;
   error: string | null;
 };
+
+/** The answer to the switch: what it is now, and what turning it on found. */
+export type ImportReport = { enabled: boolean; imported: number; skipped: number; error: string | null };
 
 /** Every integration's state in one read: each Setup panel takes its own slice. */
 export type Config = { credentials_configured: boolean; platforms: Platform[] };
@@ -158,6 +169,10 @@ export const disconnectPlatform = (id: string): Promise<unknown> =>
 
 export const syncPlatform = (id: string): Promise<SyncReport> =>
   request(`/api/sync/${id}`, { method: 'POST' });
+
+/** Turning it on reads their calendar straight away, which is what comes back. */
+export const setPlanImport = (id: string, enabled: boolean): Promise<ImportReport> =>
+  request(`/api/config/${id}/import`, { method: 'PUT', body: { enabled } });
 
 export type ContextDocument = {
   kind: string;
