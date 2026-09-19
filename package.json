@@ -30,6 +30,7 @@
     "@garmin/fitsdk": "^21.214.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "arctic": "^3.7.0",
+    "kysely": "^0.29.6",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },

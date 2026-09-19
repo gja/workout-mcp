@@ -5,6 +5,28 @@ index on it, not part of the key, so moving a workout is an update of one column
 id it was created with names it for as long as it exists. Scalar fields are real columns;
 the steps, the tags and the stats are JSON.
 
+## Queries are built, not written
+
+Queries are compiled by [Kysely](https://kysely.dev) and run by D1. Kysely is used as a
+compiler and nothing else: there is no driver and no connection, because its SQLite
+compiler already emits the positional `?` placeholders and ordered parameter array that
+`D1Database.prepare` and `.bind` want. `src/sql.ts` holds the setup and the only four
+ways to reach the database — `all`, `one`, `changes` and `run` — each of which ends in
+`env.DB.prepare`.
+
+```ts
+const rows = await all(env, scopedWorkouts(userId, readWindow()).where('id', 'in', ids));
+```
+
+The `Schema` type in `src/sql.ts` is *types only*. It is erased at build, so it cannot
+drift into being a second description of the schema beside `migrations/`, which stays the
+one place the tables are defined.
+
+Queries Kysely expresses badly stay hand-written, and the same four helpers take a
+`{ sql, parameters }` pair instead of a builder. Two do: `accountSharedWithOthers`, whose
+correlated subquery reads better as SQL, and `pruneOrphanedLinks`, the nightly sweep that
+runs across every athlete rather than inside one.
+
 ## Migrations
 
 [D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/) in
@@ -46,9 +68,12 @@ being visible and stays in the table: storage is not the binding constraint (5 G
 a few hundred bytes a workout). The cap counts only what is inside the window, so it is a
 rolling limit rather than a wall after a year of training.
 
-Every single-workout read and write narrows on the row's *stored* date — `... AND id = ?
-AND date >= ? AND date <= ?` — never on one the caller gave, which is how the window
-survives the caller's date being ignored.
+Every single-workout read and write narrows on the row's *stored* date, never on one the
+caller gave, which is how the window survives the caller's date being ignored. Rather
+than each query repeating that bound, `scopedWorkouts` and `scopedUpdate` in `src/db.ts`
+start from it and callers narrow further. Kysely builders are immutable, so an added
+`.where(...)` is an `and` on a fresh builder: a caller can ask for less than the window
+but has no way to ask for more.
 
 Two lookups are deliberately **not** narrowed, because both read a row that is about to
 be written over: `findByExternalId`, since its unique index is not narrowed either and a

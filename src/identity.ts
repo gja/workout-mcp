@@ -4,6 +4,7 @@
 import { Apple, Google, generateCodeVerifier, generateState } from 'arctic';
 import type { OAuth2Tokens } from 'arctic';
 import type { Env } from './db';
+import { changes, one, qb, run } from './sql';
 
 export type ProviderName = 'google' | 'apple' | 'intervals';
 
@@ -127,19 +128,17 @@ async function rememberState(
   returnTo: string | null,
   userId: string | null,
 ): Promise<void> {
-  await env.DB.prepare(
-    `INSERT INTO login_states (state, provider, code_verifier, return_to, user_id, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
+  await run(
+    env,
+    qb.insertInto('login_states').values({
       state,
       provider,
-      codeVerifier,
-      safeReturnTo(returnTo),
-      userId,
-      new Date(Date.now() + LOGIN_STATE_TTL_MINUTES * 60_000).toISOString(),
-    )
-    .run();
+      code_verifier: codeVerifier,
+      return_to: safeReturnTo(returnTo),
+      user_id: userId,
+      expires_at: new Date(Date.now() + LOGIN_STATE_TTL_MINUTES * 60_000).toISOString(),
+    }),
+  );
 }
 
 /** Remembers the state in D1 *and* in a cookie; `completeLogin` insists on both. */
@@ -203,20 +202,16 @@ async function takeLoginState(
   state: string,
   expect: 'login' | 'connect',
 ): Promise<{ codeVerifier: string | null; returnTo: string | null; userId: string | null }> {
-  const row = await env.DB.prepare(
-    'SELECT provider, code_verifier, return_to, user_id, expires_at FROM login_states WHERE state = ?',
-  )
-    .bind(state)
-    .first<{
-      provider: string;
-      code_verifier: string | null;
-      return_to: string | null;
-      user_id: string | null;
-      expires_at: string;
-    }>();
+  const row = await one(
+    env,
+    qb
+      .selectFrom('login_states')
+      .select(['provider', 'code_verifier', 'return_to', 'user_id', 'expires_at'])
+      .where('state', '=', state),
+  );
 
   // Single use, whether or not it turns out to be valid.
-  await env.DB.prepare('DELETE FROM login_states WHERE state = ?').bind(state).run();
+  await run(env, qb.deleteFrom('login_states').where('state', '=', state));
 
   if (!row || row.provider !== provider || Date.parse(row.expires_at) < Date.now()) {
     throw new LoginError('that sign-in link has expired — please try again');
@@ -422,6 +417,5 @@ export async function completeConnect(
 }
 
 export async function pruneLoginStates(env: Env, now: Date = new Date()): Promise<number> {
-  const result = await env.DB.prepare('DELETE FROM login_states WHERE expires_at < ?').bind(now.toISOString()).run();
-  return result.meta.changes ?? 0;
+  return changes(env, qb.deleteFrom('login_states').where('expires_at', '<', now.toISOString()));
 }

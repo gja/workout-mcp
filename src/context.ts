@@ -3,6 +3,7 @@
 
 import WORKOUT_LIBRARY from './workout-library.md';
 import type { Env } from './db';
+import { all, one, qb, run } from './sql';
 import { zipStream } from './recordings/zip';
 import type { ZipEntry } from './recordings/zip';
 import { fail } from './units';
@@ -120,18 +121,24 @@ function present(kind: ContextKind, stored: Stored | null): ContextDocument {
 }
 
 export async function readContext(env: Env, userId: string, kind: ContextKind): Promise<ContextDocument> {
-  const row = await env.DB.prepare('SELECT markdown, updated_at FROM contexts WHERE user_id = ? AND kind = ?')
-    .bind(userId, kind)
-    .first<Stored>();
-  return present(kind, row ?? null);
+  const row = await one(
+    env,
+    qb
+      .selectFrom('contexts')
+      .select(['markdown', 'updated_at'])
+      .where('user_id', '=', userId)
+      .where('kind', '=', kind),
+  );
+  return present(kind, row);
 }
 
 /** One query for the lot: an assistant reading before it plans wants all of them. */
 export async function readEveryContext(env: Env, userId: string): Promise<ContextDocument[]> {
-  const { results } = await env.DB.prepare('SELECT kind, markdown, updated_at FROM contexts WHERE user_id = ?')
-    .bind(userId)
-    .all<Stored & { kind: string }>();
-  const stored = new Map((results ?? []).map((row) => [row.kind, row]));
+  const rows = await all(
+    env,
+    qb.selectFrom('contexts').select(['kind', 'markdown', 'updated_at']).where('user_id', '=', userId),
+  );
+  const stored = new Map(rows.map((row) => [row.kind, row]));
   return CONTEXT_KINDS.map((kind) => present(kind, stored.get(kind) ?? null));
 }
 
@@ -158,18 +165,23 @@ export async function saveContext(
   if (text === '') return await clearContext(env, userId, kind);
 
   const now = new Date().toISOString();
-  await env.DB.prepare(
-    `INSERT INTO contexts (user_id, kind, markdown, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?4)
-     ON CONFLICT (user_id, kind) DO UPDATE SET markdown = excluded.markdown, updated_at = excluded.updated_at`,
-  )
-    .bind(userId, kind, text, now)
-    .run();
+  await run(
+    env,
+    qb
+      .insertInto('contexts')
+      .values({ user_id: userId, kind, markdown: text, created_at: now, updated_at: now })
+      .onConflict((clash) =>
+        clash.columns(['user_id', 'kind']).doUpdateSet((eb) => ({
+          markdown: eb.ref('excluded.markdown'),
+          updated_at: eb.ref('excluded.updated_at'),
+        })),
+      ),
+  );
   return present(kind, { markdown: text, updated_at: now });
 }
 
 export async function clearContext(env: Env, userId: string, kind: ContextKind): Promise<ContextDocument> {
-  await env.DB.prepare('DELETE FROM contexts WHERE user_id = ? AND kind = ?').bind(userId, kind).run();
+  await run(env, qb.deleteFrom('contexts').where('user_id', '=', userId).where('kind', '=', kind));
   return present(kind, null);
 }
 

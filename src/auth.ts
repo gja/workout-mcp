@@ -2,6 +2,7 @@
 
 import type { Env, User } from './db';
 import { newId } from './db';
+import { all, changes, one, qb, run } from './sql';
 import type { Identity } from './identity';
 
 export const SESSION_TTL_DAYS = 30;
@@ -37,17 +38,34 @@ export async function secretsMatch(given: string | null, expected: string | unde
 /** The first sign-in creates the account; later ones just stamp it. */
 export async function upsertUser(env: Env, identity: Identity): Promise<User> {
   const now = iso(new Date());
-  await env.DB.prepare(
-    `INSERT INTO users (id, provider, subject, email, created_at, last_login_at) VALUES (?1, ?2, ?3, ?4, ?5, ?5)
-     ON CONFLICT (provider, subject) DO UPDATE SET
-       email = excluded.email, last_login_at = excluded.last_login_at`,
-  )
-    .bind(newId(12), identity.provider, identity.subject, identity.email, now)
-    .run();
+  await run(
+    env,
+    qb
+      .insertInto('users')
+      .values({
+        id: newId(12),
+        provider: identity.provider,
+        subject: identity.subject,
+        email: identity.email,
+        created_at: now,
+        last_login_at: now,
+      })
+      .onConflict((clash) =>
+        clash.columns(['provider', 'subject']).doUpdateSet((eb) => ({
+          email: eb.ref('excluded.email'),
+          last_login_at: eb.ref('excluded.last_login_at'),
+        })),
+      ),
+  );
 
-  const user = await env.DB.prepare('SELECT id, email FROM users WHERE provider = ? AND subject = ?')
-    .bind(identity.provider, identity.subject)
-    .first<User>();
+  const user = await one(
+    env,
+    qb
+      .selectFrom('users')
+      .select(['id', 'email'])
+      .where('provider', '=', identity.provider)
+      .where('subject', '=', identity.subject),
+  );
   if (!user) throw new Error('user vanished immediately after being written');
   return user;
 }
@@ -56,9 +74,15 @@ export async function upsertUser(env: Env, identity: Identity): Promise<User> {
 
 export async function createSession(env: Env, userId: string): Promise<string> {
   const id = randomHex(32);
-  await env.DB.prepare('INSERT INTO sessions (id_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)')
-    .bind(await sha256(id), userId, iso(inDays(SESSION_TTL_DAYS)), iso(new Date()))
-    .run();
+  await run(
+    env,
+    qb.insertInto('sessions').values({
+      id_hash: await sha256(id),
+      user_id: userId,
+      expires_at: iso(inDays(SESSION_TTL_DAYS)),
+      created_at: iso(new Date()),
+    }),
+  );
   return id;
 }
 
@@ -76,16 +100,18 @@ export async function readSession(env: Env, request: Request): Promise<User | nu
   const id = readCookie(request, SESSION_COOKIE);
   if (!id) return null;
 
-  const row = await env.DB.prepare(
-    `SELECT users.id AS id, users.email AS email, sessions.expires_at AS expires_at
-     FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.id_hash = ?`,
-  )
-    .bind(await sha256(id))
-    .first<User & { expires_at: string }>();
+  const row = await one(
+    env,
+    qb
+      .selectFrom('sessions')
+      .innerJoin('users', 'users.id', 'sessions.user_id')
+      .select(['users.id as id', 'users.email as email', 'sessions.expires_at as expires_at'])
+      .where('sessions.id_hash', '=', await sha256(id)),
+  );
 
   if (!row) return null;
   if (Date.parse(row.expires_at) < Date.now()) {
-    await env.DB.prepare('DELETE FROM sessions WHERE id_hash = ?').bind(await sha256(id)).run();
+    await run(env, qb.deleteFrom('sessions').where('id_hash', '=', await sha256(id)));
     return null;
   }
   return { id: row.id, email: row.email };
@@ -93,7 +119,7 @@ export async function readSession(env: Env, request: Request): Promise<User | nu
 
 export async function endSession(env: Env, request: Request): Promise<void> {
   const id = readCookie(request, SESSION_COOKIE);
-  if (id) await env.DB.prepare('DELETE FROM sessions WHERE id_hash = ?').bind(await sha256(id)).run();
+  if (id) await run(env, qb.deleteFrom('sessions').where('id_hash', '=', await sha256(id)));
 }
 
 /** `Secure` is dropped over plain http so the cookie also works on localhost. */
@@ -120,11 +146,16 @@ export async function issueToken(env: Env, userId: string, name?: string | null)
   const token = `${API_TOKEN_PREFIX}${randomHex(32)}`;
   const prefix = token.slice(0, API_TOKEN_PREFIX.length + 6);
 
-  await env.DB.prepare(
-    'INSERT INTO tokens (token_hash, user_id, name, prefix, created_at) VALUES (?, ?, ?, ?, ?)',
-  )
-    .bind(await sha256(token), userId, name ?? null, prefix, iso(new Date()))
-    .run();
+  await run(
+    env,
+    qb.insertInto('tokens').values({
+      token_hash: await sha256(token),
+      user_id: userId,
+      name: name ?? null,
+      prefix,
+      created_at: iso(new Date()),
+    }),
+  );
 
   return { token, prefix };
 }
@@ -134,15 +165,17 @@ export const isApiToken = (token: string): boolean => token.startsWith(API_TOKEN
 
 export async function findTokenOwner(env: Env, token: string): Promise<User | null> {
   const hash = await sha256(token);
-  const row = await env.DB.prepare(
-    `SELECT users.id AS id, users.email AS email
-     FROM tokens JOIN users ON users.id = tokens.user_id WHERE tokens.token_hash = ?`,
-  )
-    .bind(hash)
-    .first<User>();
+  const row = await one(
+    env,
+    qb
+      .selectFrom('tokens')
+      .innerJoin('users', 'users.id', 'tokens.user_id')
+      .select(['users.id as id', 'users.email as email'])
+      .where('tokens.token_hash', '=', hash),
+  );
   if (!row) return null;
 
-  await env.DB.prepare('UPDATE tokens SET last_used_at = ? WHERE token_hash = ?').bind(iso(new Date()), hash).run();
+  await run(env, qb.updateTable('tokens').set({ last_used_at: iso(new Date()) }).where('token_hash', '=', hash));
   return { id: row.id, email: row.email };
 }
 
@@ -154,22 +187,24 @@ export type TokenSummary = {
 };
 
 export async function listTokens(env: Env, userId: string): Promise<TokenSummary[]> {
-  const { results } = await env.DB.prepare(
-    'SELECT prefix, name, created_at, last_used_at FROM tokens WHERE user_id = ? ORDER BY created_at DESC',
-  )
-    .bind(userId)
-    .all<TokenSummary>();
-  return results ?? [];
+  return all(
+    env,
+    qb
+      .selectFrom('tokens')
+      .select(['prefix', 'name', 'created_at', 'last_used_at'])
+      .where('user_id', '=', userId)
+      .orderBy('created_at', 'desc'),
+  );
 }
 
 export async function revokeToken(env: Env, userId: string, prefix: string): Promise<boolean> {
-  const result = await env.DB.prepare('DELETE FROM tokens WHERE user_id = ? AND prefix = ?')
-    .bind(userId, prefix)
-    .run();
-  return (result.meta.changes ?? 0) > 0;
+  const written = await changes(
+    env,
+    qb.deleteFrom('tokens').where('user_id', '=', userId).where('prefix', '=', prefix),
+  );
+  return written > 0;
 }
 
 export async function pruneExpired(env: Env, now: Date = new Date()): Promise<number> {
-  const result = await env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(iso(now)).run();
-  return result.meta.changes ?? 0;
+  return changes(env, qb.deleteFrom('sessions').where('expires_at', '<', iso(now)));
 }
