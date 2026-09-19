@@ -2,9 +2,11 @@
 // Their API notes, and why completions are polled, are in docs/integrations.md.
 
 import { base64Encode, encodeWorkoutFit, fitFilename } from '../fit';
-import type { Sport, SubSport, Workout } from '../workout';
+import { MAX_TAGS, MAX_TAG_LENGTH } from '../workout';
+import type { Sport, SubSport, Workout, WorkoutInput } from '../workout';
+import { stepsFromDoc } from './intervals-doc';
 import { PlatformError } from './types';
-import type { Completion, Outbound, Platform, Recorded, RecordedFile } from './types';
+import type { Completion, Outbound, Platform, PlannedWorkout, Recorded, RecordedFile } from './types';
 
 const BASE = 'https://intervals.icu/api/v1';
 
@@ -79,6 +81,21 @@ const SPORT_BY_TYPE = new Map<string, Sport>([
 export const sportOf = (type: string | null | undefined): Sport | null =>
   (type && SPORT_BY_TYPE.get(type.trim().toLowerCase())) || null;
 
+/** The other way through the two maps above: their type as a sub-sport of ours. */
+const SUB_SPORT_BY_TYPE = new Map<string, SubSport>([
+  ...Object.entries(BY_SUB_SPORT).map(([sub, type]) => [type.toLowerCase(), sub as SubSport] as const),
+  ...Object.values(VIRTUAL).map((type) => [type.toLowerCase(), 'virtual_activity' as SubSport] as const),
+]);
+
+/** What their `indoor` flag amounts to here, where the sport has an indoor profile. */
+const INDOOR_SUB_SPORT: Partial<Record<Sport, SubSport>> = {
+  running: 'treadmill',
+  cycling: 'indoor_cycling',
+  swimming: 'lap_swimming',
+  rowing: 'indoor_rowing',
+  walking: 'indoor_walking',
+};
+
 export function activityType(workout: Pick<Workout, 'sport' | 'sub_sport'>): string {
   if (workout.sub_sport === 'virtual_activity') {
     return VIRTUAL[workout.sport] ?? ACTIVITY_TYPE[workout.sport];
@@ -132,6 +149,22 @@ async function readJson<T>(response: Response): Promise<T> {
 }
 
 type Event = { id?: number; push_errors?: unknown[] };
+
+/** A calendar event on the way back: what they hold for a session somebody planned. */
+type PlannedEvent = {
+  id?: number | string | null;
+  /** Ours, where we pushed it — which is how the sync layer knows not to read it back. */
+  external_id?: string | null;
+  name?: string | null;
+  description?: string | null;
+  type?: string | null;
+  indoor?: boolean | null;
+  tags?: unknown;
+  start_date_local?: string | null;
+  /** Their structured workout. Absent on an event that is only a name and a note. */
+  workout_doc?: unknown;
+};
+
 type Activity = {
   id?: string | null;
   paired_event_id?: number | null;
@@ -174,6 +207,38 @@ function startedAt(activity: Activity): string | null {
   if (!raw) return null;
   const parsed = Date.parse(/(Z|[+-]\d{2}:?\d{2})$/.test(raw) ? raw : `${raw}Z`);
   return Number.isNaN(parsed) ? null : new Date(parsed).toISOString();
+}
+
+/** Theirs are free-form; ours are counted and cut to length, and the rest are dropped. */
+const tagsOf = (value: unknown): string[] =>
+  (Array.isArray(value) ? value : [])
+    .filter((tag): tag is string => typeof tag === 'string' && tag.trim() !== '')
+    .map((tag) => tag.trim().slice(0, MAX_TAG_LENGTH))
+    .slice(0, MAX_TAGS);
+
+/**
+ * One of their events as a plan of ours, or null where there is no plan in it: an event
+ * with no structured workout is a note on a calendar, and there is nothing to run.
+ */
+function planOf(event: PlannedEvent): WorkoutInput | null {
+  const date = (event.start_date_local ?? '').slice(0, 10);
+  const steps = stepsFromDoc(event.workout_doc);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || steps.length === 0) return null;
+
+  const sport = sportOf(event.type) ?? 'generic';
+  const plan: WorkoutInput = { date, name: event.name?.trim().slice(0, 80) || `${sport} ${date}`, sport, steps };
+
+  const subSport =
+    SUB_SPORT_BY_TYPE.get((event.type ?? '').trim().toLowerCase()) ??
+    (event.indoor ? INDOOR_SUB_SPORT[sport] : undefined);
+  if (subSport) plan.sub_sport = subSport;
+
+  const notes = event.description?.trim();
+  if (notes) plan.notes = notes.slice(0, 1000);
+
+  const tags = tagsOf(event.tags);
+  if (tags.length > 0) plan.tags = tags;
+  return plan;
 }
 
 export const intervals: Platform = {
@@ -281,6 +346,26 @@ export const intervals: Platform = {
       });
     }
     return completions;
+  },
+
+  /**
+   * Their calendar, which is where a workout planned on their own site lives. `resolve`
+   * is what makes the targets readable: without it every one is a percentage of a
+   * threshold named on the athlete's profile, and with it they arrive as the watts and
+   * the beats those percentages stand for. See docs/integrations.md.
+   */
+  async planned(token, from, to) {
+    const query = new URLSearchParams({ oldest: from, newest: to, category: 'WORKOUT', resolve: 'true' });
+    const events = await readJson<PlannedEvent[]>(await call(token, `/athlete/${ATHLETE}/events?${query}`));
+    if (!Array.isArray(events)) fail('intervals.icu returned an unexpected event list');
+
+    const planned: PlannedWorkout[] = [];
+    for (const event of events) {
+      const plan = event && planOf(event);
+      if (!plan || event.id === undefined || event.id === null) continue;
+      planned.push({ remote_id: String(event.id), external_id: event.external_id?.trim() || null, plan });
+    }
+    return planned;
   },
 
   // Everything the athlete recorded, unfiltered: what is worth copying is the

@@ -8,6 +8,7 @@ import * as platforms from '../platforms';
 import type { Router } from '../router';
 
 const CONFIG = '/api/config/:integration([a-z_]+)';
+const IMPORT = '/api/config/:integration([a-z_]+)/import';
 const SYNC = '/api/sync/:integration([a-z_]+)';
 
 /** The params both namespaces carry. */
@@ -46,6 +47,26 @@ const disconnectPlatform = async ({ env, user, params }: Named) => {
     : error('that integration is not connected', 404);
 };
 
+/**
+ * The one setting a platform has: whether what is planned there is copied in here.
+ *
+ * A setting rather than an action, so it lives under `/api/config` — but turning it on
+ * does read their calendar straight away, and the report of that is the answer.
+ */
+const setPlanImport = async ({ env, user, params, request }: Named) => {
+  const platform = namedPlatform(params.integration);
+  if (platform instanceof Response) return platform;
+  if (!platforms.offersPlanImport(platform)) {
+    return error(`${platform} cannot say what is planned on it, so there is nothing to import`, 400);
+  }
+
+  const body = (await request.json().catch(() => ({}))) as { enabled?: unknown };
+  if (typeof body.enabled !== 'boolean') return error('enabled: expected true or false', 400);
+
+  const report = await platforms.setPlanImport(env, user, platform, body.enabled);
+  return report === null ? error('that integration is not connected', 404) : json({ ...report, enabled: body.enabled });
+};
+
 /** Push anything out of date and read completions back, on demand. */
 const syncPlatform = async ({ env, user, params }: Named) => {
   const platform = namedPlatform(params.integration);
@@ -59,6 +80,7 @@ export const routes = (app: Router<Context>): void => {
   app
     .get('/api/config', withUser(readConfig))
     .put(CONFIG, withUser(connectPlatform))
+    .put(IMPORT, withUser(setPlanImport))
     .delete(CONFIG, withUser(disconnectPlatform))
     .post(SYNC, withUser(syncPlatform));
 };

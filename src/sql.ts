@@ -78,6 +78,8 @@ type PlatformConnections = {
   account: string | null;
   account_id: string | null;
   last_error: string | null;
+  /** 1 where the athlete asked for what is planned there to be copied in. */
+  import_plan: number;
   created_at: string;
   updated_at: string;
 };
@@ -91,6 +93,8 @@ type PlatformLinks = {
   fingerprint: string;
   applied_completion: string | null;
   applied_comment: string | null;
+  /** Which side the event came from: `local` where we pushed it. See the migration. */
+  source: string;
   synced_at: string;
 };
 

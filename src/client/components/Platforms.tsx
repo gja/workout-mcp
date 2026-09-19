@@ -1,14 +1,33 @@
 import { useEffect, useState } from 'react';
-import { disconnectPlatform, getConfig, syncPlatform, type Platform, type SyncReport } from '../api';
+import {
+  disconnectPlatform,
+  getConfig,
+  setPlanImport,
+  syncPlatform,
+  type ImportReport,
+  type Platform,
+  type SyncReport,
+} from '../api';
 
 /** What a finished run amounts to, in one line. */
 function describeSync(report: SyncReport): string {
   const parts: string[] = [];
   if (report.pushed) parts.push(`pushed ${report.pushed}`);
   if (report.removed) parts.push(`removed ${report.removed}`);
+  if (report.imported) parts.push(`copied ${report.imported} in`);
   if (report.completed) parts.push(`marked ${report.completed} done`);
   if (report.remaining) parts.push(`${report.remaining} left for the next run`);
   return parts.length > 0 ? `Synced: ${parts.join(', ')}.` : 'Already up to date.';
+}
+
+/** Turning the switch on reads their calendar there and then, so it has something to say. */
+function describeImport(report: ImportReport, label: string): string {
+  if (!report.enabled) return `Workouts planned on ${label} will not be copied in.`;
+
+  const skipped = report.skipped > 0 ? ` ${report.skipped} could not be read as a plan.` : '';
+  return report.imported === 0
+    ? `Nothing new is planned on ${label} for the fortnight ahead.${skipped}`
+    : `Copied ${report.imported} planned workout${report.imported === 1 ? '' : 's'} in.${skipped}`;
 }
 
 /** `onSynced` reloads the calendar: a sync is how a completion recorded upstream arrives. */
@@ -47,6 +66,16 @@ function PlatformCard({
       onSynced();
     });
 
+  // `onSynced` too: turning it on lands a fortnight of workouts on the calendar behind.
+  const toggleImport = () =>
+    void run(async () => {
+      const report = await setPlanImport(platform.id, !platform.import_plan);
+      setNote(describeImport(report, platform.label));
+      setError(report.error);
+      onChanged();
+      onSynced();
+    });
+
   const disconnect = () => {
     const warning =
       `Disconnect ${platform.label}? Workouts already on it are left alone, and the ` +
@@ -74,6 +103,22 @@ function PlatformCard({
             Sessions you record on {platform.label} come back here as done, usually within about 15 minutes.
           </p>
           {platform.connected_note && <p className="note">{platform.connected_note}</p>}
+          {platform.imports && (
+            <p className="note">
+              {platform.import_plan ? (
+                <>
+                  Workouts planned on {platform.label} are copied here too
+                  {platform.imported > 0 && `, ${platform.imported} of them so far`}. Their calendar leads: a
+                  change there arrives within the hour, and nothing you change here is pushed back onto it.
+                </>
+              ) : (
+                <>
+                  Planning on {platform.label} as well? <strong>Import planned workouts</strong> copies what is
+                  on its calendar into here, starting with the fortnight ahead.
+                </>
+              )}
+            </p>
+          )}
           {platform.last_error && (
             <>
               <p className="error">Last sync failed — {platform.last_error}</p>
@@ -90,6 +135,11 @@ function PlatformCard({
             <button className="link" disabled={busy} onClick={sync}>
               Sync now
             </button>
+            {platform.imports && (
+              <button className="link" disabled={busy} onClick={toggleImport}>
+                {platform.import_plan ? 'Stop importing' : 'Import planned workouts'}
+              </button>
+            )}
             {/* Not disconnect-then-connect: that hands the grant back, drops what we know
                 about the calendar, and asks the athlete to find the button twice. The
                 round lands on the same connection, so the links and the pushed events
@@ -155,7 +205,8 @@ export function Platforms({ onSynced }: { onSynced: () => void }) {
     <>
       <p className="note">
         Every workout you create, change or delete here is pushed to the platforms you connect. Sessions you record
-        there are marked done here — as they are analysed, or on the next hourly pass.
+        there are marked done here — as they are analysed, or on the next hourly pass. Workouts planned on a
+        platform can come the other way too, once you ask for it.
       </p>
 
       {!configured && (

@@ -87,6 +87,9 @@ const platformStatus = async () => {
       account: string | null;
       last_error: string | null;
       synced: number;
+      imports: boolean;
+      import_plan: boolean;
+      imported: number;
       connected_note: string | null;
     }>;
   };
@@ -449,6 +452,252 @@ describe('completions coming back', () => {
       completed_at?: string;
     };
     expect(workout.completed_at).toBeTruthy();
+  });
+});
+
+describe('importing what is planned on the platform', () => {
+  const PLANNED_ID = 4242;
+
+  /** One of their events: a workout the athlete planned on their own site, not here. */
+  const plannedEvent = (fields: Record<string, unknown> = {}) => ({
+    id: PLANNED_ID,
+    category: 'WORKOUT',
+    name: 'Threshold 3x10',
+    description: 'Steady, not hard.',
+    type: 'Ride',
+    indoor: true,
+    tags: ['key'],
+    start_date_local: `${DAY}T00:00:00`,
+    // `resolve=true` is what makes the watts watts; a percentage of a threshold we
+    // cannot name is dropped, which the `%lthr` step below stands for.
+    workout_doc: {
+      steps: [
+        { text: 'Warm up', duration: 600, warmup: true, power: { units: 'w', start: 120, end: 180 } },
+        {
+          reps: 3,
+          steps: [
+            {
+              text: 'Threshold',
+              duration: 600,
+              power: { units: 'w', value: 250 },
+              cadence: { units: 'rpm', value: 90 },
+            },
+            { text: 'Float', duration: 300, recovery: true, power: { units: '%ftp', value: 55 } },
+          ],
+        },
+        { text: 'Cool down', duration: 300, cooldown: true, hr: { units: '%lthr', value: 70 } },
+      ],
+    },
+    ...fields,
+  });
+
+  type ImportReport = { enabled: boolean; imported: number; skipped: number; error: string | null };
+
+  const setImport = async (enabled: boolean): Promise<ImportReport> => {
+    const response = await call('/api/config/intervals/import', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    });
+    expect(response.status).toBe(200);
+    return (await response.json()) as ImportReport;
+  };
+
+  const sync = async (): Promise<{ imported: number; pushed: number; error: string | null }> =>
+    (await (await call('/api/sync/intervals', { method: 'POST' })).json()) as {
+      imported: number;
+      pushed: number;
+      error: string | null;
+    };
+
+  type Listed = { id: string; date: string; name: string; sport: string; sub_sport?: string; tags?: string[] };
+
+  const stored = async (): Promise<Listed[]> =>
+    ((await (await call('/api/workouts.json')).json()) as { workouts: Listed[] }).workouts;
+
+  const planOf = async (workout: Listed): Promise<{ steps: unknown[]; notes?: string }> =>
+    (await (await call(`/api/workouts/${workout.date}/${workout.id}.json`)).json()) as {
+      steps: unknown[];
+      notes?: string;
+    };
+
+  it('leaves their calendar alone until the athlete asks for it', async () => {
+    await connect();
+    await control('setup', { events: [plannedEvent()] });
+
+    expect(await sync()).toMatchObject({ imported: 0 });
+    expect(await stored()).toHaveLength(0);
+    expect((await platformStatus()).intervals).toMatchObject({ imports: true, import_plan: false });
+  });
+
+  it('copies the fortnight ahead in the moment it is turned on, targets and all', async () => {
+    await connect();
+    await control('setup', { events: [plannedEvent()] });
+
+    expect(await setImport(true)).toEqual({ enabled: true, imported: 1, skipped: 0, error: null });
+
+    const [workout] = await stored();
+    expect(workout).toMatchObject({
+      date: DAY,
+      name: 'Threshold 3x10',
+      sport: 'cycling',
+      sub_sport: 'indoor_cycling',
+      tags: ['key'],
+    });
+
+    const plan = await planOf(workout);
+    expect(plan.notes).toBe('Steady, not hard.');
+    expect(plan.steps).toEqual([
+      { name: 'Warm up', intensity: 'warmup', goal_s: 600, target_watts: [120, 180] },
+      {
+        repeat: 3,
+        steps: [
+          { name: 'Threshold', goal_s: 600, target_watts: 250, target_cadence: 90 },
+          { name: 'Float', intensity: 'recovery', goal_s: 300, target_watts: '55%' },
+        ],
+      },
+      // The step stands; its target does not, because theirs is of a threshold and
+      // FIT's only percentage is of maximum.
+      { name: 'Cool down', intensity: 'cooldown', goal_s: 300 },
+    ]);
+
+    expect((await platformStatus()).intervals).toMatchObject({ import_plan: true, imported: 1, synced: 1 });
+  });
+
+  // They read our FIT file into a workout of their own, so our events come off the
+  // calendar looking like anybody's. Reading one back in would copy every push.
+  it('never reads one of our own pushed workouts back in', async () => {
+    const planned = await createWorkout();
+    await connect();
+    expect(await calendar()).toHaveLength(1);
+
+    await control('setup', { events: [plannedEvent()] });
+    expect(await setImport(true)).toMatchObject({ imported: 1 });
+
+    const workouts = await stored();
+    expect(workouts).toHaveLength(2);
+    expect(workouts.some((workout) => workout.id === planned.id)).toBe(true);
+    expect(workouts.map((workout) => workout.name).sort()).toEqual(['8x400m', 'Threshold 3x10']);
+  });
+
+  it('reads a run: pace as a pace, beats as beats, and a distance as a distance', async () => {
+    await connect();
+    await control('setup', {
+      events: [
+        plannedEvent({
+          name: 'Trail long run',
+          type: 'TrailRun',
+          indoor: false,
+          tags: [],
+          description: '',
+          workout_doc: {
+            steps: [
+              {
+                text: 'Out',
+                distance: 5000,
+                pace: { units: 'm/s', start: 3.7, end: 4 },
+                hr: { units: 'bpm', value: 150 },
+              },
+              { reps: 4, steps: [{ duration: 20, pace: { units: 'secs_100m', value: 18 } }] },
+              { text: 'Home', duration: 1200, power: { units: 'boat', value: 3 } },
+            ],
+          },
+        }),
+      ],
+    });
+
+    expect(await setImport(true)).toMatchObject({ imported: 1, skipped: 0 });
+
+    const [workout] = await stored();
+    expect(workout).toMatchObject({ sport: 'running', sub_sport: 'trail' });
+    expect((await planOf(workout)).steps).toEqual([
+      { name: 'Out', goal_meters: 5000, target_pace_km: ['4:30', '4:10'], target_heart_rate: 150 },
+      { repeat: 4, steps: [{ goal_s: 20, target_pace_km: '3:00' }] },
+      // Units nobody here can place are dropped rather than guessed at; the step stays.
+      { name: 'Home', goal_s: 1200 },
+    ]);
+  });
+
+  it('never pushes one back, so their event is neither duplicated nor replaced', async () => {
+    await connect();
+    await control('setup', { events: [plannedEvent()] });
+    await setImport(true);
+
+    const [workout] = await stored();
+    const edited = await call(`/api/workouts/${workout.date}/${workout.id}.json`, {
+      method: 'PUT',
+      body: JSON.stringify({ date: workout.date, name: 'Threshold, shortened', steps: [{ goal_s: 1800 }] }),
+    });
+    expect(edited.status).toBe(200);
+
+    // Still the one event, still theirs: nothing of ours went up beside it.
+    const events = await calendar();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ id: PLANNED_ID, name: 'Threshold 3x10' });
+    expect(await sync()).toMatchObject({ pushed: 0, imported: 0 });
+  });
+
+  it('follows their calendar: a change there is copied over, and the rest is left alone', async () => {
+    await connect();
+    await control('setup', { events: [plannedEvent()] });
+    await setImport(true);
+    const [before] = await stored();
+
+    // Nothing has changed there, so nothing is written here.
+    expect(await sync()).toMatchObject({ imported: 0 });
+
+    await control('setup', { events: [plannedEvent({ name: 'Threshold 4x10', start_date_local: `${OTHER_DAY}T00:00:00` })] });
+    expect(await sync()).toMatchObject({ imported: 1 });
+
+    const workouts = await stored();
+    expect(workouts).toHaveLength(1);
+    // The same row, moved: their event is the same event, on another day.
+    expect(workouts[0]).toMatchObject({ id: before.id, date: OTHER_DAY, name: 'Threshold 4x10' });
+  });
+
+  it('does not copy one back in after it has been deleted here', async () => {
+    await connect();
+    await control('setup', { events: [plannedEvent()] });
+    await setImport(true);
+
+    const [workout] = await stored();
+    expect((await call(`/api/workouts/${workout.date}/${workout.id}.json`, { method: 'DELETE' })).status).toBe(200);
+
+    expect(await sync()).toMatchObject({ imported: 0 });
+    expect(await stored()).toHaveLength(0);
+  });
+
+  it('reads an event with nothing structured in it as nothing to plan', async () => {
+    await connect();
+    await control('setup', { events: [plannedEvent({ workout_doc: undefined, description: 'Easy hour, your call.' })] });
+
+    expect(await setImport(true)).toMatchObject({ imported: 0, skipped: 0 });
+    expect(await stored()).toHaveLength(0);
+  });
+
+  it('keeps reading their calendar on the hourly pass, and stops when it is turned off', async () => {
+    await connect();
+    await setImport(true);
+
+    await control('setup', { events: [plannedEvent()] });
+    await worker.scheduled!(createScheduledController({ cron: '20 * * * *' }), env);
+    expect(await stored()).toHaveLength(1);
+
+    expect(await setImport(false)).toEqual({ enabled: false, imported: 0, skipped: 0, error: null });
+    await control('setup', { events: [plannedEvent({ id: 4243, start_date_local: `${OTHER_DAY}T00:00:00` })] });
+    await worker.scheduled!(createScheduledController({ cron: '20 * * * *' }), env);
+    expect(await stored()).toHaveLength(1);
+  });
+
+  it('answers 404 for a platform that is not connected, and 400 without a decision', async () => {
+    const notConnected = await call('/api/config/intervals/import', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(notConnected.status).toBe(404);
+
+    await connect();
+    const undecided = await call('/api/config/intervals/import', { method: 'PUT', body: '{}' });
+    expect(undecided.status).toBe(400);
   });
 });
 
