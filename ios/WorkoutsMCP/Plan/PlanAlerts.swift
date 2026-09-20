@@ -96,11 +96,12 @@ enum PlanAlerts {
         return bounds(low?.value, high?.value, floor, ceiling)
     }
 
-    /// Foundation's `UnitFrequency` is hertz all the way down and has no beats-a-minute, so a
-    /// rate the plan wrote per minute is converted on the way in. `Measurement` compares by
-    /// dimension rather than by number, so the watch gets the band that was written.
+    /// `UnitFrequency` is the type WorkoutKit asks for and not the unit it reads: a heart
+    /// rate and a cadence alert both take the number as beats or rotations a minute, and the
+    /// unit along with it is a formality. Converted to true hertz, 145 bpm went out as 2.4
+    /// and Apple Fitness showed the step as **0 BPM**, so the number goes across as written.
     private static func perMinute(_ rate: Double) -> Measurement<UnitFrequency> {
-        Measurement(value: rate / 60, unit: .hertz)
+        Measurement(value: rate, unit: .hertz)
     }
 
     /// Lowest end first, whatever order the two arrived in: `a ... b` traps when `a > b`, and
