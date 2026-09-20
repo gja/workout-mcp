@@ -46,7 +46,7 @@ sends one, so that one JWT is built in `src/identity.ts` rather than by it.
 The subject is Apple's, and Apple scopes it to the **developer team**, not to the client
 that asked. So the phone and the browser return the same `sub` and land on the same
 `(provider, subject)` row — provided the Services ID's primary App ID is the app's. Get that
-wrong and an athlete has two accounts, which nothing here will merge.
+wrong and an athlete has two rows, which only a shared verified address would join.
 
 An address the account already has survives a sign-in that carries none: Apple sends one
 through the browser and can leave it out of a native round, and a blank is not a change of
@@ -82,13 +82,62 @@ column with no refresh machinery; a withdrawn grant simply starts answering 401.
 same token a connect would. With `CREDENTIALS_SECRET` unset the sign-in still succeeds,
 just unconnected.
 
-## Separate accounts, never linked
+## One account, however you sign in
 
-An account is keyed by *(provider, subject)*, so Google and Apple make two accounts.
-intervals.icu is deliberately the same even though the athlete id would match: making one
-provider's subject resolve to another's account is a second identity model hiding inside
-the first, and a connection is not proof of ownership. So one athlete can legitimately be
-connected to two of our users, which is why the webhook fans out to every match.
+A row in `users` is still keyed by *(provider, subject)*, but a row is no longer the same
+thing as an account. `alias_of_user_id` is null for an account and names the account for a
+sign-in linked to one, so signing in with Apple after Google reaches what Google made
+instead of a second, empty account. Sessions, tokens and every workout hang off the
+account; a linked row owns nothing, and a session cut before the link was made is resolved
+through it on the way in.
+
+**The link is made on a verified address, and on nothing else.** A sign-in whose provider
+vouches for an address another sign-in has already proved attaches to that account, oldest
+first. An address nobody vouched for links nothing, which is why `email_verified` is stored
+rather than read and thrown away, and intervals.icu — which returns no address at all —
+never links to anything.
+
+That trusts each provider to hand back an address it has checked, which Google and Apple
+both do. It is the weakest part of this: an address is an identifier the provider controls,
+so a domain that changes hands changes who a future sign-in becomes. Nothing here
+authorizes on the address itself, and a sign-in still has to pass the provider first.
+
+**Hide My Email means there is nothing to match.** Apple's relay hands out a different
+address per Services ID, so an athlete who hides theirs looks like a different person to
+the only signal there is, and gets the second account this section is about. The native
+sign-in and the browser one share the relay address, since Apple scopes both to the team —
+but Apple and Google will not.
+
+**Only a sign-in this server has never seen is linked.** A row that already has an account
+keeps it, whatever its address matches. Otherwise the first athlete to sign in after a
+deploy would be the one demoted — and the workouts under the row that stopped being an
+account would go with it, since everything hangs off the account's id.
+
+So migration `0015` adds the column and touches no row's account. Two accounts already made
+stay two, and either **delete one** — the next sign-in with that provider is a new row,
+which then finds the one that is left — or link them by hand:
+
+```bash
+# Check the row about to become a link owns nothing first.
+npx wrangler d1 execute workout-mcp --remote \
+  --command "SELECT COUNT(*) FROM workouts WHERE user_id = '<the other row>'"
+
+npx wrangler d1 execute workout-mcp --remote \
+  --command "UPDATE users SET alias_of_user_id = '<the account>' WHERE id = '<the other row>'"
+```
+
+**A linked row stops answering.** Sessions, API tokens and OAuth grants name the row they
+were made under, and a row that is no longer an account no longer authenticates: they come
+back 401, and signing in with that provider again is the way back — the sign-in lands on
+the account. Following them instead was tried and removed. It bought nothing the linking
+does on its own, because a row linked automatically is one this server has just made and
+has never issued anything under; all it covered was a link made by hand, at the price of
+resolving a credential's owner on every request and of a token quietly becoming another
+account's.
+
+What does **not** move either is anything the demoted row owns — workouts, contexts, a
+connected platform — so a row with data of its own is a merge rather than a link, and this
+is not that.
 
 ## State handling
 

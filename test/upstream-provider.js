@@ -102,7 +102,9 @@ async function signIn(request, url, env) {
     iss: code.includes('wrong-issuer') ? 'https://evil.example' : provider.issuer,
     aud: code.includes('wrong-audience') ? 'some-other-app' : audience,
     sub: code.includes('no-subject') ? undefined : provider.subject,
-    email: code.includes('no-email') ? undefined : provider.email,
+    // `shared-email` is Apple returning the address Google returns, which is what
+    // one athlete who did not hide it looks like to us.
+    email: code.includes('no-email') ? undefined : code.includes('shared-email') ? GOOGLE.email : provider.email,
     // Both providers send this; Apple as a string. Stored for display, and
     // carried here so the claim is read the way a real one would be.
     email_verified: code.includes('unverified-email') ? false : true,

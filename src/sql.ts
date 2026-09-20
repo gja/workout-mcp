@@ -43,6 +43,10 @@ type Users = {
   provider: string;
   subject: string;
   email: string | null;
+  /** 0 or 1. Only an address the provider vouches for can link one row to another. */
+  email_verified: number;
+  /** Null for an account; the account this sign-in was linked to otherwise. */
+  alias_of_user_id: string | null;
   created_at: string;
   last_login_at: string | null;
 };

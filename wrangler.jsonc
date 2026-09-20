@@ -36,6 +36,8 @@
 		//   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 		// Apple is optional and needs a paid developer account:
 		//   APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY
+		// and, for the iOS app's own Apple sign-in, the bundle id it runs under:
+		//   APPLE_APP_ID
 		//
 		// The intervals.icu OAuth app, which is both a sign-in button and the
 		// only way a training platform is connected. The webhook secret is

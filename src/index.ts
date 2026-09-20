@@ -7,7 +7,7 @@ import * as auth from './auth';
 import * as db from './db';
 import * as drive from './drive';
 import * as identity from './identity';
-import type { Env, User } from './db';
+import type { Env } from './db';
 import { handleMcp } from './mcp';
 import * as platforms from './platforms';
 import { APP_TOKEN_SCOPE, SCOPE } from './routes/oauth';
@@ -39,9 +39,14 @@ const appTokenHandler = {
       return Response.json({ error: `this grant did not ask for the ${APP_TOKEN_SCOPE} scope` }, { status: 403 });
     }
 
+    // The grant names a row rather than an athlete, and that row may have been deleted or
+    // linked since it was approved. Neither is an account to mint a token against.
+    const user = await auth.findAccount(env, props.userId);
+    if (!user) return Response.json({ error: 'that account is no longer signed in' }, { status: 401 });
+
     const body = (await request.json().catch(() => ({}))) as { name?: unknown };
     const name = typeof body.name === 'string' ? body.name.trim().slice(0, 60) : '';
-    const issued = await auth.issueToken(env, props.userId, name || 'A native app');
+    const issued = await auth.issueToken(env, user.id, name || 'A native app');
 
     return Response.json(issued, { headers: { 'Access-Control-Allow-Origin': '*' } });
   },
@@ -54,7 +59,11 @@ const mcpHandler = {
     const props = (ctx as ExecutionContext & { props?: AuthProps }).props;
     if (!props?.userId) return Response.json({ error: 'no authenticated user' }, { status: 401 });
 
-    const user: User = { id: props.userId, email: props.email };
+    // Read rather than taken from the grant: the row it names may since have been deleted
+    // or linked, and a client holding one connects again. See docs/auth.md.
+    const user = await auth.findAccount(env, props.userId);
+    if (!user) return Response.json({ error: 'that account is no longer signed in' }, { status: 401 });
+
     const response = await handleMcp(request, env, user);
     response.headers.set('Access-Control-Allow-Origin', '*');
     return response;

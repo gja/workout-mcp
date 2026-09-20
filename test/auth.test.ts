@@ -1,6 +1,7 @@
 import { SELF, env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { secretsMatch } from '../src/auth';
+import { today } from '../src/units';
 import { cookieFrom, resetDatabase, sessionCookieFor, signIn } from './helpers';
 
 const BASE = 'https://workouts.example';
@@ -62,6 +63,122 @@ describe('starting a sign-in', () => {
     expect(target.host).toBe('appleid.apple.com');
     expect(target.searchParams.get('response_mode')).toBe('form_post');
     expect(target.searchParams.get('scope')).toBe('email');
+  });
+});
+
+describe('linking a second provider', () => {
+  const accounts = async () =>
+    (await env.DB.prepare('SELECT COUNT(*) AS count FROM users WHERE alias_of_user_id IS NULL').first<{
+      count: number;
+    }>())?.count;
+
+  it('is one account when the address matches and both providers vouch for it', async () => {
+    const google = await signIn('google');
+    const apple = await signIn('apple', 'ok-shared-email');
+
+    expect(await accounts()).toBe(1);
+
+    // The same account, reached two ways: what the first one wrote is there for the second.
+    const created = await SELF.fetch(`${BASE}/api/workouts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: sessionFrom(google) },
+      body: JSON.stringify({ date: today(), name: 'Easy hour', steps: [{ name: 'Easy', goal_s: 3600 }] }),
+    });
+    expect(created.status).toBe(201);
+
+    const listed = await SELF.fetch(`${BASE}/api/workouts.json`, { headers: { Cookie: sessionFrom(apple) } });
+    expect((await listed.json()) as { workouts: unknown[] }).toMatchObject({ workouts: [{ name: 'Easy hour' }] });
+  });
+
+  // The account's own provider finds the row linked to it, which is not a link back.
+  it('stays one account when the first provider signs in again', async () => {
+    await signIn('google');
+    await signIn('apple', 'ok-shared-email');
+    const again = await signIn('google');
+
+    expect(await accounts()).toBe(1);
+    const primary = await env.DB.prepare(
+      "SELECT id FROM users WHERE provider = 'google' AND alias_of_user_id IS NULL",
+    ).first<{ id: string }>();
+
+    const me = await SELF.fetch(`${BASE}/api/me`, { headers: { Cookie: sessionFrom(again) } });
+    expect(await me.json()).toMatchObject({ id: primary?.id });
+  });
+
+  // The state 0015 leaves an athlete who already had two: whichever signs in first would
+  // be the one demoted, and its workouts are under the row that stops being an account.
+  it('leaves two accounts already made alone, whichever signs in again', async () => {
+    const google = await signIn('google');
+    await env.DB.prepare(
+      `INSERT INTO users (id, provider, subject, email, email_verified, created_at, last_login_at)
+       VALUES ('made-before', 'apple', 'apple-user-1', 'athlete@example.com', 1, '2026-01-01T00:00:00.000Z', NULL)`,
+    ).run();
+
+    await signIn('google');
+    await signIn('apple', 'ok-shared-email');
+    expect(await accounts()).toBe(2);
+
+    // And the older one still answers for itself rather than for the other.
+    const me = await SELF.fetch(`${BASE}/api/me`, { headers: { Cookie: sessionFrom(google) } });
+    expect(await me.json()).toMatchObject({ email: 'athlete@example.com' });
+    const apple = await env.DB.prepare("SELECT id FROM users WHERE provider = 'apple'").first<{ id: string }>();
+    expect(apple?.id).toBe('made-before');
+  });
+
+  // Everything a sign-in issues from here on names the account, so only a link made by
+  // hand can leave a credential behind — and it is spent rather than followed, because a
+  // token that silently became another account's is worse than one that asks for a log in.
+  it('spends what the linked row issued, so signing in again is the way back', async () => {
+    const google = await signIn('google');
+    const apple = await signIn('apple');
+    const { token } = (await (
+      await SELF.fetch(`${BASE}/api/tokens`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: sessionFrom(apple) },
+        body: JSON.stringify({ name: 'WorkoutsMCP for iOS' }),
+      })
+    ).json()) as { token: string };
+
+    const account = (await SELF.fetch(`${BASE}/api/me`, { headers: { Cookie: sessionFrom(google) } }).then((r) =>
+      r.json(),
+    )) as { id: string };
+    await env.DB.prepare("UPDATE users SET alias_of_user_id = ? WHERE provider = 'apple'").bind(account.id).run();
+
+    // The app's token and the browser session it was made from, both gone.
+    expect((await SELF.fetch(`${BASE}/api/me`, { headers: { Authorization: `Bearer ${token}` } })).status).toBe(401);
+    expect((await SELF.fetch(`${BASE}/api/me`, { headers: { Cookie: sessionFrom(apple) } })).status).toBe(401);
+
+    // And signing in with that provider again lands on the account, which is the way back.
+    const back = await signIn('apple');
+    const me = await SELF.fetch(`${BASE}/api/me`, { headers: { Cookie: sessionFrom(back) } });
+    expect(await me.json()).toMatchObject({ id: account.id });
+  });
+
+  it('is two accounts when the addresses differ', async () => {
+    await signIn('google');
+    await signIn('apple');
+    expect(await accounts()).toBe(2);
+  });
+
+  // The address is the whole proof, so a provider that will not vouch for it proves nothing.
+  it('will not link on an address nobody vouched for', async () => {
+    await signIn('google');
+    await signIn('apple', 'ok-shared-email-unverified-email');
+    expect(await accounts()).toBe(2);
+  });
+
+  it('leaves the account deleted by hand behind, and links what is left', async () => {
+    await signIn('google');
+    await signIn('apple', 'ok-shared-email');
+    await env.DB.prepare("DELETE FROM users WHERE provider = 'google'").run();
+
+    // Signing in again makes a row, which finds the Apple account rather than standing alone.
+    const again = await signIn('google');
+    const me = await SELF.fetch(`${BASE}/api/me`, { headers: { Cookie: sessionFrom(again) } });
+    const { id } = (await me.json()) as { id: string };
+
+    const apple = await env.DB.prepare("SELECT id FROM users WHERE provider = 'apple'").first<{ id: string }>();
+    expect(id).toBe(apple?.id);
   });
 });
 

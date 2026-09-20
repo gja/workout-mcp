@@ -95,7 +95,7 @@ a rewrite carries across.
 | Table | Holds |
 | --- | --- |
 | `workouts` | The plan, plus the stats of the session recorded against it and the athlete's note |
-| `users` | An account per *(provider, subject)* |
+| `users` | A sign-in per *(provider, subject)*, and the account it is, or is linked to |
 | `contexts` | An athlete's context documents, one row per kind they have written |
 | `sessions` | Session id hashes |
 | `tokens` | API token hashes and their prefixes |

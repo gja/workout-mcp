@@ -35,9 +35,61 @@ export async function secretsMatch(given: string | null, expected: string | unde
 
 // --- Accounts --------------------------------------------------------------
 
-/** The first sign-in creates the account; later ones just stamp it. */
+/** What a sign-in points at, or the sign-in itself. A linked one owns nothing. */
+type Row = { id: string; email: string | null; alias_of_user_id: string | null };
+
+/**
+ * The account a sign-in reaches: itself, or the one it was linked to. Asked as a sign-in
+ * finishes and nowhere else — everything issued from here on names the account, and a
+ * credential from before a link is spent rather than followed. See docs/auth.md.
+ *
+ * A link whose account has been deleted is the sign-in again, which is the state a
+ * hand-deleted account leaves.
+ */
+async function account(env: Env, row: Row): Promise<User> {
+  if (!row.alias_of_user_id) return { id: row.id, email: row.email };
+  const linked = await one(
+    env,
+    qb.selectFrom('users').select(['id', 'email']).where('id', '=', row.alias_of_user_id),
+  );
+  return linked ?? { id: row.id, email: row.email };
+}
+
+/**
+ * The account a stored id names, or nothing. A row that has been linked is not an account
+ * any more, so a credential made under it before the link stops working rather than
+ * quietly becoming someone else's: signing in again is the way back. See docs/auth.md.
+ */
+export async function findAccount(env: Env, userId: string): Promise<User | null> {
+  const row = await one(
+    env,
+    qb.selectFrom('users').select(['id', 'email', 'alias_of_user_id']).where('id', '=', userId),
+  );
+  return row && !row.alias_of_user_id ? { id: row.id, email: row.email } : null;
+}
+
+/**
+ * The first sign-in creates the account; later ones just stamp it. A sign-in with a
+ * provider this athlete has not used before is linked to the account whose verified
+ * address matches, rather than making a second one. See docs/auth.md.
+ */
 export async function upsertUser(env: Env, identity: Identity): Promise<User> {
   const now = iso(new Date());
+  const verified = identity.email !== null && identity.emailVerified;
+
+  // Asked before the write, because only a sign-in this server has never seen may be
+  // linked. A row that already has an account keeps it: an athlete who has two is not
+  // made to have one behind their back, and the workouts under the one that would be
+  // demoted are not walked away from. See docs/auth.md.
+  const known = await one(
+    env,
+    qb
+      .selectFrom('users')
+      .select('id')
+      .where('provider', '=', identity.provider)
+      .where('subject', '=', identity.subject),
+  );
+
   await run(
     env,
     qb
@@ -47,6 +99,7 @@ export async function upsertUser(env: Env, identity: Identity): Promise<User> {
         provider: identity.provider,
         subject: identity.subject,
         email: identity.email,
+        email_verified: verified ? 1 : 0,
         created_at: now,
         last_login_at: now,
       })
@@ -55,21 +108,75 @@ export async function upsertUser(env: Env, identity: Identity): Promise<User> {
           // Kept when the new sign-in carries none: Apple sends the address through the
           // browser and can leave it out of a native one, and a blank is not a change.
           email: eb.fn.coalesce(eb.ref('excluded.email'), eb.ref('users.email')),
+          email_verified: eb
+            .case()
+            .when('excluded.email', 'is', null)
+            .then(eb.ref('users.email_verified'))
+            .else(eb.ref('excluded.email_verified'))
+            .end(),
           last_login_at: eb.ref('excluded.last_login_at'),
         })),
       ),
   );
 
-  const user = await one(
+  const row = await one(
     env,
     qb
       .selectFrom('users')
-      .select(['id', 'email'])
+      .select(['id', 'email', 'alias_of_user_id', 'email_verified'])
       .where('provider', '=', identity.provider)
       .where('subject', '=', identity.subject),
   );
-  if (!user) throw new Error('user vanished immediately after being written');
-  return user;
+  if (!row) throw new Error('user vanished immediately after being written');
+
+  if (known || row.alias_of_user_id || !row.email || !row.email_verified) return account(env, row);
+  return account(env, { ...row, alias_of_user_id: await link(env, row.id, now, row.email) });
+}
+
+const exists = async (env: Env, id: string): Promise<boolean> =>
+  Boolean(await one(env, qb.selectFrom('users').select('id').where('id', '=', id)));
+
+/**
+ * The account a **new** sign-in belongs to, where another has already proved the same
+ * address — written down, so the answer does not depend on the row still being there.
+ *
+ * The oldest row wins, and one that is itself linked hands back what it points at, so
+ * nothing is ever two hops from its account. Where that account has been deleted by hand,
+ * the match is an account again rather than a way into a missing one.
+ */
+async function link(env: Env, id: string, created: string, email: string): Promise<string | null> {
+  const match = await one(
+    env,
+    qb
+      .selectFrom('users')
+      .select(['id', 'created_at', 'alias_of_user_id'])
+      .where('email', '=', email)
+      .where('email_verified', '=', 1)
+      .where('id', '!=', id)
+      .orderBy('created_at'),
+  );
+  if (!match) return null;
+
+  const linked = match.alias_of_user_id;
+  const linkTo = linked && (await exists(env, linked)) ? linked : match.id;
+  if (linkTo === id) return null;
+
+  // Both sides of a simultaneous pair reach this with the other in hand and nothing
+  // written yet, so which row is the account cannot be "the one that got here second":
+  // they would point at each other and neither would be an account. It is the older row,
+  // and the id settles the tie, which is an answer both of them compute the same.
+  if (linked === null && (match.created_at > created || (match.created_at === created && match.id > id))) {
+    await run(env, qb.updateTable('users').set({ alias_of_user_id: id }).where('id', '=', match.id));
+    return null;
+  }
+
+  // The match's own account has been deleted by hand, so it is an account again.
+  if (linked && linkTo !== linked) {
+    await run(env, qb.updateTable('users').set({ alias_of_user_id: null }).where('id', '=', match.id));
+  }
+
+  await run(env, qb.updateTable('users').set({ alias_of_user_id: linkTo }).where('id', '=', id));
+  return linkTo;
 }
 
 // --- Sessions --------------------------------------------------------------
@@ -107,11 +214,18 @@ export async function readSession(env: Env, request: Request): Promise<User | nu
     qb
       .selectFrom('sessions')
       .innerJoin('users', 'users.id', 'sessions.user_id')
-      .select(['users.id as id', 'users.email as email', 'sessions.expires_at as expires_at'])
+      .select([
+        'users.id as id',
+        'users.email as email',
+        // The row this session was made under may have been linked since, and a linked
+        // row is no longer an account: the cookie is spent, like an expired one.
+        'users.alias_of_user_id as alias_of_user_id',
+        'sessions.expires_at as expires_at',
+      ])
       .where('sessions.id_hash', '=', await sha256(id)),
   );
 
-  if (!row) return null;
+  if (!row || row.alias_of_user_id) return null;
   if (Date.parse(row.expires_at) < Date.now()) {
     await run(env, qb.deleteFrom('sessions').where('id_hash', '=', await sha256(id)));
     return null;
@@ -172,10 +286,11 @@ export async function findTokenOwner(env: Env, token: string): Promise<User | nu
     qb
       .selectFrom('tokens')
       .innerJoin('users', 'users.id', 'tokens.user_id')
-      .select(['users.id as id', 'users.email as email'])
+      .select(['users.id as id', 'users.email as email', 'users.alias_of_user_id as alias_of_user_id'])
       .where('tokens.token_hash', '=', hash),
   );
-  if (!row) return null;
+  // Same as a session: a token issued under a row that has since been linked is spent.
+  if (!row || row.alias_of_user_id) return null;
 
   await run(env, qb.updateTable('tokens').set({ last_used_at: iso(new Date()) }).where('token_hash', '=', hash));
   return { id: row.id, email: row.email };
