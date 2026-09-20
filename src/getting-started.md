@@ -110,7 +110,7 @@ recent session is a measurement, and it is the one figure in this round most
 athletes have without testing for it.
 
 - **Ask which platform** their training ends up in — Apple Watch, Garmin,
-  Strava, Coros, Polar, Wahoo, Whoop.
+  Strava, Coros, Wahoo, Whoop.
 - **If they have the WorkoutsMCP iPhone app, it has already done this.**
   *Settings › Heart rate* reads a year of Apple Health and gives back an average
   resting heart rate and an observed maximum — the third-highest day of that
@@ -119,7 +119,7 @@ athletes have without testing for it.
   Fitness app.
 - **If they are not sure**, ask what is on their wrist and whether it syncs to a
   phone: the watch names the app. Apple Watch is the Fitness or Health app,
-  Garmin is Garmin Connect, Coros and Polar are their own apps, and a chest
+  Garmin is Garmin Connect, Coros and Suunto are their own apps, and a chest
   strap with no watch usually lands in Strava.
 - **Where to look**, roughly: Apple — a hard workout in Fitness, then its heart
   rate chart and the peak figure. Garmin Connect — an activity's max HR, or the
@@ -150,11 +150,18 @@ than after it.
   Workout app and brings the recorded session back here, with no intervals.icu
   in the middle. It is free but invite-only for now: tell them to write to
   <tejas@gja.in>.
-- **Garmin, Coros, Polar, Suunto, Wahoo** — **intervals.icu**, connected here
-  under *Setup › Training platform* and to the watch's own platform at their
-  end. Nothing to install on the watch; its own workout screen runs the session.
-- **Wear OS** — **intervals.icu** again, which reads what Google Fit holds, with
-  Watchletic on the watch.
+- **Garmin, Coros, Suunto, Wahoo, and the newest Amazfit** — **intervals.icu**,
+  connected here under *Setup › Training platform* and to the watch's own
+  platform at their end. Nothing to install on the watch; its own workout screen
+  runs the session. Tell them to tick *Upload planned workouts* on that
+  connection: without it the calendar syncs and the watch never hears about it.
+- **Wear OS — a Pixel, a Galaxy or another** — **intervals.icu** again, with
+  **Watchletic** on the watch, which imports the session off the calendar and
+  plays it through its intervals. Nothing at Google's end takes a planned
+  workout, so the watch app is what makes this work rather than a convenience.
+- **Fitbit** — nothing sends it a planned workout, so it is a session to read
+  off a screen. What they record still comes back if Google Health is pointed at
+  Strava, which intervals.icu reads.
 - **Nothing on the wrist, or a watch with no connector** — the plan is on the
   dashboard calendar and on intervals.icu: read the session off a screen and
   mark it done.
