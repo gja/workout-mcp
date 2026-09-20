@@ -71,6 +71,28 @@ export function Faq() {
           </p>
         </Section>
 
+        <Section group="faq" title="Is there an iPhone app?" hint="Ask for an invite">
+          <p className="note">
+            Yes, and it is the way in if your watch is an Apple Watch. It schedules the plan through Apple's own
+            Workout app — no intervals.icu and no Watchletic in the middle — and carries the recorded session back
+            here, so the stats show up beside what you planned. What it does and why is in{' '}
+            <a href={`${REPO_URL}/blob/main/docs/ios.md`} target="_blank" rel="noreferrer">
+              docs/ios.md
+            </a>
+            , and the source is in{' '}
+            <a href={`${REPO_URL}/tree/main/ios`} target="_blank" rel="noreferrer">
+              ios/
+            </a>{' '}
+            like everything else.
+          </p>
+          <p className="note">
+            It is not on the App Store yet — builds go out through TestFlight, one invite at a time. Write to{' '}
+            <a href="mailto:tejas@gja.in">tejas@gja.in</a> with the email address on your Apple Account and you'll get
+            one. If you would rather not wait, the repo builds: open it in Xcode, sign with your own team and put it
+            on your phone.
+          </p>
+        </Section>
+
         <Section group="faq" title="Can you give me a prompt to get started with Claude?" hint="One line">
           <p className="note">
             Once the connector is added, paste this into a fresh Claude conversation. The interview lives on this
