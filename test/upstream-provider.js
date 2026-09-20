@@ -35,7 +35,42 @@ const APPLE = {
   email: 'athlete@privaterelay.appleid.com',
 };
 
-async function signIn(request, url) {
+const base64urlBytes = (value) => {
+  const padded = value.replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(padded + '='.repeat((4 - (padded.length % 4)) % 4)), (c) => c.charCodeAt(0));
+};
+
+/**
+ * Apple's client secret, checked as Apple checks it: a real ES256 signature over the
+ * header and payload, from the team's key, naming the client that is exchanging. The
+ * Worker builds this two ways — `arctic` for the browser flow, `src/identity.ts` for the
+ * app's — and a JWT that is merely shaped right passes neither here nor there.
+ */
+async function appleClientSecretIsGood(secret, clientId, publicJwk) {
+  const [header, payload, signature] = secret.split('.');
+  if (!signature) return false;
+
+  const key = await crypto.subtle.importKey('jwk', publicJwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, [
+    'verify',
+  ]);
+  const signed = await crypto.subtle.verify(
+    { name: 'ECDSA', hash: 'SHA-256' },
+    key,
+    base64urlBytes(signature),
+    new TextEncoder().encode(`${header}.${payload}`),
+  );
+  if (!signed) return false;
+
+  const claims = JSON.parse(new TextDecoder().decode(base64urlBytes(payload)));
+  return (
+    claims.iss === 'TEAM123456' &&
+    claims.sub === clientId &&
+    (claims.aud === 'https://appleid.apple.com' || claims.aud?.includes?.('https://appleid.apple.com')) &&
+    claims.exp > Math.floor(Date.now() / 1000)
+  );
+}
+
+async function signIn(request, url, env) {
   const provider = url.hostname === 'oauth2.googleapis.com' ? GOOGLE : APPLE;
   const body = await request.formData();
 
@@ -46,21 +81,26 @@ async function signIn(request, url) {
 
   const code = body.get('code') ?? '';
 
-  // Apple authenticates with a signed JWT rather than a static secret;
-  // assert it at least looks like one, so a broken key is caught here.
+  // Apple authenticates with a signed JWT rather than a static secret.
   if (provider === APPLE) {
-    const secret = body.get('client_secret') ?? '';
-    if (secret.split('.').length !== 3) {
-      return Response.json({ error: 'invalid_client' }, { status: 401 });
-    }
+    const good = await appleClientSecretIsGood(
+      body.get('client_secret') ?? '',
+      body.get('client_id') ?? '',
+      env.APPLE_PUBLIC_JWK,
+    );
+    if (!good) return Response.json({ error: 'invalid_client' }, { status: 401 });
   }
 
   if (code.includes('denied')) return Response.json({ error: 'invalid_grant' }, { status: 400 });
 
+  // Apple issues the token for whichever client asked — the Services ID from the browser,
+  // the bundle id from the app — and the subject is the team's either way.
+  const audience = provider === APPLE ? (body.get('client_id') ?? APPLE.audience) : provider.audience;
+
   const now = Math.floor(Date.now() / 1000);
   const claims = {
     iss: code.includes('wrong-issuer') ? 'https://evil.example' : provider.issuer,
-    aud: code.includes('wrong-audience') ? 'some-other-app' : provider.audience,
+    aud: code.includes('wrong-audience') ? 'some-other-app' : audience,
     sub: code.includes('no-subject') ? undefined : provider.subject,
     email: code.includes('no-email') ? undefined : provider.email,
     // Both providers send this; Apple as a string. Stored for display, and
@@ -465,12 +505,12 @@ async function intervals(request, url) {
 }
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     if (url.hostname === 'intervals.icu') return intervals(request, url);
     if (url.hostname === 'www.googleapis.com') return drive(request, url);
     if (url.hostname === 'oauth2.googleapis.com' || url.hostname === 'appleid.apple.com') {
-      return signIn(request, url);
+      return signIn(request, url, env);
     }
     return new Response(`unexpected outbound request to ${url.host}`, { status: 502 });
   },

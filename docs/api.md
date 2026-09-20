@@ -16,6 +16,7 @@ set at login.
 | `GET /api/tokens` | List API tokens |
 | `POST /api/tokens` | `{name}` — mint an API token, returned once |
 | `POST /api/app-token` | `{name}` — the same, for a native app holding an OAuth grant rather than a cookie; needs the `app-token` scope |
+| `POST /api/apple-session` | `{code, name?}` — a native Sign in with Apple, straight to an API token; no session and no grant. 404 where the app sign-in is unconfigured |
 | `DELETE /api/tokens/:prefix` | Revoke one |
 | `GET /api/connections` | List OAuth grants (connected MCP clients) |
 | `DELETE /api/connections/:id` | Disconnect one |

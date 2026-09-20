@@ -29,7 +29,7 @@ const post = (path: string, body: unknown, headers: HeadersInit = {}) =>
 describe('providers', () => {
   it('advertises the ones this deployment has configured', async () => {
     const response = await SELF.fetch(`${BASE}/auth/providers`);
-    expect(await response.json()).toEqual({ providers: ['google', 'apple', 'intervals'] });
+    expect(await response.json()).toEqual({ providers: ['google', 'apple', 'intervals'], native: ['apple'] });
   });
 
   it('rejects a provider it does not know', async () => {
@@ -62,6 +62,53 @@ describe('starting a sign-in', () => {
     expect(target.host).toBe('appleid.apple.com');
     expect(target.searchParams.get('response_mode')).toBe('form_post');
     expect(target.searchParams.get('scope')).toBe('email');
+  });
+});
+
+describe('the native Sign in with Apple', () => {
+  const nativeSignIn = (body: unknown) => post('/api/apple-session', body);
+
+  it('mints an API token from the code the app was handed', async () => {
+    const response = await nativeSignIn({ code: 'ok', name: 'WorkoutsMCP for iOS' });
+    expect(response.status, await response.clone().text()).toBe(200);
+
+    const { token } = (await response.json()) as { token: string };
+    expect(token).toMatch(/^wk_/);
+
+    const me = await SELF.fetch(`${BASE}/api/me`, { headers: { Authorization: `Bearer ${token}` } });
+    expect(await me.json()).toMatchObject({ email: 'athlete@privaterelay.appleid.com' });
+  });
+
+  // The whole reason the native flow can be added at all: Apple scopes the subject to the
+  // team, so the app and the browser are the same athlete rather than two accounts.
+  it('lands on the account the browser sign-in makes', async () => {
+    await signIn('apple');
+    await nativeSignIn({ code: 'ok' });
+
+    const users = await env.DB.prepare("SELECT COUNT(*) AS count FROM users WHERE provider = 'apple'").first<{
+      count: number;
+    }>();
+    expect(users?.count).toBe(1);
+  });
+
+  it('is revocable like any other token', async () => {
+    const { token } = (await (await nativeSignIn({ code: 'ok' })).json()) as { token: string };
+    const listed = await SELF.fetch(`${BASE}/api/tokens`, { headers: { Authorization: `Bearer ${token}` } });
+    expect(await listed.json()).toMatchObject({ tokens: [{ name: 'A native app' }] });
+  });
+
+  // Apple sends the address through the browser and may leave it out of a native sign-in.
+  it('keeps the address a browser sign-in already learned', async () => {
+    await signIn('apple');
+    const { token } = (await (await nativeSignIn({ code: 'ok-no-email' })).json()) as { token: string };
+
+    const me = await SELF.fetch(`${BASE}/api/me`, { headers: { Authorization: `Bearer ${token}` } });
+    expect(await me.json()).toMatchObject({ email: 'athlete@privaterelay.appleid.com' });
+  });
+
+  it('refuses a code Apple will not spend, and one that is missing', async () => {
+    expect((await nativeSignIn({ code: 'denied' })).status).toBe(401);
+    expect((await nativeSignIn({})).status).toBe(400);
   });
 });
 

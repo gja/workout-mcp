@@ -36,6 +36,8 @@ export type Env = {
   APPLE_KEY_ID?: string;
   /** The .p8 private key, base64 PKCS#8, with or without its PEM armour. */
   APPLE_PRIVATE_KEY?: string;
+  /** The iOS app's bundle id. Only the native sign-in needs it; see docs/auth.md. */
+  APPLE_APP_ID?: string;
 
   /** Any passphrase. Without it, connecting a training platform is refused outright. */
   CREDENTIALS_SECRET?: string;

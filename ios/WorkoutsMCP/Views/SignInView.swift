@@ -1,12 +1,14 @@
-// A button per sign-in the deployment offers, so the browser opens on Apple's own screen
-// rather than on a page asking what this one just asked. Everything each of them wants is
-// asked there, and this app never sees a password. Why the list is the server's, and what
-// the plain button falls back to, is in docs/ios.md.
+// A button per sign-in the deployment offers. Apple's is its own sheet, over this screen;
+// the others open the browser on that provider rather than on a page asking what this one
+// just asked. Everything they want is asked there, and this app never sees a password. Why
+// the list is the server's, and what the plain button falls back to, is in docs/ios.md.
 
+import AuthenticationServices
 import SwiftUI
 
 struct SignInView: View {
     @EnvironmentObject private var session: AppSession
+    @Environment(\.colorScheme) private var colorScheme
     @State private var pressed: String?
     @State private var showingHeartRate = false
 
@@ -39,7 +41,11 @@ struct SignInView: View {
                     button(labelled: "Sign in", for: nil)
                 } else {
                     ForEach(session.providers, id: \.self) { provider in
-                        button(labelled: Self.labels[provider] ?? "Continue with \(provider)", for: provider)
+                        if provider == "apple", session.nativeProviders.contains(provider) {
+                            appleButton
+                        } else {
+                            button(labelled: Self.labels[provider] ?? "Continue with \(provider)", for: provider)
+                        }
                     }
                 }
 
@@ -64,6 +70,17 @@ struct SignInView: View {
         .padding(28)
         .task { await session.loadProviders() }
         .sheet(isPresented: $showingHeartRate) { HeartRateView() }
+    }
+
+    /// Apple's own button, because Apple asks for it by name — and because the sheet it
+    /// raises is the point: no browser, and Face ID on an account this phone already has.
+    private var appleButton: some View {
+        SignInWithAppleButton(.continue, onRequest: AppleSignIn.configure) { result in
+            Task { await session.completeAppleSignIn(result) }
+        }
+        .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+        .frame(height: 48)
+        .disabled(session.busy)
     }
 
     /// One provider, or the plain button that leaves the choice to the page. `pressed` keeps
