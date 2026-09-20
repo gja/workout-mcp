@@ -44,7 +44,7 @@ struct SignInView: View {
                     .font(.system(size: 52))
                     .foregroundStyle(.tint)
                 Text("WorkoutsMCP").font(.largeTitle.bold())
-                Text("Your plan on your watch, and what you ran back again.")
+                Text("Plan, execute and analyze your workouts with AI")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
