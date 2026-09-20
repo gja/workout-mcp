@@ -34,13 +34,13 @@ range with a stand-in — 20:00/km and 2:00/km, 40 and 220 bpm, 10 and 1000 W, 2
 — each past what a session reaches and no further, because a figure outside what the watch
 has a dial for is worse than a wide band, and a zero end reads as no target at all.
 
-**A heart rate or cadence alert is a number, not a unit.** `HeartRateRangeAlert` and
-`CadenceRangeAlert` are typed `Measurement<UnitFrequency>` and read the value as beats or
-rotations a minute, the unit beside it being a formality. Converted to true hertz a
-145-152 bpm band reached Apple Fitness as *0 BPM*, so the plan's own numbers go across as
-written — carried in a `/min` unit of the app's own, because `UnitFrequency` is hertz and
-its multiples and has no case for a rate a minute. Its coefficient is 1 and not 1/60: the
-number is the one the API takes, so converting it to the base unit has to leave it alone.
+**A heart rate or cadence alert is not read in hertz.** `HeartRateRangeAlert` and
+`CadenceRangeAlert` are typed `Measurement<UnitFrequency>`, and Apple divides the
+measurement's base value by 60 to get the figure it shows. `UnitFrequency` has no case for
+a rate a minute, so the app carries one of its own — and defines it with a coefficient of
+**60**, not the 1/60 the physics asks for, so that the division lands back on the number
+the plan wrote. Measured against a 40-148 bpm band: sent as 0.67-2.47 it read *0 BPM*, and
+sent as 40-148 it read *1-2 BPM*.
 
 **Everything `CustomWorkout.init` asserts is asked first.** It is not failable and does not
 throw: handed something it will not take it traps, and the app goes down with
