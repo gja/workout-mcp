@@ -68,23 +68,34 @@ export function Faq() {
               intervals.icu
             </a>
             . Connect it under <em>Setup → Integrations</em> and every session you plan lands on its calendar; connect
-            Garmin Connect — or Coros, Polar, Suunto, Wahoo — at their end, and the workout goes down to the watch and
-            the file it records comes back, marked done here with its stats. Nothing to install: the watch's own
-            workout screen runs it.
+            Garmin Connect — or Coros, Suunto, Wahoo, Zwift, and the newest Amazfit — at their end, and the workout
+            goes down to the watch and the file it records comes back, marked done here with its stats. Nothing to
+            install: the watch's own workout screen runs it.
+          </p>
+          <p className="note">
+            One thing to know at their end: tick <em>Upload planned workouts</em> on the connection. Without it the
+            calendar syncs and the watch never hears about it.
           </p>
         </Section>
 
-        <Section group="faq" title="I train with a Wear OS watch" hint="Via intervals.icu">
+        <Section group="faq" title="I train with a Pixel, a Galaxy or another Wear OS watch" hint="Via Watchletic">
           <p className="note">
-            The Apple Watch road, on Google's side of the fence:{' '}
+            The Apple Watch road, on Google's side of the fence. Nothing at Google's end takes a planned workout —
+            Health Connect holds one and nothing reads it, and the API behind Fitbit and Pixel records only what you
+            already did — so the plan has to be fetched by an app on the watch itself.
+          </p>
+          <p className="note">
+            Connect{' '}
             <a href="https://intervals.icu" target="_blank" rel="noreferrer">
               intervals.icu
             </a>{' '}
-            connects to what Google Fit holds, and{' '}
+            under <em>Setup → Integrations</em>, then let{' '}
             <a href="https://www.watchletic.com" target="_blank" rel="noreferrer">
               Watchletic
             </a>{' '}
-            runs on Wear OS too.
+            import the session off its calendar and play it through its intervals on your wrist. What you record goes
+            back the same way and is marked done here. Watchletic has run on Wear OS since August 2026 — Pixel Watch
+            and Galaxy Watch included — and importing a scheduled session is the paid tier.
           </p>
         </Section>
 
@@ -93,6 +104,11 @@ export function Faq() {
             intervals.icu takes a file from almost anywhere, and its own app will play a planned session on a phone.
             With no watch at all the plan is still on the calendar here: read the session off the screen and mark it
             done.
+          </p>
+          <p className="note">
+            A Fitbit is that case even though it is a watch: nothing Google offers sends it a planned workout, and the
+            newer ones run no other apps, so the session is one to read off the screen. What you record still comes
+            home — point Google Health at Strava, and intervals.icu reads Strava.
           </p>
         </Section>
 

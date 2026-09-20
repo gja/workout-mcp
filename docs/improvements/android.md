@@ -280,7 +280,7 @@ API — it is who will let us register.
 | Vendor | Plan push exists | How to get in, today |
 | --- | --- | --- |
 | **Garmin** | Training API, workouts and calendar entries | **Closed.** New Connect API applications [were frozen months ago](https://the5krunner.com/2026/09/14/garmin-developer-api-access-paused/) pending a redesign of the programme, with no timeline and a queue that is not being processed |
-| **COROS** | [Partner API](https://support.coros.com/hc/en-us/articles/53181766856724-Partner-API-Access) — structured workout and training plan push, multi-user OAuth, webhooks | Partner application, pitched at established platforms |
+| **COROS** | Yes, via the [Partner API](https://support.coros.com/hc/en-us/articles/53181766856724-Partner-API-Access) — structured workout and training plan push, multi-user OAuth, webhooks. Their self-service MCP cannot do it yet; see below | Partner application, pitched at established platforms |
 | **Suunto** | Cloud API plus the SuuntoPlus Guide Cloud, which is how a session reaches the watch | [Partner programme](https://apizone.suunto.com/faq), companies and organisations only — explicitly not personal use — approved in about two weeks |
 | **Wahoo** | [Cloud API](https://cloud-api.wahooligan.com/), public and documented, structured workout plans included | Open OAuth registration, and the only one here with no gate |
 | **Polar** | None | — |
@@ -289,6 +289,24 @@ API — it is who will let us register.
 honest reading is that a direct adapter is worth writing the moment a door opens, and
 that intervals.icu is currently doing for free what four partner applications would
 buy — which is the argument for leaving it in the middle rather than taking it out.
+
+**COROS is the one to keep watching, and not yet the one to build.** It has a second
+tier the others do not: a hosted MCP endpoint at `mcp.coros.com/mcp` that any OAuth
+client can reach with no application at all, the athlete granting it themselves. That
+would be the first direct route this server could have without asking anyone —
+except that it does not do the half we need. The
+[official server's own tool list](https://github.com/coroslab/COROS-MCP) carries
+`generateTrainingPlan` ("create and save a COROS training plan based on designed
+structured workouts") and `updateTrainingPlan`, and marks both **coming soon**;
+everything that works today reads. Their help centre reads as though the write half
+has shipped and the tool list says otherwise, so **believe the tool list**, and
+re-check it rather than the marketing. Tredict, which does write plans to COROS
+watches, goes through the Training API — the partner route — not the MCP.
+
+If those two tools land, COROS becomes the cheapest adapter in this table by a wide
+margin and worth more than its 5.9% suggests, because it would also be the one that
+proves the shape of `Platform` against a second vendor. Until then it is an
+application like the rest.
 
 **None of this touches Wear OS**, because Pixel and Galaxy have no cloud to adapt to;
 the table simply has no row for them. Ruling out intervals.icu there leaves two things
@@ -358,8 +376,11 @@ they just have to have planned the session on the watch themselves.
 - [ ] Run the `PlannedExerciseSessionRecord` experiment and record the result too
 - [ ] Ask Watchletic what it takes to be their fourteenth source, since that is the
       one route to a Wear OS watch with no intervals.icu and no engine of ours
-- [ ] Apply to COROS and Suunto, whose doors are open, and watch for Garmin's
-      reopening — the adapters are small; the applications are the long pole
+- [ ] Watch `generateTrainingPlan` and `updateTrainingPlan` in the COROS MCP tool
+      list: the day they stop saying *coming soon* is the day a direct adapter needs
+      nobody's permission
+- [ ] Apply to COROS's Partner API and to Suunto, and watch for Garmin's reopening —
+      the adapters are small; the applications are the long pole
 - [ ] Ask Zepp for the integration intervals.icu and TrainingPeaks already have, if
       Amazfit is worth an adapter for the two models that can receive a workout
 - [ ] Spend nothing on Fitbit until Google ships an API that schedules something
