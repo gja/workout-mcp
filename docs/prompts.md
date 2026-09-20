@@ -25,11 +25,19 @@ something written is gap-filling; everything written is a *review*, where the jo
 find what has moved rather than re-ask what is answered. `update_context` replaces a
 document in full, so anything already there is shown and confirmed before it goes.
 
-Then six rounds, one per message: sport and goal; whether the assistant manages the weekly
+Then seven rounds, one per message: sport and goal; whether the assistant manages the weekly
 schedule or only writes sessions on request; the week they actually have; the numbers, per
-sport; indoors or outdoors and how they follow a target mid-session; and what constrains
-the plan. A round per message rather than one question per turn (twenty turns) or a single
-wall of questions (skimmed).
+sport; how the session reaches them on the day; indoors or outdoors and how they follow a
+target mid-session; and what constrains the plan. A round per message rather than one
+question per turn (twenty turns) or a single wall of questions (skimmed).
+
+Round 5 asks what happens on the day — a watch playing the intervals, or a session read off
+a screen — and then names the road that fits what they own rather than leaving them to find
+it: intervals.icu with Watchletic on an Apple Watch or a Wear OS one, the iPhone app and
+Apple's own Workout app as the Apple-only alternative, intervals.icu and the watch's own
+platform for a Garmin, Coros, Polar, Suunto or Wahoo, and the calendar itself where there is
+no watch. It is asked before the round on following a target because the answer decides
+whether a band has to be one an alert can hold.
 
 Round 4 does not simply ask for a max HR, because that answer is usually a guess: it asks
 where their training is recorded and walks them to the figure their own history holds, with
