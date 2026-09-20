@@ -10,8 +10,10 @@ answers.** For a sports watch that happens to pair with an Android phone — Gar
 COROS, Wahoo, Suunto, and some Amazfit — there is already no app to write, and no
 code to write either: the intervals.icu connection this server already has carries
 planned workouts out to all of them. For a **Wear OS** watch — Pixel, Galaxy, and
-the rest — there is no route at all that does not end in an app, and today probably
-not even one that does. There is no WorkoutKit on Android.
+the rest — there is no *platform* route: no cloud takes a plan, and there is no
+WorkoutKit on Android, so somebody has to write the engine that executes it. The
+one piece of good news in this document is that somebody already has, and it is not
+us — see [Wear OS](#wear-os-no-platform-route-and-somebody-elses-app).
 
 ## The ask was "sync to Google Fit and let the watches read it"
 
@@ -74,14 +76,53 @@ programme — but note what it now buys, which is less than it looks. The push h
 already carried by intervals.icu. What a direct adapter adds is an athlete who does
 not want an intervals.icu account, and the completions half without a middleman.
 
-## Wear OS: the part with no answer
+## Wear OS: no platform route, and somebody else's app
 
 This is the real question, because a Pixel Watch or a Galaxy Watch is what somebody
 means by "an Android watch", and it is exactly the case
 [`ios/`](../ios.md) exists for on the other platform: a watch whose sessions never
 reach a platform this server can read.
 
-### The shape exists, and appears to lead nowhere
+**intervals.icu does not reach it, and that is not a gap in intervals.icu.** Every
+target of its *Upload planned workouts* tick is a vendor cloud that accepts a
+workout — Garmin Connect, COROS, Wahoo, Suunto, Zwift. Pixel and Galaxy have no such
+cloud to push to: the Google Health API takes only completed sessions, and Samsung
+takes nothing from outside. There is nowhere to deliver a plan to, so nothing
+delivers one.
+
+What closes it instead is an app on the watch that fetches the plan itself.
+
+### Somebody already wrote the watch app
+
+[**Watchletic**](https://www.watchletic.com/intervalsicu) has run intervals.icu
+workouts on an Apple Watch since 2023, and was
+[ported to Wear OS in August 2026](https://forum.intervals.icu/t/intervals-icu-on-wear-os-with-watchletic/130881),
+tested on a Pixel Watch 4 and a Galaxy Watch Ultra 2. It imports a planned workout
+from the intervals.icu calendar, guides the intervals and targets from the wrist, and
+sends the completed session back to intervals.icu — and writes it to Health Connect
+on the way. Importing scheduled workouts is behind its paid tier.
+
+That makes the chain whole for a Wear OS athlete without a line of code here, because
+**it is the same chain** — this server already pushes the plan into intervals.icu and
+already reads the completion back:
+
+```
+workout-mcp ──FIT──> intervals.icu ──> Watchletic ──> Pixel / Galaxy watch
+                            <──── session back ────
+```
+
+So the honest answer to "what does an athlete on a Pixel Watch do" is no longer
+*nothing*. It is: connect intervals.icu, and put a third-party app on the watch.
+What is given up is everything Watchletic does not carry across — it reads
+intervals.icu's calendar, not our plan, so any target intervals.icu renders poorly
+(the whole-percentage rounding [integrations.md](../integrations.md) notes) is what
+reaches the wrist.
+
+**This should be tried before anything below is built.** One athlete, one Wear OS
+watch, one planned session through the whole chain, and the answer to whether this
+platform needs any of our code at all is a morning's work rather than a quarter's.
+
+### The Health Connect shape exists, and appears to lead nowhere
 
 Health Connect has **training plans** — `PlannedExerciseSessionRecord`, with blocks,
 repeated steps, active and rest phases, per-step performance targets and completion
@@ -113,7 +154,7 @@ evidence available says nobody is there:
 
 So the likely truth is that writing a perfect `PlannedExerciseSessionRecord` puts the
 plan somewhere no athlete can start it from. **That has to be measured before a line
-of product code is written**, and it is cheap to measure: see the experiment below.
+of product code is written**, and it is cheap to measure: see the experiments below.
 
 ### If it did work, it is still an app
 
@@ -138,7 +179,8 @@ tells the app which plan a session was recorded against
 Health Connect by the recording app, and does not exist at all if it was not — which
 throws the match back on the one-workout-of-that-sport-that-day rule, and nothing
 else. And the whole reason iOS has no watch app is that Apple's Workout app executes
-the plan. On Wear OS nobody does.
+the plan. On Wear OS the system does not — only a third party does, and only for its
+own source.
 
 ### What two apps would be
 
@@ -148,41 +190,51 @@ transitions, the alerts, the mid-session screen, the tile and the ongoing-activi
 notification are all ours to write and to keep working across a Wear OS device range
 that does not agree on which metrics exist. `docs/ios.md` says a watch app would mean
 "a second target, a second authorization, a WatchConnectivity session and a workout
-engine written here — to end up with what the athlete already has". On Wear OS the
-last clause is false: the athlete does not already have it. That is the whole cost of
-this platform in one sentence.
+engine written here — to end up with what the athlete already has". On Wear OS that
+last clause is only true by somebody else's grace: what the athlete can already have
+is Watchletic, bought separately. Writing this is buying it back.
 
 **This is the largest single piece of work anyone has proposed for this project**,
-and it should not start until the experiment below has been run and the intervals.icu
-route has been documented and offered.
+and Watchletic has already done it. It should not start until the two experiments
+below have been run, and probably not then.
 
-## The one experiment to run first
+## The two experiments to run first
 
-Perhaps a day's work, and it decides everything above.
+Between them perhaps two days, and they decide everything above.
 
-1. A throwaway Android app that writes one `PlannedExerciseSessionRecord` — a warmup,
-   `8 × (400 m hard / 200 m easy)`, a cooldown, with heart rate targets.
-2. Put it on a Galaxy Watch pairing and a Pixel Watch pairing.
-3. Ask one question of each: **can the athlete start that session from the watch?**
-   Then the weaker one: does it appear anywhere in Samsung Health or the Google
-   Health app at all?
+**One: does the chain that exists already work?** Put Watchletic on a Wear OS watch,
+connect it to an intervals.icu account this server pushes to, and take one planned
+session out and back. What to watch for is not whether it syncs — it is what survives:
+whether the intervals arrive with their targets, what the whole-percentage rounding
+does to a heart rate band, and whether the session comes back paired to the event we
+pushed, since that pairing is what our webhook reads. A yes is the answer to this
+whole document, and the work becomes prose plus a named recommendation.
 
-A yes on any of them makes a phone-only Android app worth writing and this document
-worth rewriting. A no on all of them settles it: for Wear OS the choice is a full
-watch app or nothing, and *nothing* is a defensible answer — the intervals.icu route
-already serves the watches serious enough to want an interval plan on them.
+**Two: is there a platform route yet?** A throwaway Android app that writes one
+`PlannedExerciseSessionRecord` — a warmup, `8 × (400 m hard / 200 m easy)`, a
+cooldown, with heart rate targets — on a Galaxy Watch pairing and a Pixel Watch
+pairing. One question of each: **can the athlete start that session from the watch?**
+Then the weaker one: does it appear in Samsung Health or the Google Health app at all?
 
-Run it again when Wear OS or Samsung ships something new; the data type is young, and
-the reading side is the kind of gap an OEM closes in one release.
+A yes there makes a phone-only Android app worth writing, and worth writing *whatever*
+the first experiment said, because it needs no third-party subscription. A no leaves
+Watchletic as the only route, which is a recommendation rather than a codebase.
 
-## What an athlete can do today with no app and no adapter
+Run the second one again when Wear OS or Samsung ships something new; the data type is
+young, and the reading side is the kind of gap an OEM closes in one release.
 
-Nothing good, and it is worth saying rather than implying otherwise. `GET
-/export/:date-:id.fit` gives the athlete the file. It can be dropped into a Garmin
-device's `Garmin/NewFiles` over USB, and it is what intervals.icu is already sent.
-Neither Samsung Health nor Fitbit imports a workout file at all. For the recording
-coming back there is no route off a Wear OS watch either, short of a platform this
-server can read.
+## What an athlete can do with nothing installed at all
+
+Not much, and it is worth saying rather than implying otherwise. `GET
+/export/:date-:id.fit` gives the athlete the file; it can go into a Garmin device's
+`Garmin/NewFiles` over USB, and it is what intervals.icu is already sent. Neither
+Samsung Health nor Fitbit imports a workout file.
+
+The **recording** direction is the softer half, and it does have a route: a session
+recorded on a Galaxy Watch or a Pixel Watch reaches Strava (Samsung Health and Google
+Health both sync to it), and intervals.icu reads Strava. So an athlete who will not
+install Watchletic can still have what they did land where this server reads it —
+they just have to have planned the session on the watch themselves.
 
 ## Checklist
 
@@ -191,7 +243,9 @@ server can read.
       planned workouts* tick named, because the connection alone does not do it
 - [ ] The dashboard's intervals.icu `connected_note` says the same thing, since that
       is where an athlete is standing when it matters
-- [ ] Run the `PlannedExerciseSessionRecord` experiment and record the result here
-- [ ] Only then: decide between an Android phone app, two apps, or neither
+- [ ] Run the Watchletic chain end to end and record here what survived it
+- [ ] Run the `PlannedExerciseSessionRecord` experiment and record the result too
+- [ ] Only then: decide between an Android phone app, two apps, or neither — and
+      neither is now a real answer, not a shrug
 - [ ] Do not build on Google Fit, and do not wait for the Google Health API to learn
       how to schedule a workout
