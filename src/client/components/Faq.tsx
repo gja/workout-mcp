@@ -88,8 +88,7 @@ export function Faq() {
           <p className="note">
             It is not on the App Store yet — builds go out through TestFlight, one invite at a time. Write to{' '}
             <a href="mailto:tejas@gja.in">tejas@gja.in</a> with the email address on your Apple Account and you'll get
-            one. If you would rather not wait, the repo builds: open it in Xcode, sign with your own team and put it
-            on your phone.
+            one.
           </p>
         </Section>
 
