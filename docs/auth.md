@@ -126,10 +126,18 @@ npx wrangler d1 execute workout-mcp --remote \
   --command "UPDATE users SET alias_of_user_id = '<the account>' WHERE id = '<the other row>'"
 ```
 
-A link made either way reaches backwards: sessions, API tokens and OAuth grants name the
-row they were made under, and each is resolved through it on the way in. What does **not**
-move is anything the demoted row owns — workouts, contexts, a connected platform — so a
-row with data of its own is a merge rather than a link, and this is not that.
+**A linked row stops answering.** Sessions, API tokens and OAuth grants name the row they
+were made under, and a row that is no longer an account no longer authenticates: they come
+back 401, and signing in with that provider again is the way back — the sign-in lands on
+the account. Following them instead was tried and removed. It bought nothing the linking
+does on its own, because a row linked automatically is one this server has just made and
+has never issued anything under; all it covered was a link made by hand, at the price of
+resolving a credential's owner on every request and of a token quietly becoming another
+account's.
+
+What does **not** move either is anything the demoted row owns — workouts, contexts, a
+connected platform — so a row with data of its own is a merge rather than a link, and this
+is not that.
 
 ## State handling
 

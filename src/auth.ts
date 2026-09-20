@@ -35,12 +35,16 @@ export async function secretsMatch(given: string | null, expected: string | unde
 
 // --- Accounts --------------------------------------------------------------
 
-/** What a row points at, or the row itself. A linked sign-in owns nothing. */
+/** What a sign-in points at, or the sign-in itself. A linked one owns nothing. */
 type Row = { id: string; email: string | null; alias_of_user_id: string | null };
 
 /**
- * The account a row reaches: itself, or the one it was linked to. A link whose account
- * has been deleted is the row again, which is the state a hand-deleted account leaves.
+ * The account a sign-in reaches: itself, or the one it was linked to. Asked as a sign-in
+ * finishes and nowhere else — everything issued from here on names the account, and a
+ * credential from before a link is spent rather than followed. See docs/auth.md.
+ *
+ * A link whose account has been deleted is the sign-in again, which is the state a
+ * hand-deleted account leaves.
  */
 async function account(env: Env, row: Row): Promise<User> {
   if (!row.alias_of_user_id) return { id: row.id, email: row.email };
@@ -52,28 +56,16 @@ async function account(env: Env, row: Row): Promise<User> {
 }
 
 /**
- * Every id that reaches an account: the account, and each sign-in linked to it. A token
- * or a grant names the row it was made under, so anything listing or revoking one has to
- * ask for all of them — a credential nobody can see is a credential nobody can revoke.
- */
-export async function accountIds(env: Env, accountId: string): Promise<string[]> {
-  const linked = await all(
-    env,
-    qb.selectFrom('users').select('id').where('alias_of_user_id', '=', accountId),
-  );
-  return [accountId, ...linked.map((row) => row.id)];
-}
-
-/**
- * The account a stored id reaches, following the link where the id names one. An OAuth
- * grant carries the id it was approved under, and that row may have been linked since.
+ * The account a stored id names, or nothing. A row that has been linked is not an account
+ * any more, so a credential made under it before the link stops working rather than
+ * quietly becoming someone else's: signing in again is the way back. See docs/auth.md.
  */
 export async function findAccount(env: Env, userId: string): Promise<User | null> {
   const row = await one(
     env,
     qb.selectFrom('users').select(['id', 'email', 'alias_of_user_id']).where('id', '=', userId),
   );
-  return row ? account(env, row) : null;
+  return row && !row.alias_of_user_id ? { id: row.id, email: row.email } : null;
 }
 
 /**
@@ -225,19 +217,20 @@ export async function readSession(env: Env, request: Request): Promise<User | nu
       .select([
         'users.id as id',
         'users.email as email',
-        // A session older than the link still names the row it was made under.
+        // The row this session was made under may have been linked since, and a linked
+        // row is no longer an account: the cookie is spent, like an expired one.
         'users.alias_of_user_id as alias_of_user_id',
         'sessions.expires_at as expires_at',
       ])
       .where('sessions.id_hash', '=', await sha256(id)),
   );
 
-  if (!row) return null;
+  if (!row || row.alias_of_user_id) return null;
   if (Date.parse(row.expires_at) < Date.now()) {
     await run(env, qb.deleteFrom('sessions').where('id_hash', '=', await sha256(id)));
     return null;
   }
-  return account(env, row);
+  return { id: row.id, email: row.email };
 }
 
 export async function endSession(env: Env, request: Request): Promise<void> {
@@ -296,10 +289,11 @@ export async function findTokenOwner(env: Env, token: string): Promise<User | nu
       .select(['users.id as id', 'users.email as email', 'users.alias_of_user_id as alias_of_user_id'])
       .where('tokens.token_hash', '=', hash),
   );
-  if (!row) return null;
+  // Same as a session: a token issued under a row that has since been linked is spent.
+  if (!row || row.alias_of_user_id) return null;
 
   await run(env, qb.updateTable('tokens').set({ last_used_at: iso(new Date()) }).where('token_hash', '=', hash));
-  return account(env, row);
+  return { id: row.id, email: row.email };
 }
 
 export type TokenSummary = {
@@ -315,7 +309,7 @@ export async function listTokens(env: Env, userId: string): Promise<TokenSummary
     qb
       .selectFrom('tokens')
       .select(['prefix', 'name', 'created_at', 'last_used_at'])
-      .where('user_id', 'in', await accountIds(env, userId))
+      .where('user_id', '=', userId)
       .orderBy('created_at', 'desc'),
   );
 }
@@ -323,10 +317,7 @@ export async function listTokens(env: Env, userId: string): Promise<TokenSummary
 export async function revokeToken(env: Env, userId: string, prefix: string): Promise<boolean> {
   const written = await changes(
     env,
-    qb
-      .deleteFrom('tokens')
-      .where('user_id', 'in', await accountIds(env, userId))
-      .where('prefix', '=', prefix),
+    qb.deleteFrom('tokens').where('user_id', '=', userId).where('prefix', '=', prefix),
   );
   return written > 0;
 }

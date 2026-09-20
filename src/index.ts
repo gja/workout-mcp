@@ -39,10 +39,10 @@ const appTokenHandler = {
       return Response.json({ error: `this grant did not ask for the ${APP_TOKEN_SCOPE} scope` }, { status: 403 });
     }
 
-    // The grant carries the id it was approved under, which may since have been linked
-    // to an account; the token has to be minted against the account. See docs/auth.md.
+    // The grant names a row rather than an athlete, and that row may have been deleted or
+    // linked since it was approved. Neither is an account to mint a token against.
     const user = await auth.findAccount(env, props.userId);
-    if (!user) return Response.json({ error: 'that account no longer exists' }, { status: 401 });
+    if (!user) return Response.json({ error: 'that account is no longer signed in' }, { status: 401 });
 
     const body = (await request.json().catch(() => ({}))) as { name?: unknown };
     const name = typeof body.name === 'string' ? body.name.trim().slice(0, 60) : '';
@@ -59,10 +59,10 @@ const mcpHandler = {
     const props = (ctx as ExecutionContext & { props?: AuthProps }).props;
     if (!props?.userId) return Response.json({ error: 'no authenticated user' }, { status: 401 });
 
-    // Read rather than taken from the grant, which names the row the athlete approved it
-    // under and not the account that row now reaches. See docs/auth.md.
+    // Read rather than taken from the grant: the row it names may since have been deleted
+    // or linked, and a client holding one connects again. See docs/auth.md.
     const user = await auth.findAccount(env, props.userId);
-    if (!user) return Response.json({ error: 'that account no longer exists' }, { status: 401 });
+    if (!user) return Response.json({ error: 'that account is no longer signed in' }, { status: 401 });
 
     const response = await handleMcp(request, env, user);
     response.headers.set('Access-Control-Allow-Origin', '*');

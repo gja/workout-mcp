@@ -125,56 +125,33 @@ describe('linking a second provider', () => {
     expect(apple?.id).toBe('made-before');
   });
 
-  // An MCP client connected under the row that was linked reads the account, not the row
-  // it was approved against — otherwise the plan goes empty the day the link is made.
-  it('follows the link for a token issued before it', async () => {
+  // Everything a sign-in issues from here on names the account, so only a link made by
+  // hand can leave a credential behind — and it is spent rather than followed, because a
+  // token that silently became another account's is worse than one that asks for a log in.
+  it('spends what the linked row issued, so signing in again is the way back', async () => {
+    const google = await signIn('google');
     const apple = await signIn('apple');
     const { token } = (await (
       await SELF.fetch(`${BASE}/api/tokens`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Cookie: sessionFrom(apple) },
-        body: JSON.stringify({ name: 'Claude' }),
-      })
-    ).json()) as { token: string };
-
-    const google = await env.DB.prepare("SELECT id FROM users WHERE provider = 'apple'").first<{ id: string }>();
-    await env.DB.prepare(
-      `INSERT INTO users (id, provider, subject, email, email_verified, created_at)
-       VALUES ('the-account', 'google', 'g-1', 'athlete@example.com', 1, '2026-01-01T00:00:00.000Z')`,
-    ).run();
-    await env.DB.prepare("UPDATE users SET alias_of_user_id = 'the-account' WHERE id = ?").bind(google?.id).run();
-
-    const me = await SELF.fetch(`${BASE}/api/me`, { headers: { Authorization: `Bearer ${token}` } });
-    expect(await me.json()).toMatchObject({ id: 'the-account' });
-  });
-
-  // A credential nobody can see is a credential nobody can revoke, and the app's was
-  // issued under the row that a link by hand demotes. See docs/auth.md.
-  it('shows and revokes a token issued under the linked row', async () => {
-    const google = await signIn('google');
-    const apple = await signIn('apple');
-    const { token, prefix } = (await (
-      await SELF.fetch(`${BASE}/api/tokens`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Cookie: sessionFrom(apple) },
         body: JSON.stringify({ name: 'WorkoutsMCP for iOS' }),
       })
-    ).json()) as { token: string; prefix: string };
+    ).json()) as { token: string };
 
     const account = (await SELF.fetch(`${BASE}/api/me`, { headers: { Cookie: sessionFrom(google) } }).then((r) =>
       r.json(),
     )) as { id: string };
     await env.DB.prepare("UPDATE users SET alias_of_user_id = ? WHERE provider = 'apple'").bind(account.id).run();
-    const asAccount = { Cookie: sessionFrom(google) };
 
-    const listed = await SELF.fetch(`${BASE}/api/tokens`, { headers: asAccount });
-    expect(await listed.json()).toMatchObject({ tokens: [{ name: 'WorkoutsMCP for iOS' }] });
+    // The app's token and the browser session it was made from, both gone.
+    expect((await SELF.fetch(`${BASE}/api/me`, { headers: { Authorization: `Bearer ${token}` } })).status).toBe(401);
+    expect((await SELF.fetch(`${BASE}/api/me`, { headers: { Cookie: sessionFrom(apple) } })).status).toBe(401);
 
-    const revoked = await SELF.fetch(`${BASE}/api/tokens/${prefix}`, { method: 'DELETE', headers: asAccount });
-    expect(revoked.status).toBe(200);
-
-    const after = await SELF.fetch(`${BASE}/api/me`, { headers: { Authorization: `Bearer ${token}` } });
-    expect(after.status).toBe(401);
+    // And signing in with that provider again lands on the account, which is the way back.
+    const back = await signIn('apple');
+    const me = await SELF.fetch(`${BASE}/api/me`, { headers: { Cookie: sessionFrom(back) } });
+    expect(await me.json()).toMatchObject({ id: account.id });
   });
 
   it('is two accounts when the addresses differ', async () => {
