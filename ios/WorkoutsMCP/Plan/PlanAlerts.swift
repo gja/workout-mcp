@@ -96,17 +96,14 @@ enum PlanAlerts {
         return bounds(low?.value, high?.value, floor, ceiling)
     }
 
-    /// What WorkoutKit actually reads off a heart rate or cadence alert: the number, as beats
-    /// or rotations a minute. `UnitFrequency` is hertz and its multiples and has no case for
-    /// it, so this is the one written out rather than `.hertz`, which the number is not.
-    ///
-    /// The coefficient is 1 rather than 1/60 deliberately. It is not a conversion to hertz,
-    /// it is a statement that the number is already the one the API takes — so a `converted`
-    /// anywhere below cannot put back the 60 that sent 145 bpm out as 2.4 and left every step
-    /// of a long run reading **0 BPM** in Apple Fitness.
+    /// A rate a minute, as a heart rate or cadence alert is read back: Apple divides the
+    /// measurement's base value by 60 to get the figure it shows. A 40-148 bpm band sent as
+    /// 0.67-2.47 (the physics) read *0 BPM* in Apple Fitness, and sent as 40-148 read
+    /// *1-2 BPM* — 40/60 and 148/60 rounded. So the coefficient is 60, not the 1/60 a beat a
+    /// minute really is in hertz: it is what makes that division land on the band again.
     private static let perMinuteUnit = UnitFrequency(
         symbol: "/min",
-        converter: UnitConverterLinear(coefficient: 1)
+        converter: UnitConverterLinear(coefficient: 60)
     )
 
     private static func perMinute(_ rate: Double) -> Measurement<UnitFrequency> {
