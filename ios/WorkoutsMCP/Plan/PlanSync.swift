@@ -18,6 +18,20 @@ enum PlanSync {
 
     private static let syncedAtKey = "last-synced-at"
     private static let syncedCountKey = "last-synced-count"
+    private static let syncedBuildKey = "last-synced-build"
+
+    /// The build that last placed the plan, against the build running now. `PlanPlacement`
+    /// remembers what the *server* said, which cannot notice a new app reading the same plan
+    /// into different steps — a fixed alert, a renamed step — so the watch would keep what
+    /// the old build wrote until the server happened to rewrite the workout. One string in
+    /// defaults is the whole of noticing, and it costs a read.
+    private static var isNewBuild: Bool {
+        UserDefaults.standard.string(forKey: syncedBuildKey) != build
+    }
+
+    private static var build: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+    }
 
     /// When the plan last reached the watch, and how much of it did. Written wherever a sync
     /// ran, so a turn iOS granted in the night is what the status line reports in the morning.
@@ -41,7 +55,7 @@ enum PlanSync {
     /// one was. What `PlanRefresh` has to go on: reading the plan is the round trip it would
     /// be avoiding, so it cannot look at the plan first.
     static var isStale: Bool {
-        guard let last = lastSynced else { return true }
+        guard let last = lastSynced, !isNewBuild else { return true }
         return Date().timeIntervalSince(last.at) >= staleAfter
     }
 
@@ -49,6 +63,7 @@ enum PlanSync {
     /// — the listing is already read — and it is why opening the app inside the four hours
     /// still syncs when a workout was added, edited or moved in the meantime.
     static func hasChanged(_ due: [PlannedWorkout]) -> Bool {
+        if isNewBuild { return true }
         let placed = PlanPlacement.all()
         guard Set(placed.keys) == Set(due.map(\.key)) else { return true }
         return due.contains { placed[$0.key] != PlanPlacement.fingerprint($0) }
@@ -71,10 +86,10 @@ enum PlanSync {
     /// neither its steps nor the two writes are spent on it. That leaves the listing the
     /// caller already had and one read of the scheduler.
     ///
-    /// **`force` sends the window again whatever that record says.** What the record cannot
-    /// see is this app: a build that reads the same plan into different steps leaves every
-    /// `updated_at` where it was, and the watch keeps what the last build put there. A tap
-    /// is somebody saying the watch is wrong, so a tap spends the writes.
+    /// **`force` sends the window again whatever that record says**, and so does the first
+    /// sync after an app update: the record is about the server's plan and cannot see a
+    /// build that reads it into different steps. A tap is somebody saying the watch is
+    /// wrong, and a new build is this app saying the same thing.
     ///
     /// `placed` is called per workout so a foreground caller can count them out.
     @discardableResult
@@ -91,7 +106,8 @@ enum PlanSync {
 
         // One request for all of them: this is the slow part of a sync that has work to do,
         // and a week of workouts used to be a week of round trips to the same server.
-        let stale = force ? due : due.filter { !PlanPlacement.holds($0, placed: already, onWatch: onWatch) }
+        let everything = force || isNewBuild
+        let stale = everything ? due : due.filter { !PlanPlacement.holds($0, placed: already, onWatch: onWatch) }
         let plans = try await client.plans(for: stale)
 
         var count = 0
@@ -131,6 +147,9 @@ enum PlanSync {
         let at = Date()
         UserDefaults.standard.set(at, forKey: syncedAtKey)
         UserDefaults.standard.set(count, forKey: syncedCountKey)
+        // Last of the three: a sync that threw on its way here has not finished putting
+        // this build's steps on the watch, and the build it is replacing stays recorded.
+        UserDefaults.standard.set(build, forKey: syncedBuildKey)
         return count
     }
 
