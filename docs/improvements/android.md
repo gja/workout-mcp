@@ -198,6 +198,47 @@ is Watchletic, bought separately. Writing this is buying it back.
 and Watchletic has already done it. It should not start until the two experiments
 below have been run, and probably not then.
 
+## Without intervals.icu in the middle
+
+Taking intervals.icu out and still refusing to execute a workout ourselves leaves
+exactly one shape: **our own adapter into a vendor's cloud, and the vendor's own watch
+app running the session.** That is what `src/platforms/` is already built for, and
+[garmin-integration.md](garmin-integration.md) is the first one written up. What
+decides it is not the code — three of these are a week's work against a documented
+API — it is who will let us register.
+
+| Vendor | Plan push exists | How to get in, today |
+| --- | --- | --- |
+| **Garmin** | Training API, workouts and calendar entries | **Closed.** New Connect API applications [were frozen months ago](https://the5krunner.com/2026/09/14/garmin-developer-api-access-paused/) pending a redesign of the programme, with no timeline and a queue that is not being processed |
+| **COROS** | [Partner API](https://support.coros.com/hc/en-us/articles/53181766856724-Partner-API-Access) — structured workout and training plan push, multi-user OAuth, webhooks | Partner application, pitched at established platforms |
+| **Suunto** | Cloud API plus the SuuntoPlus Guide Cloud, which is how a session reaches the watch | [Partner programme](https://apizone.suunto.com/faq), companies and organisations only — explicitly not personal use — approved in about two weeks |
+| **Wahoo** | [Cloud API](https://cloud-api.wahooligan.com/), public and documented, structured workout plans included | Open OAuth registration, and the only one here with no gate |
+| **Polar** | None | — |
+
+**So the wall is commercial, not technical**, and the largest vendor is behind it. The
+honest reading is that a direct adapter is worth writing the moment a door opens, and
+that intervals.icu is currently doing for free what four partner applications would
+buy — which is the argument for leaving it in the middle rather than taking it out.
+
+**None of this touches Wear OS**, because Pixel and Galaxy have no cloud to adapt to;
+the table simply has no row for them. Ruling out intervals.icu there leaves two things
+and no third:
+
+- **Watchletic already imports a `.FIT` workout file** on its paid tier, and
+  `GET /export/:date-:id.fit` is exactly that file. So the chain runs today with no
+  intervals.icu and no code: export, import, run it, export the session back. It is
+  per-workout and manual, which is the whole objection to it.
+- **Or be one of its sources.** Watchletic imports planned sessions from thirteen
+  platforms — TrainingPeaks, Final Surge, intervals.icu, Nolio, Runcoach, CoachX,
+  TrainAsONE, Trenara, AI Endurance, Athletica, Tredict, StrideOn, V.O2 — so the ask
+  is to be the fourteenth. That is an email rather than a sprint, and it is the
+  cheapest item in this document that ends with somebody else executing the workout.
+
+The remaining idea — a thin Android phone app of ours that writes
+`PlannedExerciseSessionRecord` and nothing else — is genuinely not an execution engine
+and would owe nobody a subscription. It fails on the other side: nobody reads the
+record. That is experiment two.
+
 ## The two experiments to run first
 
 Between them perhaps two days, and they decide everything above.
@@ -245,6 +286,10 @@ they just have to have planned the session on the watch themselves.
       is where an athlete is standing when it matters
 - [ ] Run the Watchletic chain end to end and record here what survived it
 - [ ] Run the `PlannedExerciseSessionRecord` experiment and record the result too
+- [ ] Ask Watchletic what it takes to be their fourteenth source, since that is the
+      one route to a Wear OS watch with no intervals.icu and no engine of ours
+- [ ] Apply to COROS and Suunto, whose doors are open, and watch for Garmin's
+      reopening — the adapters are small; the applications are the long pole
 - [ ] Only then: decide between an Android phone app, two apps, or neither — and
       neither is now a real answer, not a shrug
 - [ ] Do not build on Google Fit, and do not wait for the Google Health API to learn
