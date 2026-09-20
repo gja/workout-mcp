@@ -33,6 +33,73 @@ export function Faq() {
     <section>
       <h2>FAQ</h2>
       <Accordion>
+        <Section group="faq" title="I train with an Apple Watch" hint="Two ways">
+          <p className="note">
+            Two ways, and the first is the one I would pick. Plan here, let it sync to{' '}
+            <a href="https://intervals.icu" target="_blank" rel="noreferrer">
+              intervals.icu
+            </a>
+            , and follow the session on the watch with{' '}
+            <a href="https://www.watchletic.com" target="_blank" rel="noreferrer">
+              Watchletic
+            </a>
+            : it pulls the workout off the intervals.icu calendar and plays it through the intervals, so you follow
+            the session instead of remembering it. intervals.icu has its own app that will do this too, and it is free
+            — but Watchletic is about $2, and for the features you get it is worth every cent of it.
+          </p>
+          <p className="note">
+            The other way uses nothing but Apple's own apps. The WorkoutsMCP iPhone app schedules the plan straight
+            into the Workout app through WorkoutKit, and carries the recorded session back here, so the stats show up
+            beside what you planned — no intervals.icu and no Watchletic in the middle. What it does and why is in{' '}
+            <a href={`${REPO_URL}/blob/main/docs/ios.md`} target="_blank" rel="noreferrer">
+              docs/ios.md
+            </a>
+            .
+          </p>
+          <p className="note">
+            It is free, like the rest of this, and it is not on the App Store yet — builds go out through TestFlight,
+            one invite at a time. Write to <a href="mailto:tejas@gja.in">tejas@gja.in</a> with the email address on
+            your Apple Account and you'll get one.
+          </p>
+        </Section>
+
+        <Section group="faq" title="I train with a Garmin or another fitness watch" hint="Via intervals.icu">
+          <p className="note">
+            Through{' '}
+            <a href="https://intervals.icu" target="_blank" rel="noreferrer">
+              intervals.icu
+            </a>
+            . Connect it under <em>Setup → Training platform</em> and every session you plan here lands on its
+            calendar; connect your watch's own platform at the intervals.icu end — Garmin Connect, and the same door
+            for Coros, Polar, Suunto and Wahoo — and the planned workout goes down to the watch, plays through the
+            intervals, and the file it records comes back, so the session is marked done here with its stats beside
+            what you planned.
+          </p>
+          <p className="note">
+            Nothing else to install on the watch: what runs the session is the watch's own workout screen, the way any
+            structured workout does.
+          </p>
+        </Section>
+
+        <Section group="faq" title="Anything else, or nothing on my wrist" hint="Via intervals.icu">
+          <p className="note">
+            A Wear OS watch is the same road:{' '}
+            <a href="https://intervals.icu" target="_blank" rel="noreferrer">
+              intervals.icu
+            </a>{' '}
+            reads what Google Fit holds, and{' '}
+            <a href="https://www.watchletic.com" target="_blank" rel="noreferrer">
+              Watchletic
+            </a>{' '}
+            runs there too, so the session plays through the intervals the way it does on an Apple Watch.
+          </p>
+          <p className="note">
+            Everything else goes through intervals.icu as well — it takes a file from almost anywhere, and its own app
+            will play a planned session on a phone. And with no watch at all the plan is still on the calendar here:
+            open the session, read it off the screen, and mark it done.
+          </p>
+        </Section>
+
         <Section group="faq" title="What is your training tech stack?" hint="Four pieces">
           <p className="note">
             Four pieces, each doing one job.{' '}
@@ -60,35 +127,18 @@ export function Faq() {
             <a href="https://www.watchletic.com" target="_blank" rel="noreferrer">
               Watchletic
             </a>{' '}
-            is what actually runs on the wrist. It pulls the workout off the intervals.icu calendar and plays it
-            through the intervals, so you follow the session instead of remembering it. intervals.icu has its own app
-            that will do this too, and it is free — but Watchletic is about $2, and for the features you get it is
-            worth every cent of it.
+            is what actually runs on the wrist, on an Apple Watch or a Wear OS one. It pulls the workout off the
+            intervals.icu calendar and plays it through the intervals, so you follow the session instead of
+            remembering it. On a Garmin or anything else the watch's own workout screen does that job, and the
+            sections above say which road is which.
           </p>
           <p className="note">
-            Watchletic is Apple Watch only, though. On a Garmin or anything else, use intervals.icu directly — the
-            planned session goes to your watch from there.
-          </p>
-        </Section>
-
-        <Section group="faq" title="Is there an iPhone app?" hint="Ask for an invite">
-          <p className="note">
-            Yes, and it is the way in if your watch is an Apple Watch. It schedules the plan through Apple's own
-            Workout app — no intervals.icu and no Watchletic in the middle — and carries the recorded session back
-            here, so the stats show up beside what you planned. What it does and why is in{' '}
-            <a href={`${REPO_URL}/blob/main/docs/ios.md`} target="_blank" rel="noreferrer">
-              docs/ios.md
-            </a>
-            , and the source is in{' '}
+            On an Apple Watch there is a fourth piece you can do without: the{' '}
             <a href={`${REPO_URL}/tree/main/ios`} target="_blank" rel="noreferrer">
-              ios/
+              iPhone app
             </a>{' '}
-            like everything else.
-          </p>
-          <p className="note">
-            It is not on the App Store yet — builds go out through TestFlight, one invite at a time. Write to{' '}
-            <a href="mailto:tejas@gja.in">tejas@gja.in</a> with the email address on your Apple Account and you'll get
-            one.
+            replaces the last two, scheduling the plan into Apple's own Workout app and bringing the recorded session
+            back here.
           </p>
         </Section>
 

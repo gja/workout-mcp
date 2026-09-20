@@ -135,7 +135,36 @@ athletes have without testing for it.
   came from, and note it is a floor — a true max needs an effort hard enough to
   find it. Nothing that agrees means `*not set*`.
 
-### Round 5 — indoors or outdoors, and how they follow a target
+### Round 5 — how the session reaches them
+
+Ask what happens on the day: does a watch play the session through the
+intervals, or are they reading it off a screen? Then say which road fits what
+they already own, because it is one setup done before the first session rather
+than after it.
+
+- **Apple Watch** — two ways, and suggest this one first: connect
+  **intervals.icu** on the dashboard and follow the session with **Watchletic**
+  on the watch, which plays a planned workout through its intervals (about $2;
+  intervals.icu's own app is free and does the same job). The alternative uses
+  only Apple's apps — the **WorkoutsMCP iPhone app** schedules the plan into the
+  Workout app and brings the recorded session back here, with no intervals.icu
+  in the middle. It is free but invite-only for now: tell them to write to
+  <tejas@gja.in>.
+- **Garmin, Coros, Polar, Suunto, Wahoo** — **intervals.icu**, connected here
+  under *Setup › Training platform* and to the watch's own platform at their
+  end. Nothing to install on the watch; its own workout screen runs the session.
+- **Wear OS** — **intervals.icu** again, which reads what Google Fit holds, with
+  Watchletic on the watch.
+- **Nothing on the wrist, or a watch with no connector** — the plan is on the
+  dashboard calendar and on intervals.icu: read the session off a screen and
+  mark it done.
+
+Write the answer into `scheduling-instructions`, because it decides how a
+session is written: a watch playing intervals needs targets an alert can hold,
+which is the next round, while a session read off a screen can carry its intent
+in words.
+
+### Round 6 — indoors or outdoors, and how they follow a target
 
 Ask per sport: treadmill or road, trainer or road, pool or open water, or both.
 It changes the sub-sport a session is written with and how wide its targets can
@@ -145,7 +174,7 @@ Then ask how they follow a target mid-session — a watch alert, glancing at the
 screen, or by feel. If it is an alert, the band has to be one an alert can
 hold, which is the whole reason for the widths in the next section.
 
-### Round 6 — anything that constrains the plan
+### Round 7 — anything that constrains the plan
 
 - Injuries, recurring niggles, anything a session must not do.
 - Strength, physio or other training that takes a slot in the week.
