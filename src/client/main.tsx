@@ -2,13 +2,13 @@ import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { currentUser, listWorkouts, signOut, type Me, type Workout } from './api';
 import { relativeDate } from './dates';
-import { Accordion, Section } from './components/Accordion';
+import { Accordion, openSection, Section } from './components/Accordion';
 import { ApiTokens } from './components/ApiTokens';
 import { Calendar } from './components/Calendar';
 import { Contexts } from './components/Contexts';
 import { ConnectedApps } from './components/ConnectedApps';
-import { ConnectToClaude } from './components/ConnectToClaude';
-import { Faq } from './components/Faq';
+import { CONNECT_SECTION_ID, ConnectToClaude } from './components/ConnectToClaude';
+import { Faq, STARTER_SECTION_ID } from './components/Faq';
 import { Platforms } from './components/Platforms';
 import { SignIn } from './components/SignIn';
 import { WorkoutCard } from './components/WorkoutCard';
@@ -60,7 +60,18 @@ function Dashboard({ me }: { me: Me }) {
 
       <Calendar window={me.window} workouts={workouts} selected={selected} onSelect={setSelected} />
 
-      {workouts.length === 0 && <p className="empty">No workouts planned in this window.</p>}
+      {/* An empty calendar is usually an athlete who has not reached Claude yet, so the two doors are right here. */}
+      {workouts.length === 0 && (
+        <>
+          <p className="empty">No workouts planned in this window.</p>
+          <div className="row">
+            <button className="primary" onClick={() => openSection(CONNECT_SECTION_ID)}>
+              Connect Claude
+            </button>
+            <button onClick={() => openSection(STARTER_SECTION_ID)}>Get started with Claude</button>
+          </div>
+        </>
+      )}
 
       {open && (
         <div className="day" ref={panel}>
@@ -73,7 +84,7 @@ function Dashboard({ me }: { me: Me }) {
       <section>
         <h2>Setup</h2>
         <Accordion>
-          <Section group="setup" title="Connect to Claude" hint="Custom connector">
+          <Section group="setup" id={CONNECT_SECTION_ID} title="Connect to Claude" hint="Custom connector">
             <ConnectToClaude />
           </Section>
           <Section group="setup" title="Integrations" hint="intervals.icu">

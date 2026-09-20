@@ -12,7 +12,11 @@ const GITHUB_MARK =
   '.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A7.995' +
   ' 7.995 0 0016 8c0-4.42-3.58-8-8-8z';
 
-const STARTER_PROMPT = 'Run the workouts-mcp-onboarding-wizard skill from the Workouts MCP server.';
+/** Plain English on purpose: the connector's own tool and skill are named for onboarding, so this reaches them. */
+export const STARTER_PROMPT = 'Get me onboarded with WorkoutsMCP';
+
+/** What the dashboard's *Get started with Claude* opens. */
+export const STARTER_SECTION_ID = 'faq-getting-started';
 
 function Badge({ href, label, value }: { href: string; label: string; value: string }) {
   return (
@@ -35,31 +39,25 @@ export function Faq() {
       <Accordion>
         <Section group="faq" title="I train with an Apple Watch" hint="Two ways">
           <p className="note">
-            Two ways, and the first is the one I would pick. Plan here, let it sync to{' '}
+            The one I would pick: plan here, let it sync to{' '}
             <a href="https://intervals.icu" target="_blank" rel="noreferrer">
               intervals.icu
             </a>
-            , and follow the session on the watch with{' '}
+            , and follow the session with{' '}
             <a href="https://www.watchletic.com" target="_blank" rel="noreferrer">
               Watchletic
             </a>
-            : it pulls the workout off the intervals.icu calendar and plays it through the intervals, so you follow
-            the session instead of remembering it. intervals.icu has its own app that will do this too, and it is free
-            — but Watchletic is about $2, and for the features you get it is worth every cent of it.
+            , which plays the workout through its intervals so you follow it instead of remembering it. intervals.icu's
+            own app does the same and is free — but Watchletic is about $2, and worth every cent of it.
           </p>
           <p className="note">
-            The other way uses nothing but Apple's own apps. The WorkoutsMCP iPhone app schedules the plan straight
-            into the Workout app through WorkoutKit, and carries the recorded session back here, so the stats show up
-            beside what you planned — no intervals.icu and no Watchletic in the middle. What it does and why is in{' '}
+            Or use nothing but Apple's own apps: the WorkoutsMCP{' '}
             <a href={`${REPO_URL}/blob/main/docs/ios.md`} target="_blank" rel="noreferrer">
-              docs/ios.md
-            </a>
-            .
-          </p>
-          <p className="note">
-            It is free, like the rest of this, and it is not on the App Store yet — builds go out through TestFlight,
-            one invite at a time. Write to <a href="mailto:tejas@gja.in">tejas@gja.in</a> with the email address on
-            your Apple Account and you'll get one.
+              iPhone app
+            </a>{' '}
+            schedules the plan into the Workout app and brings the recorded session back here. It is free, and not on
+            the App Store yet — write to <a href="mailto:tejas@gja.in">tejas@gja.in</a> with the email address on your
+            Apple Account for a TestFlight invite.
           </p>
         </Section>
 
@@ -69,38 +67,32 @@ export function Faq() {
             <a href="https://intervals.icu" target="_blank" rel="noreferrer">
               intervals.icu
             </a>
-            . Connect it under <em>Setup → Training platform</em> and every session you plan here lands on its
-            calendar; connect your watch's own platform at the intervals.icu end — Garmin Connect, and the same door
-            for Coros, Polar, Suunto and Wahoo — and the planned workout goes down to the watch, plays through the
-            intervals, and the file it records comes back, so the session is marked done here with its stats beside
-            what you planned.
-          </p>
-          <p className="note">
-            Nothing else to install on the watch: what runs the session is the watch's own workout screen, the way any
-            structured workout does.
+            . Connect it under <em>Setup → Integrations</em> and every session you plan lands on its calendar; connect
+            Garmin Connect — or Coros, Polar, Suunto, Wahoo — at their end, and the workout goes down to the watch and
+            the file it records comes back, marked done here with its stats. Nothing to install: the watch's own
+            workout screen runs it.
           </p>
         </Section>
 
         <Section group="faq" title="I train with a Wear OS watch" hint="Via intervals.icu">
           <p className="note">
-            The Apple Watch road, on Google's side of the fence.{' '}
+            The Apple Watch road, on Google's side of the fence:{' '}
             <a href="https://intervals.icu" target="_blank" rel="noreferrer">
               intervals.icu
             </a>{' '}
-            connects to what Google Fit holds, so the sessions you record come back and count; and{' '}
+            connects to what Google Fit holds, and{' '}
             <a href="https://www.watchletic.com" target="_blank" rel="noreferrer">
               Watchletic
             </a>{' '}
-            runs on Wear OS too, pulling the planned workout off the intervals.icu calendar and playing it through
-            the intervals the way it does on a watch from the other shop.
+            runs on Wear OS too.
           </p>
         </Section>
 
         <Section group="faq" title="Anything else, or nothing on my wrist" hint="Via intervals.icu">
           <p className="note">
-            Everything else goes through intervals.icu as well — it takes a file from almost anywhere, and its own app
-            will play a planned session on a phone. And with no watch at all the plan is still on the calendar here:
-            open the session, read it off the screen, and mark it done.
+            intervals.icu takes a file from almost anywhere, and its own app will play a planned session on a phone.
+            With no watch at all the plan is still on the calendar here: read the session off the screen and mark it
+            done.
           </p>
         </Section>
 
@@ -131,53 +123,33 @@ export function Faq() {
             <a href="https://www.watchletic.com" target="_blank" rel="noreferrer">
               Watchletic
             </a>{' '}
-            is what actually runs on the wrist, on an Apple Watch or a Wear OS one. It pulls the workout off the
-            intervals.icu calendar and plays it through the intervals, so you follow the session instead of
-            remembering it. On a Garmin or anything else the watch's own workout screen does that job, and the
-            sections above say which road is which.
-          </p>
-          <p className="note">
-            On an Apple Watch there is a fourth piece you can do without: the{' '}
+            runs it on the wrist, on an Apple Watch or a Wear OS one; on a Garmin the watch's own workout screen does
+            that job. On an Apple Watch the{' '}
             <a href={`${REPO_URL}/tree/main/ios`} target="_blank" rel="noreferrer">
               iPhone app
             </a>{' '}
-            replaces the last two, scheduling the plan into Apple's own Workout app and bringing the recorded session
-            back here.
+            replaces the last two.
           </p>
         </Section>
 
-        <Section group="faq" title="Can you give me a prompt to get started with Claude?" hint="One line">
-          <p className="note">
-            Once the connector is added, paste this into a fresh Claude conversation. The interview lives on this
-            server, so the line only has to name it — Claude fetches the rest and runs it.
-          </p>
+        <Section
+          group="faq"
+          id={STARTER_SECTION_ID}
+          title="Can you give me a prompt to get started with Claude?"
+          hint="One line"
+        >
+          <p className="note">Once the connector is added, paste this into a fresh Claude conversation.</p>
           <pre className="snippet prose">{STARTER_PROMPT}</pre>
           <div className="actions">
             <CopyButton label="Copy prompt" text={STARTER_PROMPT} />
           </div>
-          <p className="note">
-            It reads whatever you have already written before it asks anything, then works through your sports and
-            your goal, how much of the planning you want done for you, the week you actually have, your numbers per
-            sport, and anything that constrains the plan. The answers are saved as your zones, your scheduling
-            instructions and your current plan, so the next conversation starts from them instead of from questions.
-            It ends by offering the next step: a week of workouts written there and then, or a scheduled task that
-            reviews last week and places the coming one every Sunday.
-          </p>
-          <p className="note">
-            Some clients offer the same interview as a prompt you pick rather than something you type, under a name
-            like <code>/mcp__Workouts_MCP__getting-started</code>. The prefix is whatever you called this connector,
-            so look for <code>getting-started</code> in the picker. Either door runs the same thing.
-          </p>
         </Section>
 
         <Section group="faq" title="What does it cost?" hint="Nothing">
           <p className="note">
-            WorkoutsMCP is free, and it is open source under the MIT licence. There is no paid tier, no trial and no
-            card to add — it is small and cheap enough to run that charging for it would cost more than it saves.
-          </p>
-          <p className="note">
-            If you would rather not trust someone else's copy, clone the repo and run your own. Issues and pull
-            requests are welcome.
+            Nothing: free, open source under the MIT licence, no paid tier and no card to add. It is small and cheap
+            enough to run that charging for it would cost more than it saves. If you would rather not trust someone
+            else's copy, clone the repo and run your own — issues and pull requests welcome.
           </p>
           <p className="badges">
             <Badge href={REPO_URL} label="GitHub" value="gja/workout-mcp" />
@@ -187,84 +159,61 @@ export function Faq() {
 
         <Section group="faq" title="What about analytics and data?" hint="I don’t want your data">
           <p className="note">
-            No analytics, no tracking pixels, no third-party scripts on this page. Nothing you do here is measured or
-            sold.
+            No analytics, no tracking pixels, no third-party scripts on this page. What gets stored is the workouts
+            you plan, whether you marked them done, and — once your training platform says you recorded the session —
+            basic stats about how it went. Nothing about you beyond what signing in and syncing need: your email
+            address, your login session, and any training-platform key you connect, encrypted at rest.
           </p>
           <p className="note">
-            What gets stored is the workouts you plan, whether you marked them done, and — once your training platform
-            says you recorded the session — some basic stats about how it went. Nothing at all about you beyond what
-            signing in and syncing need: your email address, your login session, and any training-platform key you
-            connect, which is encrypted at rest.
-          </p>
-          <p className="note">
-            Basic means totals and averages: how long, how far, average and maximum heart rate, a row per lap with its
-            pace and cadence, and each lap's four quarters so a fade inside a rep is visible. That is enough to say
-            whether you actually did the session. It is <em>not</em> second-by-second data — no heart-rate stream, no
-            GPS track, nothing about where you were. The file is read once, the numbers are kept and the file is
-            thrown away.
-          </p>
-          <p className="note">
-            Exactly which figures, with nothing left out, is{' '}
+            Basic means totals and averages, a row per lap with its pace and cadence, and each lap's four quarters so
+            a fade inside a rep is visible — enough to say whether you actually did the session. It is <em>not</em>{' '}
+            second-by-second data: no heart-rate stream, no GPS track, nothing about where you were. The file is read
+            once, the numbers are kept and the file is thrown away. Exactly which figures is{' '}
             <a href={`${REPO_URL}/blob/main/src/stats.ts`} target="_blank" rel="noreferrer">
               src/stats.ts
             </a>
-            , and the reasoning behind it is in{' '}
+            , and the reasoning is in{' '}
             <a href={`${REPO_URL}/blob/main/docs/stats.md`} target="_blank" rel="noreferrer">
               docs/stats.md
             </a>
-            . Read them rather than taking my word for it.
+            .
           </p>
           <p className="note">
-            Put plainly: I don't want your data. Beyond those numbers there is no activity history and no files from
-            your watch — there is nothing I would do with any of it, and no plans to start collecting it.
-          </p>
-          <p className="note">
-            The recordings themselves only pass through. When you ask for them they are relayed straight from your
-            training platform to your download in a single request, and never written down here — not the file, not a
-            note that you asked.
-          </p>
-          <p className="note">
-            Want it all deleted? Write to <a href="mailto:tejas@gja.in">tejas@gja.in</a> and it goes. The long version,
-            including who else sees what, is in <a href="/privacy-policy">the privacy policy</a>.
+            Put plainly: I don't want your data. Recordings you download only pass through — relayed from your
+            training platform to you in a single request, and never written down here. Want it all deleted? Write to{' '}
+            <a href="mailto:tejas@gja.in">tejas@gja.in</a> and it goes. The long version is in{' '}
+            <a href="/privacy-policy">the privacy policy</a>.
           </p>
         </Section>
 
         <Section group="faq" title="How do I analyse my data?" hint="Download what you recorded">
           <p className="note">
-            For a session you planned here, most of the answer is already waiting: ask your assistant how last week
-            went and it reads the stats stored against each workout — lap by lap, against the targets you planned —
-            without downloading anything. The calendar shows the same thing: open a session you have done and every
-            lap is there beside what it was aimed at.
+            Ask your assistant how last week went: it reads the stats stored against each workout, lap by lap against
+            the targets you planned. The calendar shows the same — open a session you have done.
           </p>
           <p className="note">
-            For everything else, ask it for the sessions you recorded over a date range and it hands you a link;
-            follow it and you get a <code>.zip</code> of the FIT files your watch produced, one per session, plus a{' '}
-            <code>manifest.json</code> saying what is in it. Up to a fortnight at a time — for longer, ask twice.
+            For everything else, ask for the sessions you recorded over a date range and it hands you a link: a{' '}
+            <code>.zip</code> of the FIT files your watch produced, one per session, plus a <code>manifest.json</code>
+            . Up to a fortnight at a time. Analyse them wherever you like — there are no charts here, because keeping
+            the data needed to draw them is exactly what this doesn't do.
           </p>
           <p className="note">
-            Then analyse them there. That is the honest answer to "where are my charts?" — there are none here,
-            because keeping the data needed to draw them is exactly what this doesn't do. The files are yours the
-            moment you have them: open them in whatever tool you like, keep them as long as you want.
-          </p>
-          <p className="note">
-            Nothing is stored to make this work. The link carries what you asked for and a signature saying it was us
-            who wrote it, the files are fetched from your training platform when you follow it, and it stops working
-            after four hours. Which also means: while it works, anyone holding the link can use it, so treat it like
-            the download it is.
+            The link stores nothing: it carries what you asked for and a signature saying it was us who wrote it, the
+            files are fetched when you follow it, and it stops working after four hours. Anyone holding it can use it
+            until then, so treat it like the download it is.
           </p>
         </Section>
 
         <Section group="faq" title="Can I take my context with me?" hint="Export context">
           <p className="note">
-            Yes, and without asking anyone. Open <em>Setup → Context</em> and press <em>Export context</em>: you get a{' '}
-            <code>backup-context.zip</code> holding one markdown file per document — your workout library, your
-            current plan, your scheduling instructions, your zones — plus a <code>manifest.json</code> saying which of
-            them you wrote and when you last touched each one.
+            Yes, and without asking anyone. Open <em>Setup → Context</em> and press <em>Export context</em>: a{' '}
+            <code>backup-context.zip</code> holding one markdown file per document — your workout library, current
+            plan, scheduling instructions and zones — plus a <code>manifest.json</code> saying when you last touched
+            each one.
           </p>
           <p className="note">
             Those four documents are the part of this that is genuinely yours: the workouts can be rebuilt from a
-            plan, but what you have told an assistant about how you train cannot. Keep a copy somewhere that isn't
-            here. Markdown in a zip reads fine in any editor, and it will still read fine if this site stops existing.
+            plan, what you have told an assistant about how you train cannot. Keep a copy somewhere that isn't here.
           </p>
         </Section>
       </Accordion>

@@ -1,6 +1,9 @@
 import { CopyButton } from './CopyButton';
 import { MCP_URL } from '../mcp';
 
+/** What the dashboard's *Connect Claude* opens. */
+export const CONNECT_SECTION_ID = 'setup-connect-to-claude';
+
 /** The connector path only: everything token-shaped lives in `ApiTokens`. */
 export function ConnectToClaude() {
   return (
