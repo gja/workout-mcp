@@ -38,7 +38,9 @@ has a dial for is worse than a wide band, and a zero end reads as no target at a
 `CadenceRangeAlert` are typed `Measurement<UnitFrequency>` and read the value as beats or
 rotations a minute, the unit beside it being a formality. Converted to true hertz a
 145-152 bpm band reached Apple Fitness as *0 BPM*, so the plan's own numbers go across as
-written.
+written — carried in a `/min` unit of the app's own, because `UnitFrequency` is hertz and
+its multiples and has no case for a rate a minute. Its coefficient is 1 and not 1/60: the
+number is the one the API takes, so converting it to the base unit has to leave it alone.
 
 **Everything `CustomWorkout.init` asserts is asked first.** It is not failable and does not
 throw: handed something it will not take it traps, and the app goes down with
