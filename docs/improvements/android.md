@@ -15,6 +15,35 @@ WorkoutKit on Android, so somebody has to write the engine that executes it. The
 one piece of good news in this document is that somebody already has, and it is not
 us — see [Wear OS](#wear-os-no-platform-route-and-somebody-elses-app).
 
+## The four watches this was aimed at
+
+Pixel, Samsung, Amazfit and Fitbit, which turn out to be three different situations
+and two dead ends. The column that matters is the last one.
+
+| Watch | Pairs with an iPhone | A plan can reach it | What that costs |
+| --- | --- | --- | --- |
+| **Pixel Watch** | **No.** Android only, every generation | No cloud takes one | An app on the watch — ours or Watchletic's |
+| **Galaxy Watch 4 and later** | **No.** Wear OS 3 dropped iOS; Tizen, up to Watch 3, had it | No cloud takes one | The same app |
+| **Amazfit** | **Yes**, the Zepp app is on both | **Yes** — but only the T-Rex 3 Pro and the Balance 2 take a pushed workout at all | A Zepp partnership, or intervals.icu, which already has one |
+| **Fitbit** | **Yes** | **No.** The Google Health API writes completed sessions only | Nothing works. Sense 2, Versa 4 and later take no third-party apps either, so there is not even an app to write |
+
+**The two that need an app are exactly the two an iPhone cannot pair with**, which
+collapses the question of doing this from an iPhone: nobody owns that combination,
+because Google and Samsung do not sell it.
+
+**And for the two an iPhone can pair with, the phone's OS does not matter at all.**
+Every route in this document that works is server to server — this deployment pushes a
+plan into a vendor's cloud, the vendor's own phone app relays it to the watch, and the
+recording comes back the same way. The phone is a relay, and an iPhone relays it as
+well as a Pixel does. An athlete with an Amazfit T-Rex 3 Pro and an iPhone is served by
+the intervals.icu route exactly as they would be on Android, and [`ios/`](../ios.md) —
+which is HealthKit and WorkoutKit, so Apple Watch and nothing else — has no part in it.
+
+**Fitbit is the one to stop spending thought on.** It is not that the door is shut
+pending a programme redesign, as at Garmin; there is no door. No API sends a planned
+workout, the newer devices run no third-party code, and both halves are Google's own
+decisions rather than gaps.
+
 ## The ask was "sync to Google Fit and let the watches read it"
 
 That specific shape is closed, three times over.
@@ -290,6 +319,9 @@ they just have to have planned the session on the watch themselves.
       one route to a Wear OS watch with no intervals.icu and no engine of ours
 - [ ] Apply to COROS and Suunto, whose doors are open, and watch for Garmin's
       reopening — the adapters are small; the applications are the long pole
+- [ ] Ask Zepp for the integration intervals.icu and TrainingPeaks already have, if
+      Amazfit is worth an adapter for the two models that can receive a workout
+- [ ] Spend nothing on Fitbit until Google ships an API that schedules something
 - [ ] Only then: decide between an Android phone app, two apps, or neither — and
       neither is now a real answer, not a shrug
 - [ ] Do not build on Google Fit, and do not wait for the Google Health API to learn
