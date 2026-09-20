@@ -71,11 +71,17 @@ enum PlanSync {
     /// neither its steps nor the two writes are spent on it. That leaves the listing the
     /// caller already had and one read of the scheduler.
     ///
+    /// **`force` sends the window again whatever that record says.** What the record cannot
+    /// see is this app: a build that reads the same plan into different steps leaves every
+    /// `updated_at` where it was, and the watch keeps what the last build put there. A tap
+    /// is somebody saying the watch is wrong, so a tap spends the writes.
+    ///
     /// `placed` is called per workout so a foreground caller can count them out.
     @discardableResult
     static func place(
         _ due: [PlannedWorkout],
         using client: WorkoutsClient,
+        force: Bool = false,
         placed: (Int) -> Void = { _ in }
     ) async throws -> Int {
         try await WorkoutKitSync.requireAuthorization()
@@ -85,7 +91,7 @@ enum PlanSync {
 
         // One request for all of them: this is the slow part of a sync that has work to do,
         // and a week of workouts used to be a week of round trips to the same server.
-        let stale = due.filter { !PlanPlacement.holds($0, placed: already, onWatch: onWatch) }
+        let stale = force ? due : due.filter { !PlanPlacement.holds($0, placed: already, onWatch: onWatch) }
         let plans = try await client.plans(for: stale)
 
         var count = 0

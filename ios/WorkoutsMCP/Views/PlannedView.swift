@@ -13,7 +13,9 @@ struct PlannedView: View {
         NavigationStack {
             List {
                 Section {
-                    SyncRow(phase: model.sync) { Task { await model.syncToAppleFitness(using: session.client) } }
+                    SyncRow(phase: model.sync) {
+                        Task { await model.syncToAppleFitness(using: session.client, force: true) }
+                    }
                 }
 
                 ProblemRow(problem: model.problem)
