@@ -84,6 +84,12 @@ function appleClient(env: Env, origin: string): Apple | null {
   );
 }
 
+/** Arctic owns the web flow's exchange; the native one is ours, below. */
+const APPLE_TOKEN = 'https://appleid.apple.com/auth/token';
+
+export const appleAppConfigured = (env: Env): boolean =>
+  Boolean(env.APPLE_APP_ID && env.APPLE_TEAM_ID && env.APPLE_KEY_ID && env.APPLE_PRIVATE_KEY);
+
 const INTERVALS_AUTHORIZE = 'https://intervals.icu/oauth/authorize';
 const INTERVALS_TOKEN = 'https://intervals.icu/api/oauth/token';
 
@@ -391,6 +397,92 @@ export async function completeLogin(
     email: claims.email ? claims.email.trim().toLowerCase() : null,
     emailVerified: claims.email_verified === true || claims.email_verified === 'true',
     returnTo,
+  };
+}
+
+const base64url = (bytes: Uint8Array): string =>
+  btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+
+/**
+ * The ES256 JWT Apple takes in place of a client secret. `arctic` builds one too, but only
+ * inside an exchange that always sends a `redirect_uri` — which the native client has none
+ * of, and Apple refuses the pair. Same team, same key, a different `sub`.
+ */
+async function appleClientSecret(env: Env, clientId: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'pkcs8',
+    decodeBase64(env.APPLE_PRIVATE_KEY as string),
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    false,
+    ['sign'],
+  );
+
+  const issued = Math.floor(Date.now() / 1000);
+  const encode = (part: object) => base64url(new TextEncoder().encode(JSON.stringify(part)));
+  const signed = `${encode({ typ: 'JWT', alg: 'ES256', kid: env.APPLE_KEY_ID })}.${encode({
+    iss: env.APPLE_TEAM_ID,
+    iat: issued,
+    exp: issued + 300,
+    aud: 'https://appleid.apple.com',
+    sub: clientId,
+  })}`;
+
+  // Raw, which for ECDSA is the r‖s a JWS signature is; DER would need unpacking.
+  const signature = await crypto.subtle.sign(
+    { name: 'ECDSA', hash: 'SHA-256' },
+    key,
+    new TextEncoder().encode(signed),
+  );
+  return `${signed}.${base64url(new Uint8Array(signature))}`;
+}
+
+/**
+ * The native sign-in's other half: the authorization code an `ASAuthorizationAppleIDCredential`
+ * carries, spent here rather than on the phone, because spending it needs the team's key.
+ *
+ * The ID token still arrives over TLS from Apple's own token endpoint against our client
+ * secret, so it is read the way every other one here is. The audience is the app's bundle
+ * id rather than the Services ID, and the subject is the same either way — Apple scopes it
+ * to the team. See docs/auth.md.
+ */
+export async function completeAppleAppLogin(env: Env, code: string): Promise<Identity> {
+  if (!appleAppConfigured(env)) throw new LoginError('the app sign-in is not configured on this server');
+  const clientId = env.APPLE_APP_ID as string;
+
+  let response: Response;
+  try {
+    response = await fetch(APPLE_TOKEN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      // No `redirect_uri`: the app is the client, and there is nowhere to come back to.
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        client_id: clientId,
+        client_secret: await appleClientSecret(env, clientId),
+      }),
+    });
+  } catch (err) {
+    console.error('apple app token exchange failed', err);
+    throw new LoginError('Apple would not complete the sign-in — please try again');
+  }
+
+  const body = (await response.json().catch(() => ({}))) as { id_token?: string; error?: string };
+  if (!response.ok || !body.id_token) {
+    console.error('apple app token exchange refused', response.status, body.error);
+    throw new LoginError('Apple would not complete the sign-in — please try again');
+  }
+
+  const claims = readIdToken(body.id_token, APPLE_ISSUERS, clientId);
+  return {
+    provider: 'apple',
+    subject: claims.sub as string,
+    email: claims.email ? claims.email.trim().toLowerCase() : null,
+    emailVerified: claims.email_verified === true || claims.email_verified === 'true',
+    returnTo: null,
   };
 }
 

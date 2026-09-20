@@ -132,6 +132,18 @@ deployment that cannot answer leaves the plain button, which asks on the page in
 button carries its provider through the authorization request, and [auth.md](auth.md) has
 what the consent page does with it.
 
+**Apple's is Apple's own button, and no browser opens.** `SignInWithAppleButton` raises the
+system sheet — Face ID against the account this phone already has — and the code it produces
+goes to `POST /api/apple-session`, which answers with the same `wk_` token the browser round
+trip ends with. The app cannot spend that code itself: spending it needs the team's `.p8`,
+which is a Wrangler secret. The same route's absence is what `native` in `/auth/providers`
+reports, so a deployment without `APPLE_APP_ID` gets the browser button for Apple instead of
+one that would fail. Why this lands on the same account as the web sign-in, and what it
+costs, is in [auth.md](auth.md).
+
+The other two stay in the browser: there is no native Google sign-in here to write, and
+intervals.icu has none to have.
+
 **Heart rate opens from here too.** It is the one screen in this app that reads Health and
 asks the server nothing, so there is no account for it to be behind — and round 4 of the
 setup interview wants those two figures from an athlete who has not signed in yet.

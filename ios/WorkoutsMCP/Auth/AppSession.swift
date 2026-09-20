@@ -1,5 +1,6 @@
 // Who is signed in, and the client that speaks for them. One instance, held by the app.
 
+import AuthenticationServices
 import Foundation
 
 /// The deployment this build talks to. A constant rather than a setting: asking an athlete
@@ -18,6 +19,8 @@ final class AppSession: ObservableObject {
     /// The sign-ins this deployment offers, in its own order. Empty until asked, and empty
     /// where it cannot say — which is the sign-in screen's one plain button.
     @Published private(set) var providers: [String] = []
+    /// Those of them with a sign-in that opens no browser. Apple's, where it is configured.
+    @Published private(set) var nativeProviders: [String] = []
     @Published var busy = false
     @Published var problem: String?
 
@@ -35,7 +38,7 @@ final class AppSession: ObservableObject {
     /// answers, because nothing else will ask.
     func loadProviders() async {
         guard providers.isEmpty else { return }
-        providers = await OAuth.providers(of: AppServer.url)
+        (providers, nativeProviders) = await OAuth.signInOptions(of: AppServer.url)
     }
 
     /// The browser round trip, ending in an app token. `provider` is whichever button was
@@ -47,6 +50,24 @@ final class AppSession: ObservableObject {
         do {
             try await keep(oauth.signIn(to: AppServer.url, with: provider))
         } catch AuthError.cancelled {
+            problem = nil
+        } catch {
+            problem = error.localizedDescription
+        }
+    }
+
+    /// What `SignInWithAppleButton` hands back: Apple's own sheet, no browser, and a code
+    /// the server spends. See `AppleSignIn`.
+    func completeAppleSignIn(_ result: Result<ASAuthorization, Error>) async {
+        busy = true
+        defer { busy = false }
+
+        do {
+            let authorization = try result.get()
+            try await keep(AppleSignIn.session(from: authorization, to: AppServer.url))
+        } catch AuthError.cancelled {
+            problem = nil
+        } catch let failure as ASAuthorizationError where failure.code == .canceled {
             problem = nil
         } catch {
             problem = error.localizedDescription

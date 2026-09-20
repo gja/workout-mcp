@@ -52,7 +52,9 @@ export async function upsertUser(env: Env, identity: Identity): Promise<User> {
       })
       .onConflict((clash) =>
         clash.columns(['provider', 'subject']).doUpdateSet((eb) => ({
-          email: eb.ref('excluded.email'),
+          // Kept when the new sign-in carries none: Apple sends the address through the
+          // browser and can leave it out of a native one, and a blank is not a change.
+          email: eb.fn.coalesce(eb.ref('excluded.email'), eb.ref('users.email')),
           last_login_at: eb.ref('excluded.last_login_at'),
         })),
       ),

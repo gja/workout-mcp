@@ -27,8 +27,15 @@ function withCookie(response: Response, cookie: string): Response {
 const backToDashboard = (origin: string, message?: string): Response =>
   Response.redirect(message ? `${origin}/?error=${encodeURIComponent(message)}` : `${origin}/`, 302);
 
-/** Which buttons the dashboard should offer. */
-const listProviders: Route = ({ env, url }) => json({ providers: identity.configuredProviders(env, url.origin) });
+/**
+ * Which buttons to offer. `native` is the app's business alone: a provider listed there has
+ * a sign-in that needs no browser, which on the dashboard is nothing at all.
+ */
+const listProviders: Route = ({ env, url }) =>
+  json({
+    providers: identity.configuredProviders(env, url.origin),
+    native: identity.appleAppConfigured(env) ? ['apple'] : [],
+  });
 
 const startLogin: Route<'/auth/:provider/start'> = async ({ url, env, params }) => {
   if (!identity.isProviderName(params.provider)) return error(`unknown sign-in provider "${params.provider}"`, 404);
@@ -92,6 +99,33 @@ const finishLogin: Route<'/auth/:provider/callback'> = async ({ request, url, en
   });
   response.headers.append('Set-Cookie', clearLoginCookie);
   return response;
+};
+
+/**
+ * The native Sign in with Apple, which has no browser and so no session: the app posts the
+ * authorization code its own sheet produced, and gets the `wk_` token every other REST
+ * caller holds. Unauthenticated because the code *is* the credential — Apple issues it for
+ * this team alone, it is single use, and it is spent here. See docs/auth.md.
+ */
+const appleAppSession: Route = async ({ request, env }) => {
+  if (!identity.appleAppConfigured(env)) return error('the app sign-in is not configured on this server', 404);
+
+  const body = (await request.json().catch(() => ({}))) as { code?: unknown; name?: unknown };
+  if (typeof body.code !== 'string' || !body.code) return error('an Apple authorization code is required', 400);
+
+  let who: identity.Identity;
+  try {
+    who = await identity.completeAppleAppLogin(env, body.code);
+  } catch (err) {
+    if (err instanceof identity.LoginError) return error(err.message, 401);
+    throw err;
+  }
+
+  // The same door the browser flow uses, so a native sign-in and a web one land on one
+  // account: Apple scopes the subject to the team, not to the client that asked.
+  const user = await auth.upsertUser(env, who);
+  const name = typeof body.name === 'string' ? body.name.trim().slice(0, 60) : '';
+  return json(await auth.issueToken(env, user.id, name || 'A native app'));
 };
 
 // --- Connecting intervals.icu, whoever you signed in as ----------------------
@@ -168,6 +202,8 @@ export const routes = (app: Router<Context>): void => {
     // these start resolving to a sign-in — they must never mint a session.
     .get('/auth/intervals/connect', withUser(startConnect))
     .get(identity.CONNECT_CALLBACK, withUser(finishConnect))
+
+    .post('/api/apple-session', appleAppSession)
 
     .get('/auth/:provider/start', startLogin)
     .on(['GET', 'POST'], '/auth/:provider/callback', finishLogin)

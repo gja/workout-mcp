@@ -28,9 +28,34 @@ npx wrangler secret put APPLE_CLIENT_ID     # the Services ID, e.g. com.example.
 npx wrangler secret put APPLE_TEAM_ID
 npx wrangler secret put APPLE_KEY_ID
 npx wrangler secret put APPLE_PRIVATE_KEY   # the .p8 contents, base64 or PEM
+npx wrangler secret put APPLE_APP_ID        # the iOS bundle id — only the app needs it
 ```
 
-Stored as base64 PKCS#8; PEM armour is stripped on read.
+Stored as base64 PKCS#8; PEM armour is stripped on read. `APPLE_APP_ID` is not a secret,
+only deployment configuration, and a `vars` entry does just as well.
+
+**The app signs in natively, and the two are one account.** `POST /api/apple-session` takes
+the authorization code Apple's own sheet produced and answers with a `wk_` token — no
+browser, no OAuth round trip, no session. The code is spent server-side because spending it
+needs the team's key: the ID token then arrives over TLS from Apple's token endpoint against
+our client secret, exactly as the browser flow's does, so it is read the same way. What
+differs is the audience — the bundle id, not the Services ID — and the absence of a
+`redirect_uri`, which Apple refuses from a client that has none. `arctic`'s exchange always
+sends one, so that one JWT is built in `src/identity.ts` rather than by it.
+
+The subject is Apple's, and Apple scopes it to the **developer team**, not to the client
+that asked. So the phone and the browser return the same `sub` and land on the same
+`(provider, subject)` row — provided the Services ID's primary App ID is the app's. Get that
+wrong and an athlete has two accounts, which nothing here will merge.
+
+An address the account already has survives a sign-in that carries none: Apple sends one
+through the browser and can leave it out of a native round, and a blank is not a change of
+address. Nothing authorizes on it either way.
+
+The route is unauthenticated because the code *is* the credential: Apple issues it for this
+team alone, it is single use, and it is worth nothing to anyone who cannot sign the client
+secret. It mints a token directly rather than a session, which is all the app ever wanted —
+listed under *API tokens* like any other, and revoked there.
 
 ## intervals.icu
 
