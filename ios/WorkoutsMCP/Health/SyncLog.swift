@@ -39,6 +39,7 @@ enum SyncLog {
         case signedOut = "signed out"
         case unreachable = "could not reach the server"
         case unreadable = "could not read Health"
+        case locked = "the phone was locked"
         case failed = "a session would not upload"
         case ranOut = "ran out of time"
     }
