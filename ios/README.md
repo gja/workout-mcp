@@ -152,10 +152,11 @@ highest, because a wrist sensor spikes — and a **Sync log** sheet: whether Hea
 what came of it, how many sessions have gone up without anybody tapping *Export*, and the
 events behind all three.
 
-What goes to the watch is **two days back to seven days ahead**, minus anything already
-done. Back as well as forward because a day missed is a session still worth doing, and each
-one goes out on the day the plan gives it and no time at all — a session missed on Friday
-stays Friday's in Apple Fitness rather than joining today's. Seven ahead rather than the
+What goes to the watch is **two days back to seven days ahead**, done or not — a session
+already done goes out ticked, so the days behind read as finished rather than absent. Back
+as well as forward because a day missed is a session still worth doing, and each one goes
+out on the day the plan gives it and no time at all — a session missed on Friday stays
+Friday's in Apple Fitness rather than joining today's. Seven ahead rather than the
 fourteen the server holds, because the far end of a fortnight has not settled yet. Anything this app put on the watch
 that is no longer in that window — done, older than two days, or deleted upstream — comes
 off.
