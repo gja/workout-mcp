@@ -95,6 +95,8 @@ function App() {
         <SignIn
           intro={`Sign in to connect ${state.client.client_name}.`}
           returnTo={location.pathname + location.search}
+          // A hint from a client whose own screen already asked which sign-in. See docs/auth.md.
+          preferred={new URLSearchParams(location.search).get('provider')}
         />
       )}
     </main>

@@ -8,13 +8,26 @@ const LABELS: Record<string, string> = {
 };
 
 /** A full-page navigation, so there is no success callback to wire up. */
-export function SignIn({ intro, returnTo }: { intro: string; returnTo?: string }) {
+export function SignIn(
+  { intro, returnTo, preferred }: { intro: string; returnTo?: string; preferred?: string | null },
+) {
   const [providers, setProviders] = useState<string[] | null>(null);
   const [error, setError] = useState(() => new URLSearchParams(location.search).get('error'));
 
+  const start = (provider: string) =>
+    `/auth/${provider}/start${returnTo ? `?return_to=${encodeURIComponent(returnTo)}` : ''}`;
+
   useEffect(() => {
     listProviders().then(
-      ({ providers: found }) => setProviders(found ?? []),
+      ({ providers: found }) => {
+        // A caller that already named the provider goes straight to it; anything else —
+        // unconfigured, unknown, or a sign-in that just failed — keeps the buttons.
+        if (preferred && !error && (found ?? []).includes(preferred)) {
+          location.replace(start(preferred));
+          return;
+        }
+        setProviders(found ?? []);
+      },
       (failure: Error) => {
         setProviders([]);
         setError(failure.message);
@@ -38,11 +51,7 @@ export function SignIn({ intro, returnTo }: { intro: string; returnTo?: string }
       <p className="sub">{intro}</p>
       <div className="providers">
         {providers.map((provider) => (
-          <a
-            key={provider}
-            className="button"
-            href={`/auth/${provider}/start${returnTo ? `?return_to=${encodeURIComponent(returnTo)}` : ''}`}
-          >
+          <a key={provider} className="button" href={start(provider)}>
             {LABELS[provider] ?? `Continue with ${provider}`}
           </a>
         ))}

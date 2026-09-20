@@ -122,6 +122,20 @@ the watch and a link followed first would keep the old plan there. Two current k
 id move nothing: the app will not guess between them, and a session filed against the wrong
 workout is worse than one that cannot be filed at all.
 
+## The screen before the tabs
+
+Signing in is a button per provider — *Continue with Apple*, *Continue with Google*,
+*Continue with intervals.icu* — rather than one that says *Sign in* onto a page asking
+which. The list is the deployment's own (`GET /auth/providers`), so a server running
+Google alone shows one button and one this build has never heard of still gets one; a
+deployment that cannot answer leaves the plain button, which asks on the page instead. The
+button carries its provider through the authorization request, and [auth.md](auth.md) has
+what the consent page does with it.
+
+**Heart rate opens from here too.** It is the one screen in this app that reads Health and
+asks the server nothing, so there is no account for it to be behind — and round 4 of the
+setup interview wants those two figures from an athlete who has not signed in yet.
+
 ## Three tabs
 
 **Planned** opens with the line the sync exists to make true — *Synced to Apple Fitness · 8
@@ -161,11 +175,11 @@ happened unattended.
 
 ## Heart rate
 
-*Settings › Heart rate* is the one reading of Health here that is not about a single
-session: a year of it, reduced to the two figures a heart rate zone is anchored to — what
-this athlete rests at, and the highest they have been recorded working. Round 4 of the
-setup interview sends an athlete on this app here rather than walking them through the
-Fitness app; see [prompts.md](prompts.md).
+*Settings › Heart rate*, and *Heart rate from Health* on the sign-in screen, is the one
+reading of Health here that is not about a single session: a year of it, reduced to the
+two figures a heart rate zone is anchored to — what this athlete rests at, and the highest
+they have been recorded working. Round 4 of the setup interview sends an athlete on this
+app here rather than walking them through the Fitness app; see [prompts.md](prompts.md).
 
 **The maximum is the third-highest day, not the highest.** A wrist optical sensor spikes,
 and a lone 205 with nothing near it in any other day of the year is an artefact that would
