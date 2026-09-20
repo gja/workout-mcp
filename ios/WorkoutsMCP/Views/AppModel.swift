@@ -226,16 +226,19 @@ final class AppModel: ObservableObject {
 
     /// The near part of the plan, onto the watch. Run whole rather than per workout, because
     /// what the athlete wants to know is whether their plan is there, not which parts of it.
-    func syncToAppleFitness(using client: WorkoutsClient?) async {
+    ///
+    /// `force` is what a tap on the status row passes: see `PlanSync.place`. A sync nobody
+    /// asked for leaves it off and keeps the record it has.
+    func syncToAppleFitness(using client: WorkoutsClient?, force: Bool = false) async {
         guard let client else { return }
         // A tap while it is already running is not a second run.
         if case .syncing = sync { return }
-        await performSync(using: client)
+        await performSync(using: client, force: force)
     }
 
     /// The rules are `PlanSync`'s, because a turn iOS grants in the background runs the same
     /// ones. What is left here is the counting-out the status line does.
-    private func performSync(using client: WorkoutsClient) async {
+    private func performSync(using client: WorkoutsClient, force: Bool = false) async {
         guard planIsKnown else {
             sync = .failed("could not read your plan")
             return
@@ -244,7 +247,7 @@ final class AppModel: ObservableObject {
         sync = .syncing(done: 0, of: due.count)
 
         do {
-            let placed = try await PlanSync.place(due, using: client) { done in
+            let placed = try await PlanSync.place(due, using: client, force: force) { done in
                 Task { @MainActor in
                     if case .syncing = self.sync { self.sync = .syncing(done: done, of: due.count) }
                 }

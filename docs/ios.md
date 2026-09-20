@@ -245,6 +245,14 @@ written to the scheduler. The app checks its own record against what
 `WorkoutScheduler` is actually holding, because a plan the athlete deleted in the Workout
 app is gone. A sync with nothing to do is one listing and one read of the scheduler.
 
+**A tap sends it all again anyway, and so does a new build.** The record above says what
+the *server* last wrote, and cannot see this app: a build that reads the same plan into
+different steps — a fixed alert, a renamed step — leaves every `updated_at` where it was,
+and the watch would keep what the old build put there. So the app also keeps the
+`CFBundleVersion` that last placed the plan, in one line of `UserDefaults`, and a build
+that does not match it syncs the whole window once. Tapping the status row does the same on
+demand, which is what *Tap to resync* ought to mean — `force` on `PlanSync.place`.
+
 The plans that *are* needed are fetched in **one request**, the stale ids comma-separated.
 A workout the server no longer has comes back in `missing` rather than as a 404, and the
 sync simply does not place it.
