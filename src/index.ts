@@ -7,7 +7,7 @@ import * as auth from './auth';
 import * as db from './db';
 import * as drive from './drive';
 import * as identity from './identity';
-import type { Env, User } from './db';
+import type { Env } from './db';
 import { handleMcp } from './mcp';
 import * as platforms from './platforms';
 import { APP_TOKEN_SCOPE, SCOPE } from './routes/oauth';
@@ -39,9 +39,14 @@ const appTokenHandler = {
       return Response.json({ error: `this grant did not ask for the ${APP_TOKEN_SCOPE} scope` }, { status: 403 });
     }
 
+    // The grant carries the id it was approved under, which may since have been linked
+    // to an account; the token has to be minted against the account. See docs/auth.md.
+    const user = await auth.findAccount(env, props.userId);
+    if (!user) return Response.json({ error: 'that account no longer exists' }, { status: 401 });
+
     const body = (await request.json().catch(() => ({}))) as { name?: unknown };
     const name = typeof body.name === 'string' ? body.name.trim().slice(0, 60) : '';
-    const issued = await auth.issueToken(env, props.userId, name || 'A native app');
+    const issued = await auth.issueToken(env, user.id, name || 'A native app');
 
     return Response.json(issued, { headers: { 'Access-Control-Allow-Origin': '*' } });
   },
@@ -54,7 +59,11 @@ const mcpHandler = {
     const props = (ctx as ExecutionContext & { props?: AuthProps }).props;
     if (!props?.userId) return Response.json({ error: 'no authenticated user' }, { status: 401 });
 
-    const user: User = { id: props.userId, email: props.email };
+    // Read rather than taken from the grant, which names the row the athlete approved it
+    // under and not the account that row now reaches. See docs/auth.md.
+    const user = await auth.findAccount(env, props.userId);
+    if (!user) return Response.json({ error: 'that account no longer exists' }, { status: 401 });
+
     const response = await handleMcp(request, env, user);
     response.headers.set('Access-Control-Allow-Origin', '*');
     return response;

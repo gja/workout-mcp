@@ -49,7 +49,8 @@ Google's and Apple's redirect URIs are on the same origin, set in their own cons
 | Secret | Needed for |
 | --- | --- |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google sign-in |
-| `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY` | Apple sign-in |
+| `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY` | Apple sign-in in a browser |
+| `APPLE_APP_ID` | The iOS app's own Apple sign-in; the bundle id, and not actually secret |
 | `INTERVALS_CLIENT_ID`, `INTERVALS_CLIENT_SECRET` | intervals.icu sign-in, and connecting it |
 | `INTERVALS_WEBHOOK_SECRET` | Accepting their webhooks at all |
 | `INTERVALS_WEBHOOK_AUTHORIZATION` | The header they send with one, when you set one |

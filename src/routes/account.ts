@@ -22,8 +22,12 @@ const createToken: AuthedRoute = async ({ request, env, user }) => {
 const revokeToken: AuthedRoute<'/api/tokens/:prefix'> = async ({ env, user, params }) =>
   (await auth.revokeToken(env, user.id, params.prefix)) ? json({ revoked: true }) : error('no such token', 404);
 
+/** Grants name the row they were approved under, which may since have been linked. */
 const listConnections: AuthedRoute = async ({ env, user }) => {
-  const { items } = await env.OAUTH_PROVIDER.listUserGrants(user.id);
+  const listings = await Promise.all(
+    (await auth.accountIds(env, user.id)).map((id) => env.OAUTH_PROVIDER.listUserGrants(id)),
+  );
+  const items = listings.flatMap((listing) => listing.items);
   return json({
     connections: items.map((grant) => ({
       id: grant.id,
@@ -35,7 +39,11 @@ const listConnections: AuthedRoute = async ({ env, user }) => {
 };
 
 const revokeConnection: AuthedRoute<'/api/connections/:id'> = async ({ env, user, params }) => {
-  await env.OAUTH_PROVIDER.revokeGrant(params.id, user.id);
+  // Against each row this account reaches: the grant is the athlete's either way, and the
+  // provider takes the one owner it was stored under.
+  for (const id of await auth.accountIds(env, user.id)) {
+    await env.OAUTH_PROVIDER.revokeGrant(params.id, id);
+  }
   return json({ revoked: true });
 };
 

@@ -208,3 +208,46 @@ describe('the steps column', () => {
     expect(row).toEqual({ top_level: 3, reps: 8, warmup: 600 });
   });
 });
+
+describe('0015, a row is a sign-in and an account is what it reaches', () => {
+  /** `users` as it was before 0015: no way to say who a row belongs to. */
+  const OLD_USERS = `
+    CREATE TABLE users (
+      id            TEXT PRIMARY KEY,
+      provider      TEXT NOT NULL,
+      subject       TEXT NOT NULL,
+      email         TEXT,
+      created_at    TEXT NOT NULL,
+      last_login_at TEXT,
+      UNIQUE (provider, subject)
+    )`;
+
+  /**
+   * The backfill is what lets an account made before the change be found at all: a row
+   * whose address was never marked verified matches nothing, so the athlete who signs in
+   * with their other provider gets the second account this migration exists to prevent.
+   */
+  it('takes the addresses already here as verified, and links nothing yet', async () => {
+    await env.DB.exec('DROP TABLE IF EXISTS users');
+    await env.DB.prepare(OLD_USERS.replace(/\s+/g, ' ')).run();
+    await env.DB.prepare(
+      `INSERT INTO users (id, provider, subject, email, created_at, last_login_at) VALUES
+         ('acct-google', 'google', 'g-1', 'athlete@example.com', '2026-01-01T00:00:00.000Z', NULL),
+         ('acct-intervals', 'intervals', 'i-1', NULL, '2026-01-01T00:00:00.000Z', NULL)`,
+    ).run();
+
+    // This one alone: the replay above is for `workouts`, which is not in the old shape here.
+    const [path] = Object.keys(MIGRATIONS).filter((name) => name.includes('0015_'));
+    await runMigration(MIGRATIONS[path]);
+
+    const rows = await env.DB.prepare(
+      'SELECT id, email_verified, alias_of_user_id FROM users ORDER BY id',
+    ).all<{ id: string; email_verified: number; alias_of_user_id: string | null }>();
+
+    expect(rows.results).toEqual([
+      { id: 'acct-google', email_verified: 1, alias_of_user_id: null },
+      // No address, so nothing to vouch for and nothing it could ever match.
+      { id: 'acct-intervals', email_verified: 0, alias_of_user_id: null },
+    ]);
+  });
+});
