@@ -15,6 +15,9 @@ enum AppServer {
 final class AppSession: ObservableObject {
     @Published private(set) var stored: StoredSession?
     @Published private(set) var account: Account?
+    /// The sign-ins this deployment offers, in its own order. Empty until asked, and empty
+    /// where it cannot say — which is the sign-in screen's one plain button.
+    @Published private(set) var providers: [String] = []
     @Published var busy = false
     @Published var problem: String?
 
@@ -28,13 +31,21 @@ final class AppSession: ObservableObject {
 
     var client: WorkoutsClient? { stored?.client }
 
-    /// The browser round trip, ending in an app token. See `OAuth.signIn`.
-    func signIn() async {
+    /// What the sign-in screen offers a button for. Asked again on each appearance until it
+    /// answers, because nothing else will ask.
+    func loadProviders() async {
+        guard providers.isEmpty else { return }
+        providers = await OAuth.providers(of: AppServer.url)
+    }
+
+    /// The browser round trip, ending in an app token. `provider` is whichever button was
+    /// pressed, carried through so the browser opens on that sign-in. See `OAuth.signIn`.
+    func signIn(with provider: String? = nil) async {
         busy = true
         defer { busy = false }
 
         do {
-            try await keep(oauth.signIn(to: AppServer.url))
+            try await keep(oauth.signIn(to: AppServer.url, with: provider))
         } catch AuthError.cancelled {
             problem = nil
         } catch {

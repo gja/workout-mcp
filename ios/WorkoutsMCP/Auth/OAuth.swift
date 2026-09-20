@@ -81,9 +81,29 @@ final class OAuth: NSObject {
 
     private var session: ASWebAuthenticationSession?
 
+    /// Which sign-ins this deployment offers, so the app's own screen can name them. No
+    /// credential exists yet, so the route is public; nothing to say is the one-button screen.
+    static func providers(of server: URL) async -> [String] {
+        guard let url = URL(string: "/auth/providers", relativeTo: server) else { return [] }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard (response as? HTTPURLResponse)?.statusCode == 200,
+                  let body = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let named = body["providers"] as? [String] else { return [] }
+            return named
+        } catch {
+            // Offline, or a deployment predating the route: neither is worth saying on a
+            // screen whose one button still works.
+            return []
+        }
+    }
+
     /// Registers this install, opens the consent page, exchanges the code, and trades the
     /// grant for an API token. The grant is not kept: the token is what every call uses.
-    func signIn(to server: URL) async throws -> StoredSession {
+    ///
+    /// `provider` is the sign-in already picked on our own screen: no part of the
+    /// authorization request, read by the consent page alone. See docs/auth.md.
+    func signIn(to server: URL, with provider: String? = nil) async throws -> StoredSession {
         let metadata = try await Self.metadata(of: server)
         guard let registration = metadata.registrationEndpoint else { throw AuthError.noRegistration }
 
@@ -102,7 +122,7 @@ final class OAuth: NSObject {
             URLQueryItem(name: "state", value: state),
             URLQueryItem(name: "code_challenge", value: Self.challenge(for: verifier)),
             URLQueryItem(name: "code_challenge_method", value: "S256"),
-        ]
+        ] + (provider.map { [URLQueryItem(name: "provider", value: $0)] } ?? [])
         guard let opening = authorize.url else { throw AuthError.refused("the authorization URL would not build") }
 
         let callback = try await open(opening)

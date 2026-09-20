@@ -113,3 +113,11 @@ REST caller holds — no second handshake to invent, and it is revocable under *
 **Behind a scope of its own**, `app-token`, because the token outlives the grant: a grant
 carrying only `workouts` is refused with a 403, so a client that wants it asks by name and
 the consent page shows it. Nothing else reads the granted scopes.
+
+**The app names the sign-in it was asked for.** Its own screen lists whatever
+`GET /auth/providers` says this deployment has, and the button that was pressed adds
+`provider=apple` to the authorization request. It is not an OAuth parameter and the
+provider ignores it: the consent page reads it, and an athlete who is not signed in goes
+straight to `/auth/apple/start` rather than being asked the same question a second time. A
+hint naming a provider this deployment has not configured falls back to the buttons — so
+does a sign-in that has just failed, whose message would otherwise be redirected past.

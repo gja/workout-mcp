@@ -210,6 +210,25 @@ describe('the consent page', () => {
     expect((await SELF.fetch(`${BASE}/oauth/client?client_id=nope`)).status).toBe(404);
   });
 
+  // The app's sign-in screen already asked which provider, and says so here so the page
+  // can go straight to it rather than asking again. See docs/auth.md.
+  it('takes a provider hint along without disturbing the request', async () => {
+    const client = await registerClient();
+    const { challenge } = await pkce();
+    const query = authorizeQuery(client.client_id, challenge, { provider: 'apple' });
+
+    const page = await SELF.fetch(`${BASE}/oauth/authorize?${query}`);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('Connect an app');
+
+    // Approving posts the same query string back, hint and all.
+    const granted = await SELF.fetch(`${BASE}/oauth/authorize?${query}`, {
+      method: 'POST',
+      headers: { Cookie: await sessionCookieFor() },
+    });
+    expect(granted.status, await granted.clone().text()).toBe(200);
+  });
+
   it('needs a signed-in athlete to approve', async () => {
     const client = await registerClient();
     const { challenge } = await pkce();
