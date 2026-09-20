@@ -77,8 +77,11 @@ date back a day west of Greenwich.
 
 One page: masthead, calendar, a **Setup** accordion, then the FAQ, all but the masthead
 behind the session. The accordions are `<details>` sharing a `name`, so the browser
-closes the siblings and there is no open-panel state. Each Setup panel fetches its own
-slice. Each context editor seeds its textarea from the server once and never re-seeds
+closes the siblings and there is no open-panel state — and a panel is opened from
+elsewhere on the page by its `id`, which is how the empty calendar's *Connect Claude* and
+*Get started with Claude* reach the connector URL and the starter prompt. An empty
+calendar is usually an athlete who has not connected Claude yet, so those two doors sit
+where the workouts would be. Each Setup panel fetches its own slice. Each context editor seeds its textarea from the server once and never re-seeds
 it, so a save cannot overwrite what is being typed.
 
 Two Vite entries: the dashboard and the OAuth consent screen. `public/privacy-policy.html`

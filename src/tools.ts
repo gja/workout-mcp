@@ -384,9 +384,8 @@ export const TOOLS = [
     annotations: { title: 'Read the setup interview', readOnlyHint: true, openWorldHint: false },
     description:
       'The interview that fills an empty context: what to ask the athlete about their sports, ' +
-      'goals, week and zones, and how to write the three documents from the answers. Long, and ' +
-      'only worth fetching when setting up or revising context — call it when asked to, or when ' +
-      'a context read comes back empty.',
+      'goals, week and zones, and how to write the three documents from the answers. Long, so ' +
+      'fetch it only when they ask to be set up or onboarded, or a context read comes back empty.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
