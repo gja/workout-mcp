@@ -44,6 +44,47 @@ pending a programme redesign, as at Garmin; there is no door. No API sends a pla
 workout, the newer devices run no third-party code, and both halves are Google's own
 decisions rather than gaps.
 
+## How much of this is worth doing
+
+The consumer smartwatch market is not the market this server is in, and reading the
+wrong one is how Wear OS ends up looking important. Two figures, for the two
+populations.
+
+**Everybody who owns a watch**, Counterpoint's Q2 2026 shipments: Huawei 21.8%, Apple
+20.1%, imoo 7.8%, Xiaomi 6.1%, **Garmin 5.6%**, and 38.5% everything else — a table
+led by kids' watches and China, with Samsung and Google both down inside *everything
+else*. Omdia counts a different basket and has Samsung second on 15%, down from 17%,
+after a quarter in which Galaxy Watch shipments [fell 28% year on
+year](https://9to5google.com/2026/06/18/samsungs-galaxy-watch-is-off-to-a-rough-start-for-2026-with-a-28-drop/).
+Both can be true; neither is about us.
+
+**Everybody who cares what their intervals were**, which is this product's actual
+population. [Runalyze's device
+figures](https://the5krunner.com/2026/09/16/garmin-market-share-runalyze/), off
+uploaded files where the recording device can be identified:
+
+| Garmin | COROS | Suunto | Apple | Polar | Google | Samsung |
+| --- | --- | --- | --- | --- | --- | --- |
+| **77.9%** | 5.9% | 4.0% | 3.4% | 2.4% | under 1% | not listed at all |
+
+**So Wear OS is not a market here, it is a rounding error** — and it is simultaneously
+the most expensive thing in this document, the only one needing an execution engine,
+and the one resting on an unproven assumption about who reads a training plan. On
+these numbers that is the clearest *no* available.
+
+**Health Connect is therefore not worth building**, on plan-push grounds. Its record
+is the right shape and nobody reads it; even if somebody did, it would reach under 1%
+of the athletes this serves. Revisit only if experiment two comes back a yes, which
+would mean an OEM had closed the gap — the numbers say to watch for that rather than
+to bet on it.
+
+**What the same table says loudly is where the leverage is**: four athletes in five
+are on a Garmin, whose API door is shut, and the thing already carrying a plan to them
+is the intervals.icu connection this server has had all along. That makes the prose in
+the next section the highest-value work here, and the [direct Garmin
+adapter](garmin-integration.md) the thing to start the day Garmin reopens — ahead of
+COROS and Suunto, which are 6% and 4%, and far ahead of anything Android-shaped.
+
 ## The ask was "sync to Google Fit and let the watches read it"
 
 That specific shape is closed, three times over.
@@ -322,6 +363,8 @@ they just have to have planned the session on the watch themselves.
 - [ ] Ask Zepp for the integration intervals.icu and TrainingPeaks already have, if
       Amazfit is worth an adapter for the two models that can receive a workout
 - [ ] Spend nothing on Fitbit until Google ships an API that schedules something
+- [ ] Do not build the Health Connect path on plan-push grounds: under 1% of the
+      athletes this serves, and nobody reads the record. Revisit only on a yes
 - [ ] Only then: decide between an Android phone app, two apps, or neither — and
       neither is now a real answer, not a shrug
 - [ ] Do not build on Google Fit, and do not wait for the Google Health API to learn
