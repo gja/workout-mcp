@@ -239,8 +239,29 @@ Being woken is three things, and they fail on different days.
 
 **A wake is a request, not a promise.** Low Power Mode, a watch that has not synced the
 session over, and the system's own view of this app all delay it; a force-quit stops it
-until the app is opened by hand. So the same upload runs from two other places under exactly
-the same rules: every `PlanRefresh` turn, and opening the app.
+until the app is opened by hand. So the same upload runs from three other places under
+exactly the same rules: every `PlanRefresh` turn, opening the app, and the unlock below.
+
+**And a wake on a locked phone can read nothing.** HealthKit encrypts what it holds with the
+passcode, so a background launch while the phone is locked used to spend a round trip to be
+told `Protected health data is inaccessible [com.apple.healthkit 6]` — which reads in the log
+like a failure and is not one. `UIApplication.isProtectedDataAvailable` answers that without
+the store, so the run now says *the phone is locked* and returns in milliseconds.
+
+The wake is spent either way, because HealthKit does not send it again, so **the unlock is a
+trigger of its own**: `protectedDataDidBecomeAvailableNotification` runs the same upload the
+moment there is a passcode behind it, rather than leaving the session for the next wake or a
+refresh turn hours later. It is registered at launch, not from inside a wake, since the
+process that lost its turn is usually gone by the time anybody picks the phone up — and for
+the same reason the flag saying a run gave up on the lock is in `UserDefaults`. Only that
+flag makes the unlock a trigger: a phone is unlocked dozens of times a day, and a HealthKit
+query on each one is exactly what the rest of this path exists to avoid. Its line is an
+upload rather than a wake, because iOS did not run this app — somebody unlocked it — and the
+count of background wakes is the one figure that says delivery works at all.
+
+What this does not reach is the launch iOS has already ended: a notification needs a process
+to deliver it to, so a wake that failed and was then terminated is found by the catch-up on
+opening the app, as before.
 
 **A refresh turn has to be declared, and the declaration has to reach the bundle.** iOS
 grants `BGAppRefreshTask` only to an app whose `Info.plist` lists `fetch` under

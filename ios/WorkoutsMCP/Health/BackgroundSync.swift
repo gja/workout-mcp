@@ -21,6 +21,17 @@ import UIKit
 enum BackgroundSync {
     private static var observer: HKObserverQuery?
     private static var deliveryEnabled = false
+    private static var unlock: NSObjectProtocol?
+
+    /// Whether a run gave up because the phone was locked, so the unlock below is a trigger
+    /// only where there is something to trigger — a phone is unlocked dozens of times a day
+    /// and a query per unlock is what this app spends its budget avoiding everywhere else.
+    /// In `UserDefaults` and not in memory: the wake that lost its turn happened in a process
+    /// that is usually gone by the time anybody picks the phone up.
+    private static var waitingOnUnlock: Bool {
+        get { UserDefaults.standard.bool(forKey: "sync-waiting-on-unlock") }
+        set { UserDefaults.standard.set(newValue, forKey: "sync-waiting-on-unlock") }
+    }
 
     /// Idempotent: called on every launch, and the second call re-tries only what failed.
     static func start() {
@@ -43,6 +54,7 @@ enum BackgroundSync {
         }
 
         enableDelivery()
+        watchForUnlock()
     }
 
     /// What makes a wake happen at all, as against the observer, which answers one.
@@ -70,6 +82,40 @@ enum BackgroundSync {
             }
         }
     }
+
+    /// The other half of the guard in `send()`: a wake that arrives while the phone is locked
+    /// is spent, because HealthKit does not send it again, and the session would otherwise
+    /// wait for the next wake or for `PlanRefresh`'s turn some hours later. So the unlock is
+    /// a trigger of its own, and the session goes the moment there is a passcode behind it.
+    ///
+    /// Registered at launch rather than from inside a wake: the process the lost wake
+    /// happened in is long gone by the time anybody picks the phone up.
+    ///
+    /// Written down as an `.upload` and not a `.wake`, because iOS did not run this app —
+    /// somebody unlocked it — and the count of background wakes is the one figure that says
+    /// delivery works at all.
+    private static func watchForUnlock() {
+        guard unlock == nil else { return }
+
+        unlock = NotificationCenter.default.addObserver(
+            forName: UIApplication.protectedDataDidBecomeAvailableNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            guard waitingOnUnlock else { return }
+            Task {
+                let outcome = await uploadWhatIsCertain()
+                SyncLog.record(.upload, "unlocked — \(outcome.rawValue)")
+            }
+        }
+    }
+
+    /// The one question that can still be answered while the store cannot answer any.
+    /// HealthKit encrypts what it holds with the passcode, so a launch on a locked phone can
+    /// read nothing — and asking the store anyway is a round trip that ends in
+    /// `[com.apple.healthkit 6]`.
+    @MainActor
+    private static var protectedDataAvailable: Bool { UIApplication.shared.isProtectedDataAvailable }
 
     /// One wake, answered once: the acknowledgement is what keeps the next wake coming, and
     /// this is the only place that knows both it and the work.
@@ -126,8 +172,9 @@ enum BackgroundSync {
     /// finishes it after this process is suspended; `Handed` keeps the next run from sending
     /// the same session again while it is in flight. See `SessionUpload`.
     ///
-    /// Not private, and not only for a wake: `PlanRefresh` and opening the app run it too,
-    /// because `.immediate` delivery is a request rather than a guarantee.
+    /// Not private, and not only for a wake: `PlanRefresh`, opening the app and unlocking the
+    /// phone on a wake that was lost to the lock all run it too, because `.immediate`
+    /// delivery is a request rather than a guarantee.
     ///
     /// **One run at a time.** Opening the app starts the observer's own fire and the catch-up
     /// within a moment of each other, and both used to reach the POST before either finished
@@ -153,6 +200,19 @@ enum BackgroundSync {
 
     private static func send() async -> SyncLog.Outcome {
         guard let client = StoredSession.load()?.client else { return .signedOut }
+
+        // Before the store rather than after it. Asked while the phone is locked, HealthKit
+        // throws `Protected health data is inaccessible`, which reads in the log like a
+        // failure and is not one: nothing is wrong, the data is behind the passcode until
+        // somebody unlocks the phone — and `watchForUnlock` is what picks it up when they do.
+        guard await protectedDataAvailable else {
+            waitingOnUnlock = true
+            SyncLog.record(.upload, "not reading Health: the phone is locked")
+            return .locked
+        }
+        // Cleared here and not in the trigger: a run that gets this far has already done what
+        // the unlock was going to ask for, whichever of the four callers started it.
+        waitingOnUnlock = false
 
         let activities: [HKWorkout]
         do {
