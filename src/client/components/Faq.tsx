@@ -81,18 +81,22 @@ export function Faq() {
           </p>
         </Section>
 
-        <Section group="faq" title="Anything else, or nothing on my wrist" hint="Via intervals.icu">
+        <Section group="faq" title="I train with a Wear OS watch" hint="Via intervals.icu">
           <p className="note">
-            A Wear OS watch is the same road:{' '}
+            The Apple Watch road, on Google's side of the fence.{' '}
             <a href="https://intervals.icu" target="_blank" rel="noreferrer">
               intervals.icu
             </a>{' '}
-            reads what Google Fit holds, and{' '}
+            connects to what Google Fit holds, so the sessions you record come back and count; and{' '}
             <a href="https://www.watchletic.com" target="_blank" rel="noreferrer">
               Watchletic
             </a>{' '}
-            runs there too, so the session plays through the intervals the way it does on an Apple Watch.
+            runs on Wear OS too, pulling the planned workout off the intervals.icu calendar and playing it through
+            the intervals the way it does on a watch from the other shop.
           </p>
+        </Section>
+
+        <Section group="faq" title="Anything else, or nothing on my wrist" hint="Via intervals.icu">
           <p className="note">
             Everything else goes through intervals.icu as well — it takes a file from almost anywhere, and its own app
             will play a planned session on a phone. And with no watch at all the plan is still on the calendar here:
