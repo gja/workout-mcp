@@ -10,6 +10,7 @@
 
 import BackgroundTasks
 import Foundation
+import UIKit
 
 enum PlanRefresh {
     /// The same string as `BGTaskSchedulerPermittedIdentifiers` in `ios/Info.plist`:
@@ -22,6 +23,7 @@ enum PlanRefresh {
     static let interval: TimeInterval = 4 * 60 * 60
 
     private static var registered = false
+    private static var rearming: NSObjectProtocol?
 
     /// Called from the app's own initialiser, like `BackgroundSync.start()`, because
     /// `BGTaskScheduler` will only take a handler registered before launching finishes —
@@ -39,15 +41,51 @@ enum PlanRefresh {
             }
             run(refresh)
         }
-        if accepted { schedule() }
+        guard accepted else {
+            // Written down rather than swallowed: an app iOS will not take a task for is one
+            // whose backstop silently does not exist, and the log is where that is asked.
+            SyncLog.refreshRefused("the bundle does not declare \(identifier)")
+            return
+        }
+
+        schedule()
+        rearmOnBackgrounding()
     }
 
     /// One turn asks for the next. iOS holds at most one request per identifier and never
     /// repeats one on its own, so a turn that does not re-arm is the last one there is.
+    ///
+    /// The failure is recorded: submitting throws where the athlete has turned Background App
+    /// Refresh off, and a `try?` there is the difference between a backstop that is not
+    /// running and a backstop nobody can tell is not running.
     static func schedule() {
         let request = BGAppRefreshTaskRequest(identifier: identifier)
         request.earliestBeginDate = Date(timeIntervalSinceNow: interval)
-        try? BGTaskScheduler.shared.submit(request)
+        do {
+            try BGTaskScheduler.shared.submit(request)
+            SyncLog.refreshScheduled()
+        } catch let refusal as BGTaskScheduler.Error where refusal.code == .unavailable {
+            // The one refusal an athlete can do something about, so it is said in the words
+            // the switch is labelled with rather than as `BGTaskSchedulerErrorDomain 1`.
+            SyncLog.refreshRefused("Background App Refresh is off for this app")
+        } catch {
+            SyncLog.refreshRefused(SyncLog.describe(error))
+        }
+    }
+
+    /// And asked for again every time the app leaves the screen, which is Apple's own advice
+    /// and costs nothing: iOS holds one request per identifier, so this replaces rather than
+    /// accumulates. A request refused at launch — Background App Refresh off, or a phone in
+    /// Low Power Mode — is otherwise never asked for again in that process, and the backstop
+    /// stays missing for as long as the app is left open.
+    private static func rearmOnBackgrounding() {
+        guard rearming == nil else { return }
+
+        rearming = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { _ in schedule() }
     }
 
     private static func run(_ task: BGAppRefreshTask) {
@@ -60,7 +98,7 @@ enum PlanRefresh {
             // delivery did not deliver. Recorded with its outcome, because a turn whose
             // upload failed used to write nothing, which reads exactly like one that skipped it.
             let outcome = await BackgroundSync.uploadWhatIsCertain()
-            SyncLog.record(.plan, "refresh turn — \(outcome.rawValue)")
+            SyncLog.refreshTurn(outcome.rawValue)
 
             let placed = await sync()
             task.setTaskCompleted(success: placed)

@@ -82,11 +82,19 @@ enum HealthAccess {
     /// deliberately not used.
     ///
     /// The getter is `async throws` — it goes back to the store, and a plan it cannot produce
-    /// is not the same as a session run without one — but both end the same way here: nothing
+    /// is not the same as a session run without one. On screen both end the same way: nothing
     /// to match on, so nil, and the session is shown as unplanned rather than filed against a
     /// guess. Callers that cannot await per session resolve these once; see `AppModel.planIDs`.
     static func planID(of workout: HKWorkout) async -> UUID? {
-        (try? await workout.workoutPlan)?.id
+        try? await plan(of: workout)
+    }
+
+    /// The same question where the difference matters. `BackgroundSync` writes a session off
+    /// for good on a nil — the watch either named a plan when it recorded the session or never
+    /// will — and a store that could not answer this time must not be read as that answer.
+    static func plan(of workout: HKWorkout) async throws -> UUID? {
+        let plan = try await workout.workoutPlan
+        return plan?.id
     }
 
     static func isIndoor(_ workout: HKWorkout) -> Bool {

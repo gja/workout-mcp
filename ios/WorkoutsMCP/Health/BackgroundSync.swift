@@ -231,6 +231,7 @@ enum BackgroundSync {
         // hardest to read: three recent sessions and no upload is not one fact but three.
         var alreadySent = 0
         var unplanned = 0
+        var unanswered = 0
 
         for activity in activities {
             // Cancellation reaches here when the run itself is cancelled; a caller that gave
@@ -244,7 +245,18 @@ enum BackgroundSync {
                 continue
             }
 
-            guard let planID = await HealthAccess.planID(of: activity) else {
+            let plan: UUID?
+            do {
+                plan = try await HealthAccess.plan(of: activity)
+            } catch {
+                // A store that would not answer is not an answer: read as *no plan*, a round
+                // trip that failed settled the session for good. See docs/ios.md.
+                SyncLog.record(.upload, "could not read what this session was planned as: \(SyncLog.describe(error))")
+                unanswered += 1
+                continue
+            }
+
+            guard let planID = plan else {
                 // Whether the watch named a plan is fixed when it records the session, so
                 // this answer will not change — and asking costs a round trip to the store.
                 Settled.settle(activity.uuid)
@@ -296,9 +308,13 @@ enum BackgroundSync {
         }
 
         if uploaded == 0, !refused {
+            // Named only where there are any: an ordinary morning is three recent and three
+            // already up, and a trailing zero is one more thing to read past.
+            let unread = unanswered > 0 ? ", \(unanswered) Health would not say" : ""
             SyncLog.record(
                 .upload,
-                "nothing to send: \(activities.count) recent, \(alreadySent) already up, \(unplanned) with no plan"
+                "nothing to send: \(activities.count) recent, \(alreadySent) already up, "
+                    + "\(unplanned) with no plan\(unread)"
             )
         }
 

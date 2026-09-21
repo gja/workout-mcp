@@ -180,10 +180,15 @@ is not offered at all.
 watches has been doing. A session
 missing from the server is equally consistent with HealthKit never having woken the app, a
 wake that was cut short, and a session this app will not upload unattended, and nothing in a
-background launch can say which. So the sheet opens on three: whether Health can wake the
-app, when it last ran with nobody looking and what came of it, and how many sessions have
-gone up on their own. Under them is the event list, newest first, each line marked where it
-happened unattended.
+background launch can say which. So the sheet opens on what the log knows — whether Health can
+wake the app, when it last ran with nobody looking and what came of it, when the refresh turn
+behind it last ran, and how many sessions have gone up on their own — and on **what iOS is
+allowing**, which the log cannot know, because what that reports is an app that was not run,
+and an app that is not run writes nothing. Background App Refresh and Low Power Mode are read
+at the moment the sheet is rather than recorded: with refresh off iOS grants no turn at all and
+holds back the launch behind a wake, Low Power Mode delays both, and HealthKit goes on
+reporting that it will wake an app iOS has not run in half a day. Under them is the event list,
+newest first, each line marked where it happened unattended.
 
 ## Heart rate
 
@@ -305,7 +310,16 @@ without both, `register` answers false and nothing is ever scheduled. Both keys 
 rest of the plist: Xcode's generator honours a fixed list of `INFOPLIST_KEY_` names and drops
 the ones it does not know without a word. Declared that way, the turn never came for a day,
 and the tell was the app missing from *Settings › General › Background App Refresh*. An app
-that declares the mode is listed there; check that before anything else.
+that declares the mode is listed there; that switch is now a line in the sheet rather than
+somewhere to be sent to look.
+
+**And neither end of it is swallowed any more.** A `register` that answers false and a `submit`
+that throws — which is what Background App Refresh being off does — each write a line and stand
+where the sheet says when the last turn was, once per distinct refusal rather than once per
+attempt. A `try?` there is the difference between a backstop that is not running and a backstop
+nobody can tell is not running. The request is also asked for again whenever the app leaves the
+screen, which is Apple's own advice and costs nothing, since iOS holds one request per
+identifier: a refusal at launch is otherwise never retried for as long as the app stays open.
 
 **And a wake asks the server nothing before it posts.** It used to read the listing first —
 three weeks of plan, over the slowest link in the path — to check `isDone` on one workout,
@@ -315,8 +329,12 @@ whether this session is one the app is already finished with. `Health/Settled.sw
 that locally, and is written only where the answer **cannot change**: a session that went up,
 one refused for a reason another run would get again, and one the watch never named a plan
 for — which is fixed when it records the session. A failure another run might not hit is
-deliberately not settled, so it is found again. A wake then reads Health, resolves one plan
-id and posts — no round trip before the one that matters.
+deliberately not settled, so it is found again. **A store that would not answer is not one of
+those answers**: reading the plan is a round trip and it can fail, and asked with a `try?` that
+failure read as *the watch named no plan* and wrote the session off for good on it. The throw is
+kept apart from the nil, because settling is the one thing here that cannot be taken back. A
+wake then reads Health, resolves one plan id and posts — no round trip before the one that
+matters.
 
 ### The transfer does not belong to the wake
 
@@ -427,6 +445,14 @@ just now*, which is how this was found. Becoming active within a few seconds of 
 therefore clears the flag on everything that process wrote, and takes those wakes back out of
 the count. A few seconds and not ever: a background launch opened ten minutes later really did
 run unattended until then.
+
+**And the flag goes back when the app leaves the screen**, which it did not. Backgrounding does
+not end the process, so being on screen once was being on screen for the rest of that process's
+life: every wake delivered into an app opened earlier that morning was written down as watched
+and taken back out of the count — the one figure that says delivery works at all. A phone woken
+four times during a workout, with nobody within reach of it, read *last background wake: 11
+hours ago*. `didEnterBackgroundNotification` is the other half of the notification above, and a
+resident process off screen is as unattended as one iOS launched.
 
 **Copy** puts the sheet on the pasteboard as text, timed to the second where the list rounds to
 the minute: it is read by somebody not holding the phone, and usually asked the order of two
