@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { STATS_ATTEMPTS, STATS_RETRY_AFTER_MS, worthReading } from '../src/platforms';
-import { statsFrom, statsUnreadable } from '../src/stats';
+import { leanLaps, statsFrom, statsUnreadable } from '../src/stats';
 import type { WorkoutStats } from '../src/stats';
 import type { Workout } from '../src/workout';
 import { encodeActivityFit } from './activity-fit';
@@ -623,5 +623,45 @@ describe('what the file left for the reader to work out', () => {
   it('does not carry a field nothing could ever fill', () => {
     const { session } = statsFrom(encodeActivityFit(asRun(844)), LONG_RUN, SOURCE);
     expect(session).not.toHaveProperty('intensity_factor');
+  });
+});
+
+/**
+ * The MCP read is charged for every key it sends, and a lap's nulls were most of its width.
+ * Dropping them is only safe while the nulls that mean a *position* stay: see docs/stats.md.
+ */
+describe('laps trimmed for the MCP read', () => {
+  it('leaves out what was not recorded, and keeps what was', () => {
+    const { laps } = statsFrom(encodeActivityFit(AS_PLANNED), THRESHOLD_RUN, SOURCE);
+    const [lean] = leanLaps(laps);
+
+    // A run without a meter: every power field goes, and nothing else does.
+    expect(laps[0].avg_power_w).toBeNull();
+    expect(lean).not.toHaveProperty('avg_power_w');
+    expect(lean).not.toHaveProperty('normalized_power_w');
+    expect(lean.avg_hr).toBe(laps[0].avg_hr);
+    expect(lean.planned_step_name).toBe('Warmup');
+    expect(lean.match_confidence).toBe('high');
+  });
+
+  it('keeps a quarter that recorded nothing, because its place in the four is the point', () => {
+    const { laps } = statsFrom(encodeActivityFit(AS_PLANNED), THRESHOLD_RUN, SOURCE);
+    const gapped = laps.map((lap, index) =>
+      index === 1 && lap.quarters
+        ? { ...lap, quarters: { ...lap.quarters, hr: [151, 160, null, 169] } }
+        : lap,
+    );
+    const lean = leanLaps(gapped);
+
+    // The null metric goes; the null *entry* stays, still third of four.
+    expect(lean[1].quarters).not.toHaveProperty('power_w');
+    expect(lean[1].quarters!.hr).toEqual([151, 160, null, 169]);
+  });
+
+  it('drops a null target rather than sending an empty one', () => {
+    const { laps } = statsFrom(encodeActivityFit(AS_PLANNED), THRESHOLD_RUN, SOURCE);
+    const jog = laps.findIndex((lap) => lap.target === null);
+    expect(jog).toBeGreaterThan(-1);
+    expect(leanLaps(laps)[jog]).not.toHaveProperty('target');
   });
 });

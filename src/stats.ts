@@ -722,3 +722,24 @@ export const statsUnreadable = (
 
 /** The laps dropped: what a workout row carries, and what every read but one asks for. */
 export const sessionOnly = ({ laps: _laps, ...rest }: WorkoutStats): StatsSummary => rest;
+
+/**
+ * A lap whose unrecorded fields are left out rather than sent as null.
+ *
+ * Absent and null say the same thing on a lap — "not recorded" — and the nulls are most of
+ * a lap's width: a runner carries four empty power fields on every lap of every session.
+ * Null *elements* inside `quarters` are a different thing and stay, because they are
+ * positions in a four-quarter array and dropping one would slide the rest.
+ */
+export type LeanLap = Omit<Partial<LapStats>, 'quarters'> & { quarters?: Partial<Quarters> };
+
+const withoutNulls = <T extends object>(value: T): Partial<T> =>
+  Object.fromEntries(Object.entries(value).filter(([, held]) => held !== null)) as Partial<T>;
+
+/** For the MCP read only. The REST route still answers with the full shape, nulls and all. */
+export const leanLaps = (laps: LapStats[]): LeanLap[] =>
+  laps.map(({ quarters, ...rest }) => {
+    const lean: LeanLap = withoutNulls(rest);
+    if (quarters) lean.quarters = withoutNulls(quarters);
+    return lean;
+  });

@@ -10,6 +10,7 @@ import * as plan from './plan';
 import { ONBOARDING_INSTRUCTIONS } from './prompts';
 import { PLATFORMS } from './platforms';
 import * as recordings from './recordings';
+import { leanLaps } from './stats';
 import { WorkoutError, parseChangeReason, parseComment, parseWorkout } from './workout';
 import type { Workout } from './workout';
 import { parseDate, parseTimestamp } from './units';
@@ -620,7 +621,7 @@ export async function callTool(
         db.getStats(env, user.id, id),
         db.getWorkout(env, user.id, id),
       ]);
-      if (stats) return { ...stats, comment: workout?.comment ?? null };
+      if (stats) return { ...stats, laps: leanLaps(stats.laps), comment: workout?.comment ?? null };
 
       if (!workout) throw new ToolError(missing(id));
       throw new ToolError(
