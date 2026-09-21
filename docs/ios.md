@@ -289,8 +289,8 @@ the store, so the run now says *the phone is locked* and returns in milliseconds
 
 The wake is spent either way, because HealthKit does not send it again, so **the unlock is a
 trigger of its own**: `protectedDataDidBecomeAvailableNotification` runs the same upload the
-moment there is a passcode behind it, rather than leaving the session for the next wake or a
-refresh turn hours later. It is registered at launch, not from inside a wake, since the
+moment there is a passcode behind it, rather than leaving the session for the next wake or the
+refresh turn behind it. It is registered at launch, not from inside a wake, since the
 process that lost its turn is usually gone by the time anybody picks the phone up — and for
 the same reason the flag saying a run gave up on the lock is in `UserDefaults`. Only that
 flag makes the unlock a trigger: a phone is unlocked dozens of times a day, and a HealthKit
@@ -318,8 +318,21 @@ that throws — which is what Background App Refresh being off does — each wri
 where the sheet says when the last turn was, once per distinct refusal rather than once per
 attempt. A `try?` there is the difference between a backstop that is not running and a backstop
 nobody can tell is not running. The request is also asked for again whenever the app leaves the
-screen, which is Apple's own advice and costs nothing, since iOS holds one request per
-identifier: a refusal at launch is otherwise never retried for as long as the app stays open.
+screen, which is Apple's own advice: a refusal at launch is otherwise never retried for as long
+as the app stays open.
+
+**A request already waiting is left alone**, which is what makes asking that often free. iOS
+holds one request per identifier, and submitting *replaces* it — with an `earliestBeginDate` a
+whole interval further out. So every launch and every backgrounding pushed back the turn it was
+waiting for, and an app opened a couple of times a morning could ask for a refresh all day and
+never be due for one. `getPendingTaskRequests` is asked first, and a pending request whose date
+is no later than the one this would set stands. Only the first ask decides when.
+
+**And the interval is an hour, not the four it was.** It is a floor rather than a request — iOS
+runs a turn when it suits iOS — but four hours is a floor under the gap this exists to close:
+the session that prompted all of this sat for three and a half. A turn with nothing to do costs
+nothing, because `uploadWhatIsCertain` is local until it has something to send and the plan read
+behind it keeps its own four-hour staleness, so the hour buys attempts rather than traffic.
 
 **And a wake asks the server nothing before it posts.** It used to read the listing first —
 three weeks of plan, over the slowest link in the path — to check `isDone` on one workout,

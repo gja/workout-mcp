@@ -1,7 +1,7 @@
 // Pulling the plan in on a schedule, so the watch is current without the app having been
 // opened. The other half of `Health/BackgroundSync.swift`: nothing wakes this one, since a
 // workout added on the server is a change no device here hears about, so it asks iOS for a
-// turn every few hours.
+// turn every hour.
 //
 // What it does with a turn is the same `PlanSync` a tap runs — different rules would be a
 // watch that changed depending on which last ran — and it also runs
@@ -17,10 +17,13 @@ enum PlanRefresh {
     /// iOS refuses to register a task the bundle has not declared, and refuses at launch.
     static let identifier = "com.workouts-mcp.ios.plan-refresh"
 
-    /// A floor, not a promise: iOS decides when a background refresh actually runs, and four
-    /// hours is a request for "a few times a day". A plan written this morning should reach
-    /// the watch today; nothing here is urgent to the minute.
-    static let interval: TimeInterval = 4 * 60 * 60
+    /// A floor, not a promise: iOS decides when a background refresh actually runs, and asking
+    /// for sooner than this does not make it sooner. An hour rather than the four it was,
+    /// because this is the backstop for a wake that never came, and four hours was the gap the
+    /// session that prompted it sat in. A turn costs nothing where there is nothing to do:
+    /// `uploadWhatIsCertain` is local until it has something to send, and the plan read behind
+    /// it keeps its own four-hour staleness in `PlanSync`.
+    static let interval: TimeInterval = 60 * 60
 
     private static var registered = false
     private static var rearming: NSObjectProtocol?
@@ -55,10 +58,26 @@ enum PlanRefresh {
     /// One turn asks for the next. iOS holds at most one request per identifier and never
     /// repeats one on its own, so a turn that does not re-arm is the last one there is.
     ///
+    /// **A request already waiting is left alone.** Submitting replaces it, and replacing it
+    /// pushes its earliest date out by the whole interval — so an app opened twice in a
+    /// morning, which submits on every launch and every backgrounding, kept moving the turn
+    /// it was waiting for. Asked for is not the same as due, and only the first ask decides
+    /// when.
+    static func schedule() {
+        BGTaskScheduler.shared.getPendingTaskRequests { waiting in
+            let ours = waiting.first { $0.identifier == identifier }
+            // No date at all means iOS may run it whenever it likes, which is never later
+            // than the one below.
+            guard let ours else { return submit() }
+            guard let due = ours.earliestBeginDate, due > Date(timeIntervalSinceNow: interval) else { return }
+            submit()
+        }
+    }
+
     /// The failure is recorded: submitting throws where the athlete has turned Background App
     /// Refresh off, and a `try?` there is the difference between a backstop that is not
     /// running and a backstop nobody can tell is not running.
-    static func schedule() {
+    private static func submit() {
         let request = BGAppRefreshTaskRequest(identifier: identifier)
         request.earliestBeginDate = Date(timeIntervalSinceNow: interval)
         do {
@@ -74,10 +93,10 @@ enum PlanRefresh {
     }
 
     /// And asked for again every time the app leaves the screen, which is Apple's own advice
-    /// and costs nothing: iOS holds one request per identifier, so this replaces rather than
-    /// accumulates. A request refused at launch — Background App Refresh off, or a phone in
-    /// Low Power Mode — is otherwise never asked for again in that process, and the backstop
-    /// stays missing for as long as the app is left open.
+    /// and now costs nothing, since `schedule()` leaves a request that is already waiting
+    /// alone. A request refused at launch — Background App Refresh off, or a phone in Low
+    /// Power Mode — is otherwise never asked for again in that process, and the backstop stays
+    /// missing for as long as the app is left open.
     private static func rearmOnBackgrounding() {
         guard rearming == nil else { return }
 
@@ -90,8 +109,10 @@ enum PlanRefresh {
 
     private static func run(_ task: BGAppRefreshTask) {
         // Before the work rather than after it: a turn that throws, or that iOS cuts short,
-        // still leaves one behind it.
-        schedule()
+        // still leaves one behind it. `submit` and not `schedule`, because this turn is the
+        // request that was pending, and because asking first is a round trip a turn iOS is
+        // about to suspend may not get an answer to.
+        submit()
 
         let work = Task {
             // The session first and unconditionally: the backstop for a wake `.immediate`
