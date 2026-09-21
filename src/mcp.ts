@@ -111,7 +111,9 @@ function buildServer(env: Env, user: User, origin: string, era: 'legacy' | 'mode
         try {
           const result = await callTool(tool.name, args, env, user, origin);
           return {
-            content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+            // Not pretty-printed: the indentation is ~39% of the tokens a caller is
+            // charged for a stats read, and no reader of this text needs the columns.
+            content: [{ type: 'text' as const, text: JSON.stringify(result) }],
             structuredContent: result as Record<string, unknown>,
           };
         } catch (error) {

@@ -153,6 +153,11 @@ is *conditionally* null and says something by it.
   recorded" for that reason.
 - Cadence is doubled for running, walking and hiking: FIT counts one leg per cycle, an
   athlete counts both.
+- **Over MCP, a lap's null fields are left out rather than sent.** Absent and null say the
+  same thing on a lap, and the nulls were most of a lap's width — a runner carried four
+  empty power fields on every lap of every session. Null *entries inside* `quarters` stay:
+  they are positions in a four-quarter array, and dropping one would slide the rest.
+  `GET /api/workouts/:date/:id/stats` is unchanged and still answers with every key.
 
 ## Quality flags
 
