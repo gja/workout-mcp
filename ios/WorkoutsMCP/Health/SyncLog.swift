@@ -6,6 +6,7 @@
 // shows the log. See docs/ios.md.
 
 import Foundation
+import UIKit
 
 enum SyncLog {
     private static let defaults = UserDefaults.standard
@@ -14,6 +15,8 @@ enum SyncLog {
     private static let deliveryAtKey = "sync-delivery-at"
     private static let uploadedKey = "sync-uploaded-count"
     private static let backgroundKey = "sync-background-wake-count"
+    private static let refreshAtKey = "sync-refresh-turn-at"
+    private static let refreshProblemKey = "sync-refresh-problem"
 
     /// The last hundred lines, not an archive. A run writes a handful, so this is days of
     /// ordinary use and still bounded on the day something logs in a loop.
@@ -58,7 +61,8 @@ enum SyncLog {
 
     // --- Was anybody looking -------------------------------------------------------------
 
-    private static var hasBeenActive = false
+    private static var onScreen = false
+    private static var launchCorrected = false
     private static let started = Date()
 
     /// How long after a launch its own activation still counts as part of it. A launch
@@ -76,9 +80,10 @@ enum SyncLog {
     /// wins the race. Force-quitting the app and opening it read `just now` for the last
     /// background wake, which is how this was found.
     static func becameActive() {
-        let wasLaunch = Date().timeIntervalSince(started) <= launchWindow
-        hasBeenActive = true
+        let wasLaunch = Date().timeIntervalSince(started) <= launchWindow && !launchCorrected
+        onScreen = true
         guard wasLaunch else { return }
+        launchCorrected = true
 
         // Only within the window: a background launch somebody opens ten minutes later
         // really did run unattended until they did, and keeps its moons.
@@ -95,8 +100,33 @@ enum SyncLog {
         defaults.set(data, forKey: entriesKey)
     }
 
-    /// Whether this process has run without ever being on screen.
-    static var isUnattended: Bool { !hasBeenActive }
+    /// Called from `UIApplication.didEnterBackgroundNotification`: the app is resident but
+    /// off screen, and a wake delivered into it from here is as unattended as one into a
+    /// process iOS launched.
+    ///
+    /// Nothing ends a process on being backgrounded, and this used to be a one-way flag, so
+    /// every wake after the first time an athlete opened the app was written down as watched
+    /// and taken out of the count — which is the one figure that says delivery works. A phone
+    /// woken four times during a workout read *last background wake: 11 hours ago*.
+    static func wentToBackground() { onScreen = false }
+
+    /// Whether this is happening with nobody looking.
+    static var isUnattended: Bool { !onScreen }
+
+    // --- What iOS is allowing ---------------------------------------------------------------
+
+    /// Asked at the moment the sheet is read rather than inferred from the log, because what
+    /// this reports is an app that *was not run*, and an app that was not run writes nothing.
+    /// With it off iOS grants no refresh turn at all — `submit` throws — and holds back the
+    /// launches behind a HealthKit wake, while `enableBackgroundDelivery` goes on succeeding:
+    /// so without this line the sheet says *Health can wake the app: yes* of a phone on which
+    /// nothing has run for half a day.
+    @MainActor
+    static var backgroundRefresh: UIBackgroundRefreshStatus { UIApplication.shared.backgroundRefreshStatus }
+
+    /// The other switch, and the one nobody remembers turning on: Low Power Mode suspends
+    /// background refresh outright and delays what `.immediate` delivery promises.
+    static var lowPowerMode: Bool { ProcessInfo.processInfo.isLowPowerModeEnabled }
 
     // --- Writing ---------------------------------------------------------------------------
 
@@ -118,6 +148,30 @@ enum SyncLog {
         defaults.set(Date(), forKey: deliveryAtKey)
         defaults.removeObject(forKey: deliveryProblemKey)
         record(.delivery, "HealthKit will wake the app")
+    }
+
+    /// A turn iOS actually granted, dated so the sheet can say how long it has been. The
+    /// backstop failing is the same silence as the wake failing, and they fail together.
+    static func refreshTurn(_ said: String) {
+        defaults.set(Date(), forKey: refreshAtKey)
+        defaults.removeObject(forKey: refreshProblemKey)
+        record(.plan, "refresh turn — \(said)")
+    }
+
+    /// iOS refusing to take a request for one. One line per distinct refusal and not one per
+    /// attempt: this is re-tried on every launch and every backgrounding, and a refusal that
+    /// holds would otherwise be the only thing in the log.
+    static func refreshRefused(_ said: String) {
+        let known = defaults.string(forKey: refreshProblemKey)
+        defaults.set(said, forKey: refreshProblemKey)
+        guard known != said else { return }
+        record(.plan, "iOS would not take a refresh turn: \(said)")
+    }
+
+    /// A request iOS took. Written down as nothing at all — a line per backgrounding is noise
+    /// — beyond clearing a refusal that no longer holds.
+    static func refreshScheduled() {
+        defaults.removeObject(forKey: refreshProblemKey)
     }
 
     static func deliveryRefused(_ error: Error) {
@@ -170,6 +224,13 @@ enum SyncLog {
     /// background delivery works, since no launch can produce one.
     static var lastBackgroundWake: Entry? {
         entries.last { $0.kind == .wake && $0.unattended }
+    }
+
+    /// When a `BGAppRefreshTask` last ran, and what stands in the way of the next one. The
+    /// second background path, and the one that catches a wake that never came — so a sheet
+    /// showing neither of them in half a day is showing an app iOS is not running at all.
+    static var refresh: (at: Date?, problem: String?) {
+        (defaults.object(forKey: refreshAtKey) as? Date, defaults.string(forKey: refreshProblemKey))
     }
 
     /// How many times that has happened, ever: once is luck, not habit.

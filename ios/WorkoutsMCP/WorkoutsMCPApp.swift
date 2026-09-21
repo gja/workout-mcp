@@ -20,6 +20,11 @@ struct WorkoutsMCPApp: App {
         NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { _ in SyncLog.becameActive() }
+        // And the way back out. Backgrounding does not end the process, so without this the
+        // flag above is one-way and every wake for the rest of the app's life reads watched.
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+        ) { _ in SyncLog.wentToBackground() }
         // The other direction, and the one nothing wakes: a turn asked of iOS every few hours
         // to read the plan. `BGTaskScheduler` takes a handler only before launching finishes.
         PlanRefresh.start()

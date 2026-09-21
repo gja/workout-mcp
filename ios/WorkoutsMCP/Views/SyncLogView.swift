@@ -15,7 +15,10 @@ struct SyncLogView: View {
             List {
                 Section("Where it stands") {
                     LabeledContent("Health can wake the app", value: summary.delivery)
+                    LabeledContent("Background App Refresh", value: allowed.refresh)
+                    LabeledContent("Low Power Mode", value: allowed.lowPower)
                     LabeledContent("Last background wake", value: summary.lastBackgroundWake)
+                    LabeledContent("Last refresh turn", value: summary.refreshTurn)
                     LabeledContent("Uploaded on its own", value: summary.uploaded)
                 }
 
@@ -63,15 +66,35 @@ struct SyncLogView: View {
         copied = false
     }
 
+    /// The phone's own two switches, read at the moment the sheet is rather than kept with the
+    /// counters: nothing this app records can see them, and either one off is the answer to
+    /// every other line here. HealthKit goes on saying it will wake an app that Background App
+    /// Refresh will not let iOS run.
+    @MainActor
+    private var allowed: (refresh: String, lowPower: String) {
+        let refresh: String
+        switch SyncLog.backgroundRefresh {
+        case .available: refresh = "on"
+        case .denied: refresh = "off — Settings › General › Background App Refresh"
+        case .restricted: refresh = "not allowed on this phone"
+        @unknown default: refresh = "unknown"
+        }
+        return (refresh, SyncLog.lowPowerMode ? "on — background work is held back" : "off")
+    }
+
     /// The sheet as text, for pasting into a conversation about why a session is not there.
     /// Seconds are kept where the list rounds to the minute: what this is usually asked is
     /// the order of two things written moments apart.
+    @MainActor
     private var transcript: String {
         var lines = [
             "Sync log — \(Formats.moment(Date()))",
             "",
             "Health can wake the app: \(summary.delivery)",
+            "Background App Refresh: \(allowed.refresh)",
+            "Low Power Mode: \(allowed.lowPower)",
             "Last background wake: \(summary.lastBackgroundWake)",
+            "Last refresh turn: \(summary.refreshTurn)",
             "Uploaded on its own: \(summary.uploaded)",
             "",
             "Events, newest first (💤 = nobody looking)",
@@ -117,10 +140,11 @@ private struct EventRow: View {
     }
 }
 
-/// One reading of the counters, so the three lines are three facts from the same moment.
+/// One reading of the counters, so the lines are facts from the same moment.
 private struct SyncSummary {
     let delivery: String
     let lastBackgroundWake: String
+    let refreshTurn: String
     let uploaded: String
 
     init() {
@@ -137,6 +161,17 @@ private struct SyncSummary {
             lastBackgroundWake = count > 1 ? "\(when) · \(count) in all" : when
         } else {
             lastBackgroundWake = "never"
+        }
+
+        // The backstop, which is the other thing that should be running with nobody looking.
+        // A problem first: a turn iOS will not schedule is why there has not been one.
+        let refresh = SyncLog.refresh
+        if let problem = refresh.problem {
+            refreshTurn = problem
+        } else if let at = refresh.at {
+            refreshTurn = Formats.since(at)
+        } else {
+            refreshTurn = "not yet"
         }
 
         uploaded = "\(SyncLog.uploadedOnItsOwn)"
