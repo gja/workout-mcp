@@ -68,16 +68,22 @@ struct PlannedWorkoutView: View {
     private var start: some View {
         if #available(iOS 26.0, *), Sports.isRecordable(current.sport), !current.isDone {
             Section {
+                // A run is started against a plan, so the button waits for one: the screen
+                // counts the intervals out of the steps above it and says what each is aimed
+                // at, and it has neither until the plan has loaded.
                 Button {
                     running = true
                 } label: {
                     Label("Start on this iPhone", systemImage: "play.circle.fill")
                 }
+                .disabled(plan == nil)
                 .fullScreenCover(isPresented: $running) {
-                    RunView(workout: current)
+                    if let plan {
+                        RunView(workout: current, steps: RunStep.of(plan.steps))
+                    }
                 }
             } footer: {
-                Text("Recorded here and saved to Health, then sent up when you stop. The steps are not counted out — this records, it does not coach.")
+                Text("Recorded here and saved to Health, then sent up when you stop. Each interval is a lap you press; nothing advances on its own and nothing beeps.")
             }
         }
     }

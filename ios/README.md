@@ -160,11 +160,18 @@ that sport planned for that day — and where it is neither, the session says so
 offering a menu to guess from.
 
 On **iOS 26**, a running, walking or cycling workout that is not done yet also gets
-**Start on this iPhone** at the foot of its steps. That records the session here — three
-numbers while it runs, speed, distance and heart rate, each a dash until something measures
-it — saves it to Health, and sends it up when you stop. A heart rate needs a chest strap or
-buds on the standard Bluetooth profile; an iPhone has no sensor for one. The steps are not
-counted out and nothing beeps: it records, it does not coach, for the reason in
+**Start on this iPhone** at the foot of its steps. It asks indoors or outdoors, then runs
+against the plan: which interval of how many, what it is aimed at, and — for a run — total
+and interval time, pace and interval pace, interval distance, cadence and heart rate; for a
+ride, total and interval time, power and interval power, cadence and heart rate. Pause,
+**Next interval**, and an end that saves to Health and sends it up.
+
+Each reading is a dash until something measures it. Heart rate needs a chest strap or buds
+on the standard Bluetooth profile — an iPhone has no sensor for one — and cycling power and
+cadence need a sensor the phone, unlike an Apple Watch, will not pair by itself.
+
+**Next interval** is a lap press and nothing advances on its own: the laps are what the
+server matches against the steps of the plan. See
 [docs/ios.md](../docs/ios.md#recording-it-on-the-phone).
 
 **Settings.** Who is signed in, which deployment this build talks to, **Log out**, a
