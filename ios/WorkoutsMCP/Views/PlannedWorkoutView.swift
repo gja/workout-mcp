@@ -94,8 +94,6 @@ struct PlannedWorkoutView: View {
                     Label("Start on this iPhone", systemImage: "play.circle.fill")
                 }
                 .disabled(plan == nil)
-            } footer: {
-                Text("Recorded here and saved to Health, then sent up when you stop. Timed and measured intervals advance themselves and are called out; tap to get through an open one.")
             }
         }
         #endif
