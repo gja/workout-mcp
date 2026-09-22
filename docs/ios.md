@@ -49,8 +49,8 @@ So a step with an end advances itself at it: `advanceIfDue` on each tick against
 because that is what the plan means by open, and neither does a press past the end of the
 plan, which has no step behind it to be due.
 
-**And it is said out loud.** *Now: Tempo. Target pace 4 minutes to 4 minutes 15 per
-kilometre* as a step opens — no interval number, which is on the screen for anyone who wants
+**And it is said out loud.** *Now: Tempo. 4 minutes at target pace 4 minutes to 4 minutes 15
+per kilometre* as a step opens — no interval number, which is on the screen for anyone who wants
 it and is not what an athlete needs told at the moment a step changes — then "5 seconds left"
 before a timed step closes, and a call when a reading leaves the band it was given or comes back to
 it. `Health/RunVoice.swift` is Apple's synthesiser over an `AVAudioSession` that is

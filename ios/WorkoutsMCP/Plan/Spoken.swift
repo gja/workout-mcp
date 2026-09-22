@@ -23,7 +23,7 @@ enum Spoken {
 
     static func duration(_ duration: PlanDuration) -> String {
         switch duration {
-        case .open: return "until you tap next"
+        case .open: return "Until you tap next"
         case .time(let seconds): return clock(seconds)
         case .distance(let metres): return distance(metres)
         }

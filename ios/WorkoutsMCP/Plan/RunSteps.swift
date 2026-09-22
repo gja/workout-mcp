@@ -40,12 +40,14 @@ struct RunStep {
         return nil
     }
 
-    /// What is said when this interval starts. In words, because a synthesiser reads `line`
-    /// as punctuation — and without the interval number, which is on the screen for anyone
-    /// who wants it and is not what an athlete needs told at the moment a step changes.
+    /// What is said when this interval starts — *Now: Tempo. 4 minutes at target pace 4
+    /// minutes to 4 minutes 15 per kilometre.* In words, because a synthesiser reads `line`
+    /// as punctuation; and without the interval number, which is on the screen for anyone who
+    /// wants it and is not what an athlete needs told at the moment a step changes.
     var spoken: String {
         let band = targets.compactMap { Spoken.target($0) }.joined(separator: ", ")
-        return band.isEmpty ? "Now: \(title)." : "Now: \(title). Target \(band)."
+        let aim = band.isEmpty ? Spoken.duration(duration) : "\(Spoken.duration(duration)) at target \(band)"
+        return "Now: \(title). \(aim)."
     }
 
     static func of(_ steps: [ResolvedStep]) -> [RunStep] {
