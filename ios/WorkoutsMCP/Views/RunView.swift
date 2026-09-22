@@ -152,9 +152,9 @@ struct RunningView: View {
                 }
             } else {
                 // Past the end of the plan, which a lap press is allowed to go: the athlete
-                // is still running and the session still records, so it says where they are
-                // rather than pretending there is a step here.
-                Text("Past the plan").font(.headline).foregroundStyle(.secondary)
+                // is still recording, and what is finished is the plan rather than the
+                // session, which is still theirs to end.
+                Text("Workout complete").font(.headline).foregroundStyle(.secondary)
             }
 
             status

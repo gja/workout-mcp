@@ -57,14 +57,16 @@ enum Spoken {
             if let low { return "cadence above \(Formats.whole(low))" }
             return high.map { "cadence below \(Formats.whole($0))" }
         case .speed(let low, let high, let unit):
+            // Named, because "4 minutes to 5 minutes per kilometre" does not otherwise say
+            // what it is a figure for. The other bands are named by their own units.
             // A faster pace is a higher speed, so the ends swap back to be said.
             let per = unit == "mi" ? "per mile" : "per kilometre"
             let metres = unit == "mi" ? 1609.344 : 1000.0
             let fastest = high.map { clock(metres / $0) }
             let slowest = low.map { clock(metres / $0) }
-            if let fastest, let slowest { return "\(fastest) to \(slowest) \(per)" }
-            if let slowest { return "faster than \(slowest) \(per)" }
-            return fastest.map { "slower than \($0) \(per)" }
+            if let fastest, let slowest { return "pace \(fastest) to \(slowest) \(per)" }
+            if let slowest { return "pace faster than \(slowest) \(per)" }
+            return fastest.map { "pace slower than \($0) \(per)" }
         }
     }
 

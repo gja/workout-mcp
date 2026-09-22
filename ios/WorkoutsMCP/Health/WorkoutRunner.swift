@@ -108,6 +108,13 @@ final class WorkoutRunner: NSObject, ObservableObject {
     private var fixedAt: Date?
     private static let staleFix = 10.0
 
+    /// Cumulative distance, kept for as long as a speed is taken over it. Wider than the
+    /// cadence's window because the pedometer hands distance over in lumps rather than
+    /// steadily, and a narrow window of that is a pace that reads zero and then sprints.
+    private var distances: [(at: Date, metres: Double)] = []
+    private static let speedWindow = 20.0
+    private static let speedFloor = 8.0
+
     /// A fix this far out is the phone guessing, and a guess this app records is a guess the
     /// server will compute a pace from. Apple's own advice for a workout route.
     private static let usableAccuracy = 50.0
@@ -324,7 +331,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
         cutting = true
 
         rebase()
-        voice.say(step?.spoken(number: interval + 1, of: steps.count) ?? "Past the plan.")
+        voice.say(step?.spoken ?? "Workout complete.")
     }
 
     /// What this interval counts from. Separate from opening one because a recovered session
@@ -448,11 +455,12 @@ final class WorkoutRunner: NSObject, ObservableObject {
 
         heartRate = latest(HKQuantityType(.heartRate), in: .count().unitDivided(by: .minute()))
         power = latest(HKQuantityType(isCycling ? .cyclingPower : .runningPower), in: .watt())
+        let now = Date()
         if onTick {
             averagePower()
-            readCadence()
+            readCadence(at: now)
+            readSpeed(at: now)
         }
-        readSpeed()
 
         // Judged only on the tick, and only once every figure above has been read: a drift
         // counted at the rate samples happen to land is a drift counted at no rate at all,
@@ -460,7 +468,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
         guard onTick, phase == .running else { return }
         advanceIfDue()
         countDown()
-        callOutDrift()
+        callOutDrift(at: now)
     }
 
     /// The step ends itself where the plan gave it an end. An open step never does — "until
@@ -481,11 +489,10 @@ final class WorkoutRunner: NSObject, ObservableObject {
         let left = seconds - intervalElapsed
         guard left > 0, left <= Self.warning else { return }
         countedDown = true
-        voice.say("5 seconds")
+        voice.say("5 seconds left")
     }
 
-    private func callOutDrift() {
-        let now = Date()
+    private func callOutDrift(at now: Date) {
         for index in watches.indices {
             let reading: Double?
             switch watches[index].metric {
@@ -516,7 +523,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// Cycling cadence is measured and handed over; running cadence is not. HealthKit counts
     /// steps, so a runner's is the steps of the last few seconds over those seconds, which is
     /// also why it is absent for the first few: a cadence needs a window to be taken over.
-    private func readCadence() {
+    private func readCadence(at now: Date) {
         if isCycling {
             cadence = latest(HKQuantityType(.cyclingCadence), in: .count().unitDivided(by: .minute()))
             return
@@ -525,7 +532,6 @@ final class WorkoutRunner: NSObject, ObservableObject {
         guard let steps = builder?.statistics(for: HKQuantityType(.stepCount))?
             .sumQuantity()?.doubleValue(for: .count()) else { return }
 
-        let now = Date()
         stepCounts.append((now, steps))
         stepCounts.removeAll { now.timeIntervalSince($0.at) > Self.cadenceWindow }
 
@@ -536,14 +542,34 @@ final class WorkoutRunner: NSObject, ObservableObject {
 
     /// A fix that has stopped arriving is a pace that has stopped being true — GPS under trees
     /// drops for seconds at a time, and the last one it managed is not what is happening now.
-    /// What is left, indoors or in the gap, is the sport's own speed series off the pedometer.
-    private func readSpeed() {
-        if let fixedAt, Date().timeIntervalSince(fixedAt) > Self.staleFix { speedMS = nil }
+    ///
+    /// What is left is mostly **not** the sport's speed series: a walk has no live one at all,
+    /// and a run only has one where a watch is writing it, which is the case this screen
+    /// exists for the absence of. So the fallback is the distance of the last twenty seconds
+    /// over those seconds — the same shape as the cadence and for the same reason. It moves in
+    /// steps rather than smoothly, because that is how the pedometer hands distance over.
+    private func readSpeed(at now: Date) {
+        if let fixedAt, now.timeIntervalSince(fixedAt) > Self.staleFix { speedMS = nil }
         guard indoors || speedMS == nil else { return }
-        speedMS = latest(
+
+        if let series = latest(
             HKQuantityType(isCycling ? .cyclingSpeed : .runningSpeed),
             in: .meter().unitDivided(by: .second())
-        )
+        ) {
+            speedMS = series
+            return
+        }
+
+        guard let metres else { return }
+        distances.append((at: now, metres: metres))
+        distances.removeAll { now.timeIntervalSince($0.at) > Self.speedWindow }
+
+        guard let oldest = distances.first else { return }
+        let span = now.timeIntervalSince(oldest.at)
+        guard span >= Self.speedFloor else { return }
+
+        let moved = (metres - oldest.metres) / span
+        speedMS = moved < Self.movingMS ? nil : moved
     }
 
     // --- Where the phone is ------------------------------------------------------------------
