@@ -480,7 +480,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
         guard onTick, phase == .running else { return }
         advanceIfDue()
         countDown()
-        callOutDrift(at: now)
+        callOutDrift()
     }
 
     /// The step ends itself where the plan gave it an end. An open step never does — "until
@@ -504,7 +504,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
         voice.say("5 seconds left")
     }
 
-    private func callOutDrift(at now: Date) {
+    private func callOutDrift() {
         for index in watches.indices {
             let reading: Double?
             switch watches[index].metric {
@@ -513,7 +513,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
             case .power: reading = power
             case .cadence: reading = cadence
             }
-            if let said = watches[index].read(reading, at: now) { voice.say(said) }
+            if let said = watches[index].read(reading) { voice.say(said) }
         }
     }
 

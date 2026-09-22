@@ -25,9 +25,15 @@ struct TargetWatch {
     /// The side last said out loud. It starts `inside` rather than unknown, so the first
     /// thing announced is a departure and not a confirmation nobody asked for.
     private var said: Side = .inside
-    private var drifting: (side: Side, since: Date)?
+    private var drifting: (side: Side, seen: Int)?
 
-    private static let dwell = 10.0
+    /// How many readings a side has to hold before it is said. They arrive a second apart,
+    /// so this is ten seconds of them — but **counted rather than timed**, because a gap in
+    /// the readings is evidence of nothing and must neither mature a call nor cancel one.
+    /// Timed, and cancelled by every absent reading, a step begun too slow was never called
+    /// at all where the pace went absent every few seconds: which is what a pace derived
+    /// from the pedometer's lumpy distance does for the whole of an indoor walk.
+    private static let dwell = 10
 
     /// A band this app can police, or nil. A zone and a percentage are neither: both need the
     /// athlete's own profile to resolve, which is the server's — `workout-zones` is the one
@@ -65,27 +71,28 @@ struct TargetWatch {
     }
 
     /// One reading, and what to say about it — nil almost every time, which is the point.
-    mutating func read(_ value: Double?, at now: Date) -> String? {
-        guard let value else {
-            // A sensor that stopped reporting is not an athlete who drifted, so the drift
-            // being counted is dropped rather than allowed to mature into an announcement.
-            drifting = nil
-            return nil
-        }
+    mutating func read(_ value: Double?) -> String? {
+        // A sensor that is not reporting says nothing either way: the count neither grows nor
+        // is thrown away, so the drift resumes counting when the readings come back.
+        guard let value else { return nil }
 
         let side: Side
         if let high, value > high { side = .above } else if let low, value < low { side = .below } else { side = .inside }
 
+        // Back where it was last called, so whatever was building the other way is void.
         guard side != said else {
             drifting = nil
             return nil
         }
 
-        if drifting?.side != side { drifting = (side, now) }
-        guard let drifting, now.timeIntervalSince(drifting.since) >= Self.dwell else { return nil }
+        let seen = (drifting?.side == side ? drifting?.seen ?? 0 : 0) + 1
+        guard seen >= Self.dwell else {
+            drifting = (side, seen)
+            return nil
+        }
 
         said = side
-        self.drifting = nil
+        drifting = nil
         return phrase(for: side)
     }
 

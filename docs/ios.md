@@ -73,10 +73,17 @@ athlete's own profile, and `workout-zones` on the server is the single source of
 physiology — the same reason no zones are computed for the heart rate screen.
 
 The restraint is the part that matters. A GPS pace crosses a band twice a minute on its own,
-so a reading has to hold one side for ten seconds before it is called, nothing is said twice
-for the same side, and a sensor that stops reporting drops the drift being counted rather
-than letting it mature into an announcement. A voice that called every crossing would be
-switched off inside a kilometre.
+so a reading has to hold one side for ten of them before it is called, and nothing is said
+twice for the same side. A voice that called every crossing would be switched off inside a
+kilometre.
+
+**Ten readings, not ten seconds.** A reading that does not arrive is evidence of nothing, so
+it neither matures a call nor cancels one — the count simply does not grow, and picks up
+where it left off. Timed instead, and reset by every absent reading, a step begun too slow
+was never called at all wherever the pace went absent every few seconds, which is the whole
+of an indoor walk: the pedometer hands distance over in lumps, so the pace derived from it
+blinks out between them. What that produced was the mixed behaviour of being told only once
+the athlete had been in the band and left it again.
 
 **A lap press cuts an `HKWorkoutActivity`.** That is what makes the saved workout a session
 of laps rather than one long one: `SessionReader` already reads `workoutActivities` back in
