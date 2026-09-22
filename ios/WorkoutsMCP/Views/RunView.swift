@@ -9,6 +9,7 @@
 // "Recording it on the phone" in docs/ios.md.
 
 #if ON_PHONE_RECORDING
+import HealthKit
 import SwiftUI
 
 @available(iOS 26.0, *)
@@ -69,8 +70,10 @@ struct RunView: View {
     }
 }
 
+/// Not private: `RunRecovery` puts this up too, for a session the app was handed on opening
+/// rather than one started from a plan.
 @available(iOS 26.0, *)
-private struct RunningView: View {
+struct RunningView: View {
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
@@ -78,8 +81,10 @@ private struct RunningView: View {
     @StateObject private var runner: WorkoutRunner
     @State private var confirmingEnd = false
 
-    init(workout: PlannedWorkout, steps: [RunStep], indoors: Bool) {
-        _runner = StateObject(wrappedValue: WorkoutRunner(workout: workout, steps: steps, indoors: indoors))
+    init(workout: PlannedWorkout?, steps: [RunStep], indoors: Bool, recovered: HKWorkoutSession? = nil) {
+        _runner = StateObject(wrappedValue: WorkoutRunner(
+            workout: workout, steps: steps, indoors: indoors, recovered: recovered
+        ))
     }
 
     var body: some View {
@@ -109,7 +114,10 @@ private struct RunningView: View {
         VStack(spacing: 4) {
             // The name, because a full-screen cover has no title bar to put it in and an
             // athlete who started the wrong session should be able to see that they did.
-            Text(runner.workout.name).font(.subheadline).foregroundStyle(.secondary)
+            // A session picked up off the system may have nothing in the plan to name it —
+            // it was recorded, and it has to be endable, which neither needs a name.
+            Text(runner.workout?.name ?? "Recorded session")
+                .font(.subheadline).foregroundStyle(.secondary)
 
             Text(counted).font(.title2.weight(.semibold))
 

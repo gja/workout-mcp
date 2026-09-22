@@ -53,7 +53,9 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// seventeenth interval on a plan with sixteen is a fact to record, not one to refuse.
     @Published private(set) var interval = 0
 
-    let workout: PlannedWorkout
+    /// Absent only for a session picked up off the system with nothing in the plan to tie it
+    /// to — it recorded, it has to be endable, and it does not need a name to be either.
+    let workout: PlannedWorkout?
     let steps: [RunStep]
 
     var step: RunStep? { steps.indices.contains(interval) ? steps[interval] : nil }
@@ -121,13 +123,19 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// limit loses the recording exactly as completely as saving too early would.
     private static let endingLimit = 10.0
 
-    init(workout: PlannedWorkout, steps: [RunStep], indoors: Bool) {
+    /// `recovered` is a session the app was handed on opening rather than one this screen is
+    /// about to start. Everything about it — sport, indoors, the laps it has already cut —
+    /// comes off the session itself, so what is passed here is only what there is to show.
+    private let recovered: HKWorkoutSession?
+
+    init(workout: PlannedWorkout?, steps: [RunStep], indoors: Bool, recovered: HKWorkoutSession? = nil) {
         self.workout = workout
         self.steps = steps
         self.indoors = indoors
+        self.recovered = recovered
 
         let configuration = HKWorkoutConfiguration()
-        configuration.activityType = Sports.activityType(workout.sport)
+        configuration.activityType = workout.map { Sports.activityType($0.sport) } ?? .other
         configuration.locationType = indoors ? .indoor : .outdoor
         self.configuration = configuration
         isCycling = configuration.activityType == .cycling
@@ -145,7 +153,16 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// athlete who swipes the app away mid-run comes back to a start button that fails and a
     /// recording nothing can end.
     func begin() async {
+        if let recovered {
+            resume(recovered)
+            return
+        }
         if await resumeRecovered() { return }
+
+        guard let workout else {
+            phase = .failed("There is no workout to start.")
+            return
+        }
 
         do {
             let session = try HKWorkoutSession(healthStore: HealthAccess.store, configuration: configuration)
@@ -180,8 +197,24 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// saved cannot be the wrong workout. The interval count starts again from one — it lived
     /// in the process that went away — and the laps already cut are still in the session.
     private func resumeRecovered() async -> Bool {
-        guard let recovered = try? await HealthAccess.store.recoverActiveWorkoutSession() else { return false }
+        guard let found = await Self.active() else { return false }
+        resume(found)
+        return true
+    }
 
+    /// What the app is still holding, if anything — asked on opening as well as here, because
+    /// a recording nobody can find is a recording nobody can stop. See `RunRecovery`.
+    static func active() async -> HKWorkoutSession? {
+        try? await HealthAccess.store.recoverActiveWorkoutSession()
+    }
+
+    /// The workout a running session was started for, read back out of the metadata it was
+    /// given at the start. Which is why it is written then and not at the end.
+    static func workoutKey(of session: HKWorkoutSession) -> String? {
+        session.associatedWorkoutBuilder().metadata[HealthAccess.workoutKeyMetadata] as? String
+    }
+
+    private func resume(_ recovered: HKWorkoutSession) {
         adopt(recovered)
         // Read before rebasing, or the interval counts from zero while the session is
         // already minutes in — and the first tick finds a 60-second step long since due and
@@ -190,7 +223,6 @@ final class WorkoutRunner: NSObject, ObservableObject {
         rebase()
         follow()
         phase = recovered.state == .paused ? .paused : .running
-        return true
     }
 
     /// The wiring both ways in have to do, and the one place the session's configuration is

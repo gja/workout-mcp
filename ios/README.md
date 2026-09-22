@@ -179,6 +179,10 @@ only way through a step that ends when you say it does. The laps it cuts are wha
 matches against the steps of the plan. See
 [docs/ios.md](../docs/ios.md#recording-it-on-the-phone).
 
+If a recording is still going when you open the app — a force-quit or a crash mid-session
+leaves one, because HealthKit holds it and not the app — it says so on the first screen and
+offers to carry on or to end and send it up. You never have to find the workout it came from.
+
 **It is behind `ON_PHONE_RECORDING`**, which is set for Debug and not for Release: a local
 build has the feature and a TestFlight archive does not compile it at all. Six files are
 inside the switch whole — `WorkoutRunner`, `RunVoice`, `TargetWatch`, `RunView`, `RunSteps`

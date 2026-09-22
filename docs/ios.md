@@ -145,12 +145,26 @@ own word for it is waited on rather than the call that asked for it. With a limi
 limit releases the wait itself, because a wait that never returns loses the session exactly
 as completely as saving too early would.
 
-**A session outlives the app.** HealthKit holds it, not this process, so a force-quit
-mid-run leaves it recording and refuses a second one. Starting the same workout again
-recovers it — `recoverActiveWorkoutSession` — rather than failing at the athlete, which is
-the only way a stranded recording can be ended short of restarting the phone. The interval
-count starts again from one, having lived in the process that went away; the laps already
-cut are in the session, which is where they matter.
+**A session outlives the app, and the app says so on opening.** HealthKit holds it, not this
+process, so a force-quit or a crash mid-run leaves it recording and refuses a second one.
+`RunRecovery` asks `recoverActiveWorkoutSession` as `RootView` appears and, where there is
+one, offers the two things worth doing with it: carry on, or end it and send it up.
+
+It asks there rather than leaving it to the start button because the button is inside one
+planned workout, and finding a stranded recording meant guessing which workout it had been
+started from. Somebody who guessed wrong had a recording they could not stop — which is how
+the first session ever recorded here went. The offer names the workout where it can:
+`WorkoutRunner.workoutKey` reads it back out of the session's own metadata, which is the
+other half of writing that at the start rather than the end. A key with nothing behind it any
+more is not an error — the session is still recorded and still uploaded, and only the name
+and the steps are missing.
+
+**A recovered session counts its interval from where it is.** The laps it has already cut are
+in the session and are not cut again, but the interval on the screen is rebased off the
+session's own elapsed and distance — without that, a step measured in a minute is found long
+since due on the first tick and advances itself, which put a resumed session straight onto
+interval two. Which interval the athlete was on is not recoverable: it lived in the process
+that went away, and the screen says one.
 
 **It is behind a compile-time switch.** `ON_PHONE_RECORDING` is in
 `SWIFT_ACTIVE_COMPILATION_CONDITIONS` for **Debug** and not for Release, so a local build has
