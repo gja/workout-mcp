@@ -12,6 +12,9 @@ struct SettingsView: View {
     @EnvironmentObject private var session: AppSession
     @State private var showingLog = false
     @State private var showingHeartRate = false
+    #if ON_PHONE_RECORDING
+    @AppStorage(RunVoice.defaultsKey) private var speaking = true
+    #endif
 
     var body: some View {
         NavigationStack {
@@ -41,6 +44,19 @@ struct SettingsView: View {
                             + "The log says whether that is happening."
                     )
                 }
+
+                #if ON_PHONE_RECORDING
+                Section {
+                    Toggle("Speak the intervals", isOn: $speaking)
+                } footer: {
+                    Text(
+                        "While recording a session on this phone: each interval and what it "
+                            + "is aimed at, five seconds before a timed one ends, and when a "
+                            + "reading leaves the band or comes back to it. Music is turned "
+                            + "down rather than stopped."
+                    )
+                }
+                #endif
 
                 Section {
                     Button("Log out", role: .destructive) { session.signOut() }

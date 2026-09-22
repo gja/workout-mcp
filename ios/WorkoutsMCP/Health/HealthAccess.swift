@@ -49,10 +49,13 @@ enum HealthAccess {
         ]
     }
 
-    /// What a session recorded on this phone saves, and nothing else. Empty below iOS 26,
-    /// where there is no workout session to record one with: a permission sheet asking to
-    /// write what the app cannot write is a question with no answer worth giving.
+    /// What a session recorded on this phone saves, and nothing else. Empty below iOS 26 and
+    /// empty in a build without `ON_PHONE_RECORDING`: a permission sheet asking to write what
+    /// the app cannot write is a question with no answer worth giving.
     static var shareTypes: Set<HKSampleType> {
+        #if !ON_PHONE_RECORDING
+        return []
+        #else
         guard #available(iOS 26.0, *) else { return [] }
         return [
             HKObjectType.workoutType(),
@@ -67,6 +70,7 @@ enum HealthAccess {
             HKQuantityType(.cyclingCadence),
             HKQuantityType(.cyclingPower),
         ]
+        #endif
     }
 
     /// The metadata key a session recorded here carries its planned workout in. `<date>/<id>`,

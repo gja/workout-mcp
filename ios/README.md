@@ -62,8 +62,9 @@ Xcode resolves the one package dependency on first open. Then, once:
    deliberately outside the source folder so it is not copied into the bundle as a
    resource. Background delivery also has to be on the App ID; automatic signing adds it.
 
-   **Background Modes** should be listed too, with **Background fetch** and **Location
-   updates** ticked — the second is what keeps a recording running with the screen off.
+   **Background Modes** should be listed too, with **Background fetch**, **Location
+   updates** and **Audio** ticked — the second is what keeps a recording running with the
+   screen off, and the third is what lets it talk to you while it does.
    Both come from `Info.plist` beside the entitlements, which holds only the two keys the
    generated plist cannot: `UIBackgroundModes` and `BGTaskSchedulerPermittedIdentifiers`.
    Everything else about the plist is still a build setting. Once installed, the app
@@ -170,9 +171,17 @@ Each reading is a dash until something measures it. Heart rate needs a chest str
 on the standard Bluetooth profile — an iPhone has no sensor for one — and cycling power and
 cadence need a sensor the phone, unlike an Apple Watch, will not pair by itself.
 
-**Next interval** is a lap press and nothing advances on its own: the laps are what the
-server matches against the steps of the plan. See
+A step measured in time or in metres **advances itself** when it is done, and is spoken:
+the interval and its band as it opens, five seconds before a timed one closes, and a call
+when a reading leaves the band or comes back to it. Music is ducked rather than stopped, and
+*Settings › Speak the intervals* turns it off. **Next interval** is still there, and is the
+only way through a step that ends when you say it does. The laps it cuts are what the server
+matches against the steps of the plan. See
 [docs/ios.md](../docs/ios.md#recording-it-on-the-phone).
+
+**It is behind `ON_PHONE_RECORDING`**, which is set for Debug and not for Release: a local
+build has the feature and a TestFlight archive does not. The switch gates the start button
+and the Health share types — with neither, nothing records and nothing is written.
 
 **Settings.** Who is signed in, which deployment this build talks to, **Log out**, a
 **Heart rate** sheet — a year of Health as the two figures zones are built from, an average

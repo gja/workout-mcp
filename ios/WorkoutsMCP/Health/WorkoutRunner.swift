@@ -3,10 +3,11 @@
 // always had, and iPhone has had since iOS 26 — so what this saves is an ordinary
 // `HKWorkout` and the way back to the server is the one every other session already takes.
 //
-// It is started **against a plan**: the steps come in already resolved and flattened, so the
-// screen can say which interval of how many, what this one is aimed at, and what the last
-// lap press did. It still does not conduct — nothing advances on its own and nothing beeps.
-// See "Recording it on the phone" in docs/ios.md.
+// It is started **against a plan**, and it conducts one: a step measured in time or in
+// metres advances itself when it is done, and the athlete is told — the interval and its
+// band as it opens, five seconds before a timed one closes, and when a reading has left the
+// band or come back to it. The lap button is still there, and is the only way through a step
+// that ends when the athlete says it does. See "Recording it on the phone" in docs/ios.md.
 
 import CoreLocation
 import Foundation
@@ -67,6 +68,18 @@ final class WorkoutRunner: NSObject, ObservableObject {
     private let locations = CLLocationManager()
     private var clock: Task<Void, Never>?
     private var ending: CheckedContinuation<Void, Never>?
+
+    private let voice = RunVoice()
+    /// The bands of the step being run, and what has already been said about each. Rebuilt
+    /// every interval: a watch remembers which side it last announced, and that is about one
+    /// interval and nothing else.
+    private var watches: [TargetWatch] = []
+    /// Once an interval, and only for a step that ends on a clock.
+    private var countedDown = false
+
+    /// How long before a timed step closes the athlete is told. Long enough to pick the pace
+    /// up into the next one, short enough not to be a second countdown of its own.
+    private static let warning = 5.0
 
     /// Where this interval started, in the figures that only ever count up. Everything the
     /// screen says about the interval is the difference between now and one of these.
@@ -248,6 +261,10 @@ final class WorkoutRunner: NSObject, ObservableObject {
         intervalMetres = nil
         intervalPaceSKm = nil
         intervalPower = nil
+
+        watches = (step?.targets ?? []).compactMap(TargetWatch.init)
+        countedDown = false
+        voice.say(step?.spoken(number: interval + 1, of: steps.count) ?? "Past the plan.")
     }
 
     /// Ending is four things in order, the last of which can fail without costing the session:
@@ -311,6 +328,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
         clock?.cancel()
         clock = nil
         stopLocating()
+        voice.stop()
     }
 
     /// Elapsed comes off the builder rather than off a start date this class keeps, because
@@ -351,6 +369,49 @@ final class WorkoutRunner: NSObject, ObservableObject {
             readCadence()
         }
         readSpeed()
+
+        // Judged only on the tick, and only once every figure above has been read: a drift
+        // counted at the rate samples happen to land is a drift counted at no rate at all,
+        // and the advance has to see the distance this second's fix brought in.
+        guard onTick, phase == .running else { return }
+        advanceIfDue()
+        countDown()
+        callOutDrift()
+    }
+
+    /// The step ends itself where the plan gave it an end. An open step never does — "until
+    /// lap press" is what it means — and neither does a lap press past the end of the plan,
+    /// which has no step behind it to be due.
+    private func advanceIfDue() {
+        guard let step else { return }
+
+        if let seconds = step.seconds, intervalElapsed >= seconds { nextInterval(); return }
+        if let metres = step.metres, let run = intervalMetres, run >= metres { nextInterval() }
+    }
+
+    /// Only for a step that ends on a clock. A step measured in metres has no five seconds
+    /// left — how long is left of it is a pace this app would be guessing at.
+    private func countDown() {
+        guard !countedDown, let seconds = step?.seconds else { return }
+
+        let left = seconds - intervalElapsed
+        guard left > 0, left <= Self.warning else { return }
+        countedDown = true
+        voice.say("5 seconds")
+    }
+
+    private func callOutDrift() {
+        let now = Date()
+        for index in watches.indices {
+            let reading: Double?
+            switch watches[index].metric {
+            case .speed: reading = speedMS
+            case .heartRate: reading = heartRate
+            case .power: reading = power
+            case .cadence: reading = cadence
+            }
+            if let said = watches[index].read(reading, at: now) { voice.say(said) }
+        }
     }
 
     private func latest(_ type: HKQuantityType, in unit: HKUnit) -> Double? {

@@ -23,6 +23,27 @@ struct RunStep {
         return [planned, band].filter { !$0.isEmpty }.joined(separator: " @ ")
     }
 
+    /// How far this step runs, where it is measured in metres — what the interval distance is
+    /// counting towards, and what advances it. Nil for a step measured in time or in taps.
+    var metres: Double? {
+        if case .distance(let metres) = duration { return metres }
+        return nil
+    }
+
+    /// The same for a step measured in time.
+    var seconds: Double? {
+        if case .time(let seconds) = duration { return seconds }
+        return nil
+    }
+
+    /// What is said when this interval starts: which one it is, what it is called, and what
+    /// it is aimed at. In words, because a synthesiser reads `line` as punctuation.
+    func spoken(number: Int, of total: Int) -> String {
+        let band = targets.compactMap { Spoken.target($0) }.joined(separator: ", ")
+        let aim = [Spoken.duration(duration), band].filter { !$0.isEmpty }.joined(separator: " at ")
+        return "Interval \(number) of \(total). \(title). \(aim)."
+    }
+
     static func of(_ steps: [ResolvedStep]) -> [RunStep] {
         var flat: [RunStep] = []
         walk(steps, into: &flat)

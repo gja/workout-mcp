@@ -35,12 +35,45 @@ which interval of how many, what this one is aimed at, and what the last lap pre
 button is disabled until the plan has loaded, because a run with no steps is a screen with
 nothing to count.
 
-**It counts; it does not conduct.** Nothing advances on its own, no alert sounds, and no
-figure on the screen is compared against the band it is next to. A step that says four
-minutes is counted out and left there: advancing it on a timer is the workout engine the
-section above declines to write, and it would be wrong the first time somebody stopped at a
-junction. Conducting — the bands, the half-open targets, the alerts in `PlanAlerts` — is
-what `CustomWorkout` already has the watch doing.
+**It conducts, and that was argued against first.** The case for recording and nothing more
+was that a timer advancing an athlete is wrong the first time they stop at a junction, and
+that conducting is what `CustomWorkout` already has the watch doing. The case against it is
+the one that won: the athlete this screen exists for has no watch, so there is nothing else
+to do the conducting, and a step measured in metres cannot advance early — you cannot cross
+800 m without having run it. A step measured in time still can, which is the junction
+problem, and what answers it is that the countdown is spoken and the lap button never goes
+away.
+
+So a step with an end advances itself at it: `advanceIfDue` on each tick against
+`RunStep.seconds` or `RunStep.metres`. A step with no end — *until lap press* — never does,
+because that is what the plan means by open, and neither does a press past the end of the
+plan, which has no step behind it to be due.
+
+**And it is said out loud.** The interval and its band as it opens, "5 seconds" before a
+timed step closes, and a call when a reading leaves the band it was given or comes back to
+it. `Health/RunVoice.swift` is Apple's synthesiser over an `AVAudioSession` that is
+activated per utterance and released as soon as the last one finishes — held open, it would
+duck the music for the length of the run. `.duckOthers` turns music down;
+`.interruptSpokenAudioAndMixWithOthers` pauses a podcast instead, because a sentence under a
+sentence is neither. Speaking with the screen off is why `UIBackgroundModes` carries `audio`
+beside `location`. *Settings › Speak the intervals* turns the lot off, read at each thing
+there is to say rather than held, so it takes effect mid-run.
+
+What is *said* is not what is *written*: `Plan/Spoken.swift` is separate from `Formats`,
+which has to keep saying what the dashboard says. A synthesiser reads `4:05/km` as a time of
+day and `800 m` as a letter.
+
+**A band is announced more readily than it is policed.** `TargetWatch` judges speed, cadence,
+and heart rate and power where their bounds are absolute. A zone, or a bound written as a
+percentage, is spoken when the interval opens and never judged: resolving either needs the
+athlete's own profile, and `workout-zones` on the server is the single source of truth for
+physiology — the same reason no zones are computed for the heart rate screen.
+
+The restraint is the part that matters. A GPS pace crosses a band twice a minute on its own,
+so a reading has to hold one side for ten seconds before it is called, nothing is said twice
+for the same side, and a sensor that stops reporting drops the drift being counted rather
+than letting it mature into an announcement. A voice that called every crossing would be
+switched off inside a kilometre.
 
 **A lap press cuts an `HKWorkoutActivity`.** That is what makes the saved workout a session
 of laps rather than one long one: `SessionReader` already reads `workoutActivities` back in
@@ -110,6 +143,13 @@ recovers it — `recoverActiveWorkoutSession` — rather than failing at the ath
 the only way a stranded recording can be ended short of restarting the phone. The interval
 count starts again from one, having lived in the process that went away; the laps already
 cut are in the session, which is where they matter.
+
+**It is behind a compile-time switch.** `ON_PHONE_RECORDING` is in
+`SWIFT_ACTIVE_COMPILATION_CONDITIONS` for **Debug** and not for Release, so a local build has
+it and an archive — which is what goes to TestFlight — does not. It gates the start button
+and `HealthAccess.shareTypes`, which between them are the whole feature: with no button
+nothing records, and with no share types the build never asks to write to Health. The files
+still compile in both, on purpose, so the switch cannot rot.
 
 **It is iOS 26 and above.** The deployment target stays at 18, and `Sports.isRecordable`
 plus one `#available` keep the button off a phone that has no session to start; the app is

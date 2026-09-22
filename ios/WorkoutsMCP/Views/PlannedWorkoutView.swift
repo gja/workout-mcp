@@ -61,7 +61,9 @@ struct PlannedWorkoutView: View {
         .task(id: workout.key) { await load() }
         // On the list and not on the button that presents it: the button is inside a section
         // that is there only while the workout is not done, and an upload landing mid-run
-        // would take the running screen down with it while HealthKit kept recording.
+        // would take the running screen down with it while HealthKit kept recording. Not
+        // inside `ON_PHONE_RECORDING` as the button below is: a modifier is awkward to
+        // compile out, and with no button to set `running` there is nothing to present.
         .fullScreenCover(isPresented: $running) {
             if #available(iOS 26.0, *), let plan {
                 RunView(workout: current, steps: RunStep.of(plan.steps))
@@ -74,6 +76,7 @@ struct PlannedWorkoutView: View {
     /// completed offers it again only to file a second session against the same day.
     @ViewBuilder
     private var start: some View {
+        #if ON_PHONE_RECORDING
         if #available(iOS 26.0, *), Sports.isRecordable(current.sport), !current.isDone {
             Section {
                 // A run is started against a plan, so the button waits for one: the screen
@@ -86,9 +89,10 @@ struct PlannedWorkoutView: View {
                 }
                 .disabled(plan == nil)
             } footer: {
-                Text("Recorded here and saved to Health, then sent up when you stop. Each interval is a lap you press; nothing advances on its own and nothing beeps.")
+                Text("Recorded here and saved to Health, then sent up when you stop. Timed and measured intervals advance themselves and are called out; tap to get through an open one.")
             }
         }
+        #endif
     }
 
     private var sport: String {
