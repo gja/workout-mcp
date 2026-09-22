@@ -69,6 +69,13 @@ enum HealthAccess {
             HKQuantityType(.stepCount),
             HKQuantityType(.cyclingCadence),
             HKQuantityType(.cyclingPower),
+            // Collected by the live source on its own for a run, and read back by the
+            // screen: a type it collects and cannot save is that channel lost at
+            // `finishWorkout`, which is what this list is for.
+            HKQuantityType(.runningSpeed),
+            HKQuantityType(.runningPower),
+            HKQuantityType(.cyclingSpeed),
+            HKQuantityType(.basalEnergyBurned),
         ]
         #endif
     }

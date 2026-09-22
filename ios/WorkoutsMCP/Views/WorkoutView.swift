@@ -1,5 +1,7 @@
 // The screen a session is run from: which interval, what it is aimed at, the figures that
-// move, and the three buttons — pause, lap, stop.
+// move, and the controls. One screen for every sport this app records — a walk, a run and a
+// ride differ in which figures are worth showing and in nothing else, which is a question
+// `WorkoutView` asks the session rather than a reason to write it three times.
 //
 // Two screens really. Indoors or outdoors is asked before anything starts, because it is the
 // one thing about a session that cannot be changed once it has and that the plan cannot
@@ -13,7 +15,7 @@ import HealthKit
 import SwiftUI
 
 @available(iOS 26.0, *)
-struct RunView: View {
+struct WorkoutStart: View {
     let workout: PlannedWorkout
     let steps: [RunStep]
 
@@ -36,7 +38,7 @@ struct RunView: View {
 
     var body: some View {
         if let runner {
-            RunningView(runner: runner)
+            WorkoutView(runner: runner)
         } else {
             setup
         }
@@ -129,7 +131,7 @@ struct RunView: View {
     }
 }
 
-/// Not private: `RunRecovery` puts this up too, for a session the app was handed on opening
+/// Not private: `WorkoutRecovery` puts this up too, for a session the app was handed on opening
 /// rather than one started from a plan.
 ///
 /// Laid out the way Apple's own workout screen is, because that is the one every athlete has
@@ -137,7 +139,7 @@ struct RunView: View {
 /// large as they go, their units under them in small caps, and everything that is a control
 /// in one bar at the bottom where a thumb is. The figures themselves are unchanged.
 @available(iOS 26.0, *)
-struct RunningView: View {
+struct WorkoutView: View {
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
@@ -290,7 +292,9 @@ struct RunningView: View {
                         .frame(width: 68, height: 68)
                         .background(Circle().stroke(Color.white.opacity(0.35), lineWidth: 2))
                 }
-                .disabled(!isLive)
+                // Running only, like the lap it cuts: `beginNewActivity` on a paused session
+                // is refused the way `endCurrentActivity` on an empty one is.
+                .disabled(runner.phase != .running)
 
                 Spacer()
                 Button {

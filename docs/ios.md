@@ -204,7 +204,7 @@ as completely as saving too early would.
 
 **A session outlives the app, and the app says so on opening.** HealthKit holds it, not this
 process, so a force-quit or a crash mid-run leaves it recording and refuses a second one.
-`RunRecovery` asks `recoverActiveWorkoutSession` as `RootView` appears and, where there is
+`WorkoutRecovery` asks `recoverActiveWorkoutSession` as `RootView` appears and, where there is
 one, offers the two things worth doing with it: carry on, or end it and send it up.
 
 It asks there rather than leaving it to the start button because the button is inside one
@@ -227,7 +227,7 @@ that went away, and the screen says one.
 `SWIFT_ACTIVE_COMPILATION_CONDITIONS` for **Debug** and not for Release, so a local build has
 it and an archive — which is what goes to TestFlight — does not.
 
-Six files are inside it whole: `WorkoutRunner`, `RunVoice`, `TargetWatch`, `RunView`,
+Six files are inside it whole: `WorkoutRunner`, `RunVoice`, `TargetWatch`, `WorkoutView`,
 `RunSteps` and `Spoken`. What is left in the shared files is the start button, the cover's
 contents, the Settings toggle and `HealthAccess.shareTypes` — with no share types the build
 never asks to write to Health, which is the only thing about it an athlete would otherwise

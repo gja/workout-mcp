@@ -23,7 +23,7 @@ struct RootView: View {
         }
         // Before the environment is handed down, so the offer it puts up is inside it: a
         // recording found on opening is placed against the plan this model holds.
-        .modifier(RunRecovery())
+        .modifier(WorkoutRecovery())
         .environmentObject(model)
         .task { await model.refreshAndSyncIfStale(using: session.client) }
         // A recording reaches the server after the call that sent it has returned, so the

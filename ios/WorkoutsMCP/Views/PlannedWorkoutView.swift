@@ -65,14 +65,14 @@ struct PlannedWorkoutView: View {
         .fullScreenCover(isPresented: $running) { run }
     }
 
-    /// `RunView` is compiled out of a build without `ON_PHONE_RECORDING`, so what is named
+    /// `WorkoutStart` is compiled out of a build without `ON_PHONE_RECORDING`, so what is named
     /// here has to be too. The modifier above stays either way: nothing sets `running` when
     /// there is no button, and a cover that never presents costs nothing.
     @ViewBuilder
     private var run: some View {
         #if ON_PHONE_RECORDING
         if #available(iOS 26.0, *), let plan {
-            RunView(workout: current, steps: RunStep.of(plan.steps))
+            WorkoutStart(workout: current, steps: RunStep.of(plan.steps))
         }
         #endif
     }

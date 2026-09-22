@@ -245,7 +245,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
     }
 
     /// What the app is still holding, if anything — asked on opening as well as here, because
-    /// a recording nobody can find is a recording nobody can stop. See `RunRecovery`.
+    /// a recording nobody can find is a recording nobody can stop. See `WorkoutRecovery`.
     static func active() async -> HKWorkoutSession? {
         try? await HealthAccess.store.recoverActiveWorkoutSession()
     }
@@ -324,7 +324,9 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// on the screen and left there; advancing it on a timer is the workout engine docs/ios.md
     /// declines to write, and it would be wrong the first time somebody stopped at a junction.
     func nextInterval() {
-        guard phase == .running || phase == .paused else { return }
+        // Running only. `beginNewActivity` on a paused session is the same shape of refusal
+        // as `endCurrentActivity` on one with nothing open, and that one failed a session.
+        guard phase == .running else { return }
 
         interval += 1
         openInterval(at: Date())
@@ -406,7 +408,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
         waitingFor = state
         let limit = Task { [weak self] in
             try? await Task.sleep(for: .seconds(Self.stateLimit))
-            await self?.stopWaiting()
+            self?.stopWaiting()
         }
         await withCheckedContinuation { waiting = $0 }
         limit.cancel()
@@ -440,7 +442,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
         clock = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
-                await self?.read(onTick: true)
+                self?.read(onTick: true)
             }
         }
     }
@@ -561,13 +563,17 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// over those seconds — the same shape as the cadence and for the same reason. It moves in
     /// steps rather than smoothly, because that is how the pedometer hands distance over.
     private func readSpeed(at now: Date) {
-        if let fixedAt, now.timeIntervalSince(fixedAt) > Self.staleFix {
-            // Dropped as well as cleared: what is in it is older than the gap, and averaging
-            // it back in when the fixes return would be a pace from before the athlete stopped.
-            speedMS = nil
-            fixes.removeAll()
-        }
-        guard indoors || speedMS == nil else { return }
+        // Whether a fix is carrying the pace right now. Asked rather than inferred from the
+        // reading being non-nil: outdoors with location refused, or with a receiver that
+        // never reports a speed, `fixedAt` stays nil for ever — and reading it as "a fix has
+        // this in hand" froze the first derived pace on the screen for the whole session.
+        let carried = fixedAt.map { now.timeIntervalSince($0) <= Self.staleFix } ?? false
+        guard !carried else { return }
+
+        // Dropped as well as cleared: what is in it is older than the gap, and averaging it
+        // back in when the fixes return would be a pace from before the athlete stopped.
+        speedMS = nil
+        fixes.removeAll()
 
         if let series = latest(
             HKQuantityType(isCycling ? .cyclingSpeed : .runningSpeed),
@@ -622,8 +628,8 @@ final class WorkoutRunner: NSObject, ObservableObject {
         locations.allowsBackgroundLocationUpdates = false
     }
 
-    private func took(_ fixes: [CLLocation]) {
-        let usable = fixes.filter { $0.horizontalAccuracy > 0 && $0.horizontalAccuracy <= Self.usableAccuracy }
+    private func took(_ arriving: [CLLocation]) {
+        let usable = arriving.filter { $0.horizontalAccuracy > 0 && $0.horizontalAccuracy <= Self.usableAccuracy }
         guard !usable.isEmpty else { return }
 
         // A negative speed is CoreLocation saying it does not have one, which is not the same

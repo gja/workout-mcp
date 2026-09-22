@@ -11,7 +11,7 @@
 import HealthKit
 import SwiftUI
 
-struct RunRecovery: ViewModifier {
+struct WorkoutRecovery: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
         #if ON_PHONE_RECORDING
@@ -38,6 +38,7 @@ private struct Offer: ViewModifier {
     @State private var workout: PlannedWorkout?
     @State private var steps: [RunStep] = []
     @State private var runner: WorkoutRunner?
+    @State private var failure: String?
 
     func body(content: Content) -> some View {
         content
@@ -49,11 +50,12 @@ private struct Offer: ViewModifier {
                 Text(started)
             }
             .fullScreenCover(isPresented: $continuing) {
-                if let runner { RunningView(runner: runner) }
+                if let runner { WorkoutView(runner: runner) }
             }
     }
 
     private var started: String {
+        if let failure { return "It could not be saved: \(failure)" }
         guard let at = running?.startDate else { return "A session on this phone is still recording." }
         return "A session started at \(at.formatted(date: .omitted, time: .shortened)) is still recording on this phone."
     }
@@ -84,11 +86,20 @@ private struct Offer: ViewModifier {
         guard let running else { return }
         await place()
 
-        let runner = WorkoutRunner(workout: workout, steps: steps, indoors: false, recovered: running)
-        await runner.begin()
-        await runner.end()
+        let made = WorkoutRunner(workout: workout, steps: steps, indoors: false, recovered: running)
+        await made.begin()
+        await made.end()
+
+        // A save that did not happen must not clear the session: nothing else would offer it
+        // again, and the athlete would be told nothing about a recording now beyond reach.
+        guard case .saved = made.phase else {
+            if case .failed(let why) = made.phase { failure = why }
+            asking = true
+            return
+        }
 
         self.running = nil
+        failure = nil
         await BackgroundSync.uploadWhatIsCertain()
         await model.refresh(using: session.client)
     }
