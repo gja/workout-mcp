@@ -139,8 +139,8 @@ rather than omitted, and the encoder's buffer has to be clamped.
 ### [docs/ios.md](docs/ios.md)
 
 The iPhone app in `ios/`, and why it has no watch app. How a resolved plan becomes a
-`CustomWorkout`, which targets are dropped rather than guessed at, how HealthKit's series
-become one recording, and what the background upload path needs to stay alive.
+`CustomWorkout`, which targets are dropped rather than guessed at, how a session recorded on
+the phone names its own plan, and what the background upload path needs to stay alive.
 
 ### [docs/testing.md](docs/testing.md)
 

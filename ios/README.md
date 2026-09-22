@@ -5,6 +5,10 @@ There is no watch app: the plan is scheduled through **WorkoutKit**, so it appea
 Workout app on the watch the way any Fitness+ or third-party plan does, and the session
 comes back through **HealthKit** like any other.
 
+On **iOS 26** it can also record the session itself, with no watch involved at all —
+HealthKit's own workout session, on the phone. What that does and deliberately does not do
+is [docs/ios.md](../docs/ios.md#recording-it-on-the-phone).
+
 It talks to [workouts-mcp.com](https://workouts-mcp.com). Pointing a build at your own
 deployment is one constant in `Auth/AppSession.swift`.
 
@@ -29,9 +33,15 @@ nothing on its own. The certificate and private key that do are not here.
 
 ## Building it
 
-Requires **Xcode 16 or newer** (the project uses a file-system synchronized group, so
+Requires **Xcode 26 or newer** (the project uses a file-system synchronized group, so
 adding a Swift file is just adding a file) and a device running **iOS 18 or newer** —
 `WorkoutStep.displayName`, which is what puts a step's name on the watch, is 18.0.
+
+The deployment target is still 18.0 and the app runs there unchanged. Xcode 26 is a
+*build* requirement rather than a running one: `HKWorkoutSession` is declared watchOS-only
+in earlier SDKs, so `Health/WorkoutRunner.swift` will not compile against one however the
+target is set. Recording is behind `#available(iOS 26.0, *)`, so on an older phone the
+button is simply not there.
 
 ```bash
 open ios/WorkoutsMCP.xcodeproj
@@ -52,16 +62,20 @@ Xcode resolves the one package dependency on first open. Then, once:
    deliberately outside the source folder so it is not copied into the bundle as a
    resource. Background delivery also has to be on the App ID; automatic signing adds it.
 
-   **Background Modes** should be listed too, with **Background fetch** ticked. That one
-   comes from `Info.plist` beside the entitlements, which holds only the two keys the
+   **Background Modes** should be listed too, with **Background fetch** and **Location
+   updates** ticked — the second is what keeps a recording running with the screen off.
+   Both come from `Info.plist` beside the entitlements, which holds only the two keys the
    generated plist cannot: `UIBackgroundModes` and `BGTaskSchedulerPermittedIdentifiers`.
    Everything else about the plist is still a build setting. Once installed, the app
    appears under *Settings › General › Background App Refresh*; if it does not, the
    modes did not make it into the bundle.
 
-   The target carries **both** HealthKit purpose strings, share and update, even though
-   this app only ever reads: App Store validation asks for the update string because the
-   entitlement permits writing, not because the code does any. The string says so.
+   The target carries **both** HealthKit purpose strings, share and update, plus
+   `NSLocationWhenInUseUsageDescription`. The update string is no longer a formality: a
+   session recorded on the phone is written to Health, and the string says exactly what —
+   the workout, its route, and the distance, heart rate and energy measured during it.
+   Location is asked for only while a recording is running, which is what the string says
+   too; when-in-use with background updates on, rather than always.
 3. Run it **on a real iPhone**. The simulator has no Health data worth reading and
    `WorkoutScheduler` does nothing there, so almost none of this app can be exercised in
    it. The phone needs **Developer Mode** on — *Settings › Privacy & Security › Developer
@@ -144,6 +158,14 @@ Which planned workout a session was is shown as a fact with a link to the plan, 
 a field to edit. It comes from the plan id the watch recorded, or from the one workout of
 that sport planned for that day — and where it is neither, the session says so rather than
 offering a menu to guess from.
+
+On **iOS 26**, a running, walking or cycling workout that is not done yet also gets
+**Start on this iPhone** at the foot of its steps. That records the session here — three
+numbers while it runs, speed, distance and heart rate, each a dash until something measures
+it — saves it to Health, and sends it up when you stop. A heart rate needs a chest strap or
+buds on the standard Bluetooth profile; an iPhone has no sensor for one. The steps are not
+counted out and nothing beeps: it records, it does not coach, for the reason in
+[docs/ios.md](../docs/ios.md#recording-it-on-the-phone).
 
 **Settings.** Who is signed in, which deployment this build talks to, **Log out**, a
 **Heart rate** sheet — a year of Health as the two figures zones are built from, an average
@@ -286,7 +308,7 @@ add encryption of your own, that line is yours to revisit.
 Api/          the REST client and the shapes it decodes
 Auth/         discovery, registration, PKCE, and the keychain
 Fit/          a recorded session, its summary figures, and the SDK call that writes it
-Health/       permission, the listing, the read that turns one into samples, a year of heart rate, the background wake
+Health/       permission, the listing, the read that turns one into samples, recording one here, a year of heart rate, the background wake
 Plan/         a resolved plan as a WorkoutKit CustomWorkout, and the id that ties them
 Views/        the three tabs, a workout, a session, a lap, and signing in
 ```

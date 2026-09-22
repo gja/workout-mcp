@@ -48,6 +48,14 @@ enum Sports {
         }
     }
 
+    /// The sports this phone can record a session of on its own: the three GPS and the
+    /// pedometer actually measure, and the three `HealthAccess.recentActivities` lists — a
+    /// session the Executed tab would never show is one nobody could send. Everything else is
+    /// planned here and run on something with the sensor for it.
+    static func isRecordable(_ sport: String) -> Bool {
+        ["running", "walking", "cycling"].contains(sport)
+    }
+
     static func activityType(_ sport: String) -> HKWorkoutActivityType {
         switch sport {
         case "running": return .running

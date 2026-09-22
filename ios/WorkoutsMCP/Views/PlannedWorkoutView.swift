@@ -14,6 +14,7 @@ struct PlannedWorkoutView: View {
 
     @State private var plan: ResolvedPlan?
     @State private var failure: String?
+    @State private var running = false
 
     /// The listing's copy, which an upload a moment ago may have moved on from.
     private var current: PlannedWorkout { model.current(workout) }
@@ -51,11 +52,34 @@ struct PlannedWorkoutView: View {
             if let totals = current.stats?.session {
                 Section("What you did") { Text(Formats.line(totals)).font(.callout) }
             }
+
+            start
         }
         .listStyle(.insetGrouped)
         .navigationTitle(current.name)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: workout.key) { await load() }
+    }
+
+    /// Below the plan rather than above it, and absent once the session is done: the button
+    /// is what an athlete reaches for after reading the steps, and a workout already
+    /// completed offers it again only to file a second session against the same day.
+    @ViewBuilder
+    private var start: some View {
+        if #available(iOS 26.0, *), Sports.isRecordable(current.sport), !current.isDone {
+            Section {
+                Button {
+                    running = true
+                } label: {
+                    Label("Start on this iPhone", systemImage: "play.circle.fill")
+                }
+                .fullScreenCover(isPresented: $running) {
+                    RunView(workout: current)
+                }
+            } footer: {
+                Text("Recorded here and saved to Health, then sent up when you stop. The steps are not counted out — this records, it does not coach.")
+            }
+        }
     }
 
     private var sport: String {

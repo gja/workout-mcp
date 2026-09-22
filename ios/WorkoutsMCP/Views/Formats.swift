@@ -32,6 +32,14 @@ enum Formats {
     /// Seconds per kilometre as a pace an athlete reads: `4:05/km`.
     static func pace(_ secondsPerKm: Double) -> String { "\(clock(secondsPerKm))/km" }
 
+    /// What a moving athlete reads: a runner reads pace, a cyclist reads speed, and neither
+    /// reads metres a second. The unit is the caller's to label, because this is the figure
+    /// on a screen that says what it is underneath.
+    static func rate(_ metresPerSecond: Double, cycling: Bool) -> String? {
+        guard metresPerSecond > 0 else { return nil }
+        return cycling ? String(format: "%.1f", metresPerSecond * 3.6) : clock(1000 / metresPerSecond)
+    }
+
     /// "Fri, 12 Sep, 06:30".
     static func moment(_ date: Date) -> String {
         date.formatted(date: .abbreviated, time: .shortened)

@@ -12,6 +12,65 @@ for. A watch app would mean a second target, a second authorization, a WatchConn
 session and a workout engine written here — to end up with what the athlete already has.
 What is given up is control over what the watch shows mid-interval.
 
+## Recording it on the phone
+
+An athlete with no Apple Watch has nothing to schedule a plan onto, and until iOS 26 there
+was nothing this app could do about it: `HKWorkoutSession` was watchOS-only, and recording a
+session on the phone meant deriving distance from `CLLocation`, energy from nothing at all,
+and matching that against what the watch writes for everyone else. iOS 26 put the same
+session, the same `HKLiveWorkoutBuilder` and the same live data source on iPhone, so
+`Health/WorkoutRunner.swift` is a few hundred lines against Apple's own API rather than a
+second recorder to keep honest.
+
+What it saves is an **ordinary `HKWorkout`**, which is the whole point: the Executed tab
+lists it, `SessionReader` reads it, `ActivityFit` writes the same file from it and the wake
+uploads it, none of them knowing or caring which device recorded it. Nothing in the return
+path is new.
+
+**It records; it does not conduct.** No step is counted out, no alert sounds and nothing is
+compared against the plan while it runs. Executing the steps is the work `CustomWorkout`
+already has the watch doing — the targets, the half-open bands, the alerts in
+[PlanAlerts](../ios/WorkoutsMCP/Plan/PlanAlerts.swift) — and writing a second copy of it in
+Swift, driving `beginNewActivity` per interval with a beep to match, is a workout engine
+written here for the reason the section above declines to write one. So a phone-recorded
+interval session comes back as one lap, and the stats say so rather than matching laps to
+steps that were never marked.
+
+**Three numbers, and each one absent until something measures it.** Speed, distance and
+heart rate, which are what an athlete reads mid-effort; a fourth would be read by nobody at
+5 a.m. with a phone on an armband. A heart rate needs a strap or a pair of buds on the
+standard Bluetooth profile — an iPhone has no sensor for it — and until one is paired the
+screen shows a dash. It shows a dash rather than a zero for the reason
+[stats.md](stats.md) gives, and the same rule the FIT file is written under.
+
+**Distance and energy are the system's, speed is ours.** `HKLiveWorkoutDataSource` generates
+distance and active energy from GPS and the pedometer with nothing asked of this app. It
+generates no live speed, and a distance over an elapsed time is an average rather than what
+the athlete is doing now, so the screen's pace comes off `CLLocation.speed` — which also
+gives the route the FIT file carries, and which is why `UIBackgroundModes` gained `location`.
+A negative speed is CoreLocation saying it has none, which is not the same as standing
+still, so it leaves the reading alone.
+
+**The session names its own plan.** `WorkoutRunner` writes `<date>/<id>` into the workout's
+metadata under `workout_mcp_id`, the same name the FIT file's developer field uses, when it
+starts — not when it ends, which is where a recording is most likely to be interrupted.
+That is a **third** way of matching a session to a plan and it is not the picker the section
+below rules out: nothing is guessed and nobody is asked, because this app was handed the
+workout and started the session for it. It is asked first everywhere, ahead of
+`HKWorkout.workoutPlan`, being both the one that cannot be wrong and the one that costs no
+round trip — which is what lets a wake upload a phone-recorded session at all.
+
+**A session outlives the app.** HealthKit holds it, not this process, so a force-quit
+mid-run leaves it recording and refuses a second one. Starting the same workout again
+recovers it — `recoverActiveWorkoutSession` — rather than failing at the athlete, which is
+the only way a stranded recording can be ended short of restarting the phone.
+
+**It is iOS 26 and above.** The deployment target stays at 18, and `Sports.isRecordable`
+plus one `#available` keep the button off a phone that has no session to start; the app is
+otherwise unchanged there. Health authorization asks to *write* only where that is true —
+`HealthAccess.shareTypes` is empty below 26, because a permission sheet asking for what the
+app cannot do is a question with no answer worth giving.
+
 ## The plan, in Apple's shape
 
 | workout-mcp | WorkoutKit |
