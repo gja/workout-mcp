@@ -100,7 +100,14 @@ enum SessionReader {
         // and one figure for the two would not say which half to go after. See docs/ios.md.
         let health = SyncLog.took(asked.timeIntervalSince(began))
         let filling = SyncLog.took(Date().timeIntervalSince(asked))
-        SyncLog.record(.upload, "read \(seconds)s of session — Health \(health) (route \(routing)), timeline \(filling)")
+        // How many distance samples there were, because that is what decides whether a lap can
+        // have a distance of its own: one sample spanning the session can only be read as
+        // spread evenly across it, however the seconds were actually walked.
+        SyncLog.record(
+            .upload,
+            "read \(seconds)s of session — Health \(health) (route \(routing)), timeline \(filling), "
+                + "\(distances.count) distance samples, \(route.count) fixes"
+        )
 
         return RecordedSession(
             sport: sport,
