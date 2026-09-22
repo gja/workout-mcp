@@ -107,6 +107,32 @@ rather than steadily, so a step measured in metres sits at nothing and then jump
 step on a test walk took 213 seconds to advance itself. Nothing here can smooth that, and a
 step measured in time behaves.
 
+**The screen is Apple's, as closely as it can be.** Black, the figures left-aligned and as
+large as they go with their units under them in small caps, and every control in one bar at
+the bottom where a thumb is: the session's own clock in the middle of it, the interval number
+as the lap button on the left, a pause the size of a thumb in the middle and the end on the
+right. That is the screen every athlete has already learned to read at arm's length in the
+rain, and there is nothing to be gained by teaching them a second one. Where the activity
+rings are on Apple's, this has what is coming instead — a tap opens the plan with the current
+step marked, because an athlete asking what is next is usually asking how much of it is left.
+
+**Three, two, one before it starts, and the receiver is already running.** The count-in is
+not ceremony: `warmUp()` starts location the moment Start is tapped, so the three seconds are
+three seconds of GPS lock the recording does not have to spend — and the seconds it would
+otherwise spend are the first of the session, which is the stretch the athlete is standing
+still for and the one whose pace comes out as nonsense.
+
+**Ending is behind the pause**, as it is on Apple's, and that answers two things at once:
+there is no dialog to write, and the seconds spent deciding are not seconds anybody was
+moving. Nothing ends a running session in one tap.
+
+**The controls lock without pausing first.** A phone goes into a pocket mid-session and comes
+out having been tapped by a thigh, and what it must not have been tapped into is the next
+interval or the end of the recording. Locked, the figures keep going and the bar collapses to
+one pill that is **held** rather than tapped — which is the whole point of having locked it.
+It is reachable while running rather than only from the paused menu, because pausing in order
+to lock would cost the recording the seconds spent deciding to.
+
 **The screen does not appear until there is something recording for it to be about.** Start
 holds where it is, on a spinner, until the session is running with its first lap open, and a
 start that fails says so there rather than on a run screen counting a workout nobody is

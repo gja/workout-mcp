@@ -598,6 +598,15 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// When-in-use with background updates on, rather than always: a recording runs with the
     /// arrow in the status bar and stops when it ends, so the stronger grant would buy
     /// nothing and ask for much more.
+    /// Location before there is a session, so the count-in is spent getting a fix rather than
+    /// merely spent. A cold receiver takes tens of seconds, and the seconds it would otherwise
+    /// take are the first of the recording — which is the stretch an athlete is standing still
+    /// in and the one whose pace comes out as nonsense.
+    func warmUp() {
+        guard !indoors else { return }
+        startLocating()
+    }
+
     private func startLocating() {
         locations.delegate = self
         locations.activityType = .fitness
