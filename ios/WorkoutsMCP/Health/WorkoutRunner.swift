@@ -73,7 +73,8 @@ final class WorkoutRunner: NSObject, ObservableObject {
     private var route: HKWorkoutRouteBuilder?
     private let locations = CLLocationManager()
     private var clock: Task<Void, Never>?
-    private var ending: CheckedContinuation<Void, Never>?
+    private var waiting: CheckedContinuation<Void, Never>?
+    private var waitingFor: HKWorkoutSessionState?
 
     private let voice = RunVoice()
     /// The bands of the step being run, and what has already been said about each. Rebuilt
@@ -119,9 +120,13 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// enough in, it is a pace.
     private static let paceableMetres = 20.0
 
-    /// How long to wait for the session to actually end before saving anyway. A wait with no
-    /// limit loses the recording exactly as completely as saving too early would.
-    private static let endingLimit = 10.0
+    /// How long to wait for the session to reach a state before going on without it. A wait
+    /// with no limit loses the recording exactly as completely as not waiting at all.
+    private static let stateLimit = 10.0
+
+    /// Long enough for the delegate to have reported a lap that could not be cut. It is a
+    /// settle, not a proof: nothing acknowledges `beginNewActivity` on the way out.
+    private static let settle = 0.25
 
     /// `recovered` is a session the app was handed on opening rather than one this screen is
     /// about to start. Everything about it — sport, indoors, the laps it has already cut —
@@ -152,16 +157,20 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// this process — and refuses a second one while it holds it. Without the recovery the
     /// athlete who swipes the app away mid-run comes back to a start button that fails and a
     /// recording nothing can end.
-    func begin() async {
+    /// Whether it is recording when this returns. The caller waits for it before putting the
+    /// screen up: a screen over a session that never started is what the athlete cannot tell
+    /// from one that did, and they find out a minute in, outdoors.
+    @discardableResult
+    func begin() async -> Bool {
         if let recovered {
             resume(recovered)
-            return
+            return true
         }
-        if await resumeRecovered() { return }
+        if await resumeRecovered() { return true }
 
         guard let workout else {
             phase = .failed("There is no workout to start.")
-            return
+            return false
         }
 
         do {
@@ -179,17 +188,34 @@ final class WorkoutRunner: NSObject, ObservableObject {
                 HKMetadataKeyIndoorWorkout: indoors,
             ])
 
-            openInterval(at: at)
+            // A lap cannot be cut in a session that is not running yet, and `startActivity`
+            // returning is not the session running — the delegate's word for it is.
+            await wait(for: .running)
+            guard session.state == .running else { return abandon("Health did not start the session.") }
+
+            openInterval(at: Date())
+            // Nothing acknowledges `beginNewActivity`; a lap it could not cut arrives as the
+            // session failing, on the delegate's own turn rather than this one.
+            try? await Task.sleep(for: .seconds(Self.settle))
+            if case .failed(let why) = phase { return abandon(why) }
+
             follow()
             phase = .running
+            return true
         } catch {
-            // The session was started before whatever threw, and a session nothing ends keeps
-            // recording with no screen left that can stop it.
-            session?.end()
-            session = nil
-            stop()
-            phase = .failed(error.localizedDescription)
+            return abandon(error.localizedDescription)
         }
+    }
+
+    /// A start that got far enough to be recording and no further. The session is ended
+    /// rather than left: one nothing ends keeps recording with no screen left that can stop
+    /// it, which is the state this whole screen exists to make impossible.
+    private func abandon(_ why: String) -> Bool {
+        session?.end()
+        session = nil
+        stop()
+        phase = .failed(why)
+        return false
     }
 
     /// A recovered session keeps the workout it was started for, because the key was written
@@ -340,7 +366,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
         // Only what this app opened. `session.end()` closes whatever is still open anyway.
         if cutting { session.endCurrentActivity(on: at) }
         session.end()
-        await waitUntilEnded()
+        await wait(for: .ended)
 
         do {
             try await builder.endCollection(at: at)
@@ -355,23 +381,29 @@ final class WorkoutRunner: NSObject, ObservableObject {
         }
     }
 
-    private func waitUntilEnded() async {
-        guard let session, session.state != .ended else { return }
+    /// `endCollection` on a session that has not reached `.ended` is refused, and a lap cut
+    /// in one that has not reached `.running` is refused too, so both are waited for rather
+    /// than assumed from the call that asked for them.
+    private func wait(for state: HKWorkoutSessionState) async {
+        guard let session, session.state != state else { return }
 
+        waitingFor = state
         let limit = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(Self.endingLimit))
+            try? await Task.sleep(for: .seconds(Self.stateLimit))
             await self?.stopWaiting()
         }
-        await withCheckedContinuation { ending = $0 }
+        await withCheckedContinuation { waiting = $0 }
         limit.cancel()
     }
 
-    /// Resumed from exactly one of two places — the delegate saying `.ended`, or the limit
-    /// running out — and the continuation is cleared first so neither can resume it twice.
+    /// Resumed from one of three places — the delegate reaching the state, the delegate
+    /// failing, or the limit running out — and the continuation is cleared first so none of
+    /// them can resume it twice.
     private func stopWaiting() {
-        let waiting = ending
-        ending = nil
-        waiting?.resume()
+        let held = waiting
+        waiting = nil
+        waitingFor = nil
+        held?.resume()
     }
 
     /// Everything of this object's that outlives the screen: the clock would tick for the
@@ -563,12 +595,12 @@ extension WorkoutRunner: HKWorkoutSessionDelegate {
         date: Date
     ) {
         Task { @MainActor in
+            if toState == self.waitingFor { self.stopWaiting() }
+
             switch toState {
             case .running: self.phase = .running
             case .paused: self.phase = .paused
-            // Not a phase: `end()` is saving by now and has the save to wait for. This is
-            // what it is waiting on.
-            case .ended: self.stopWaiting()
+            // Ending is `end()`'s to report, and it has the save still to wait for.
             default: break
             }
         }
@@ -576,10 +608,10 @@ extension WorkoutRunner: HKWorkoutSessionDelegate {
 
     nonisolated func workoutSession(_ workoutSession: HKWorkoutSession, didFailWithError error: Error) {
         Task { @MainActor in
-            // Released as well as reported: a failure while `end()` is waiting would otherwise
-            // hold it there until the limit, with nothing left to wait for.
-            self.stopWaiting()
+            // Released as well as reported: a failure while something is waiting on a state
+            // it will now never reach would otherwise hold it there until the limit.
             self.phase = .failed(error.localizedDescription)
+            self.stopWaiting()
         }
     }
 }

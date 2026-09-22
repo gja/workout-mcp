@@ -37,6 +37,7 @@ private struct Offer: ViewModifier {
     @State private var continuing = false
     @State private var workout: PlannedWorkout?
     @State private var steps: [RunStep] = []
+    @State private var runner: WorkoutRunner?
 
     func body(content: Content) -> some View {
         content
@@ -48,9 +49,7 @@ private struct Offer: ViewModifier {
                 Text(started)
             }
             .fullScreenCover(isPresented: $continuing) {
-                if let running {
-                    RunningView(workout: workout, steps: steps, indoors: false, recovered: running)
-                }
+                if let runner { RunningView(runner: runner) }
             }
     }
 
@@ -70,7 +69,12 @@ private struct Offer: ViewModifier {
     /// The plan is fetched here rather than when the session is found, because opening the
     /// app starts the listing and this at the same moment and the listing usually loses.
     private func carryOn() async {
+        guard let running else { return }
         await place()
+
+        let made = WorkoutRunner(workout: workout, steps: steps, indoors: false, recovered: running)
+        guard await made.begin() else { return }
+        runner = made
         continuing = true
     }
 

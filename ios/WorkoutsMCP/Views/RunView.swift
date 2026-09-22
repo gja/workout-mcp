@@ -19,7 +19,11 @@ struct RunView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var indoors: Bool
-    @State private var started = false
+    /// Made and started by the button, and held here rather than inside the screen below,
+    /// which does not appear until there is something recording for it to be about.
+    @State private var runner: WorkoutRunner?
+    @State private var starting = false
+    @State private var failure: String?
 
     init(workout: PlannedWorkout, steps: [RunStep]) {
         self.workout = workout
@@ -30,15 +34,17 @@ struct RunView: View {
     }
 
     var body: some View {
-        if started {
-            RunningView(workout: workout, steps: steps, indoors: indoors)
+        if let runner {
+            RunningView(runner: runner)
         } else {
             setup
         }
     }
 
-    /// Answering the picker is not starting: `started` is its own flag, or moving the segment
-    /// to look at the other label would begin the session under it.
+    /// The screen stays here until there is a session running with its first lap open. A run
+    /// screen over a session that never started is the one thing an athlete cannot tell from
+    /// a working one, and they find out a minute in, outdoors — which is how the first
+    /// recording went.
     private var setup: some View {
         VStack(spacing: 24) {
             Spacer()
@@ -59,14 +65,36 @@ struct RunView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
+            if let failure {
+                Text(failure).font(.footnote).foregroundStyle(.red).multilineTextAlignment(.center)
+            }
+
             Spacer()
-            Button("Start", systemImage: "play.fill") { started = true }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+            if starting {
+                ProgressView("Starting…")
+            } else {
+                Button("Start", systemImage: "play.fill") { Task { await start() } }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+            }
             Button("Not now") { dismiss() }
                 .padding(.bottom, 24)
+                .disabled(starting)
         }
         .padding(.horizontal, 24)
+    }
+
+    private func start() async {
+        starting = true
+        failure = nil
+        defer { starting = false }
+
+        let made = WorkoutRunner(workout: workout, steps: steps, indoors: indoors)
+        guard await made.begin() else {
+            if case .failed(let why) = made.phase { failure = why }
+            return
+        }
+        runner = made
     }
 }
 
@@ -78,14 +106,11 @@ struct RunningView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
 
-    @StateObject private var runner: WorkoutRunner
-    @State private var confirmingEnd = false
+    /// Observed rather than owned: whoever put this up made the runner and started it, and
+    /// this screen is only ever shown for one that is already recording.
+    @ObservedObject var runner: WorkoutRunner
 
-    init(workout: PlannedWorkout?, steps: [RunStep], indoors: Bool, recovered: HKWorkoutSession? = nil) {
-        _runner = StateObject(wrappedValue: WorkoutRunner(
-            workout: workout, steps: steps, indoors: indoors, recovered: recovered
-        ))
-    }
+    @State private var confirmingEnd = false
 
     var body: some View {
         VStack(spacing: 20) {
@@ -96,7 +121,6 @@ struct RunningView: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 20)
-        .task { await runner.begin() }
         // The clock and the location updates outlive this view otherwise — the session does
         // not, and is not meant to: ending it is the End button's, not the screen's.
         .onDisappear { runner.stop() }

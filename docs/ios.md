@@ -91,6 +91,19 @@ one lap and says so. Lap presses may run past the end of the plan — the athlet
 running, and a seventeenth interval on a plan of sixteen is a fact to record rather than one
 to refuse.
 
+**The screen does not appear until there is something recording for it to be about.** Start
+holds where it is, on a spinner, until the session is running with its first lap open, and a
+start that fails says so there rather than on a run screen counting a workout nobody is
+recording. It is not a cosmetic ordering: `startActivity` returning is not the session
+running, and a lap cut in one that has not reached `.running` is refused — so the delegate's
+word for the state is waited for, as it is at the other end before `endCollection`. A start
+that gets as far as recording and no further **ends the session** rather than leaving it,
+because one nothing ends is the stranded recording this all exists to prevent.
+
+Nothing acknowledges `beginNewActivity` on the way out, so the first lap is followed by a
+quarter-second settle and a check that the session has not failed in the meantime. That is a
+settle, not a proof, and the comment in `begin()` says so.
+
 **Indoors or outdoors is asked before anything starts.** It cannot be changed once a session
 has begun, and the plan cannot always settle it: the same easy 40 minutes is a park or a
 treadmill depending on the weather. The picker opens on the answer the plan's sub-sport
