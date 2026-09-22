@@ -162,9 +162,9 @@ offering a menu to guess from.
 On **iOS 26**, a running, walking or cycling workout that is not done yet also gets
 **Start on this iPhone** at the foot of its steps. It asks indoors or outdoors, then runs
 against the plan: which interval of how many, what it is aimed at, and — for a run — total
-and interval time, pace and interval pace, interval distance, cadence and heart rate; for a
-ride, total and interval time, power and interval power, cadence and heart rate. Pause,
-**Next interval**, and an end that saves to Health and sends it up.
+and interval time, pace and interval pace, distance and interval distance, cadence and heart
+rate; for a ride, total and interval time, power and interval power, cadence and heart rate.
+Pause, **Next interval**, and an end that saves to Health and sends it up.
 
 Each reading is a dash until something measures it. Heart rate needs a chest strap or buds
 on the standard Bluetooth profile — an iPhone has no sensor for one — and cycling power and

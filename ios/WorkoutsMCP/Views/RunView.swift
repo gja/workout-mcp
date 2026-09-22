@@ -78,8 +78,6 @@ private struct RunningView: View {
         _runner = StateObject(wrappedValue: WorkoutRunner(workout: workout, steps: steps, indoors: indoors))
     }
 
-    private var cycling: Bool { runner.workout.sport == "cycling" }
-
     var body: some View {
         VStack(spacing: 20) {
             heading
@@ -90,6 +88,9 @@ private struct RunningView: View {
         .padding(.horizontal, 20)
         .padding(.top, 20)
         .task { await runner.begin() }
+        // The clock and the location updates outlive this view otherwise — the session does
+        // not, and is not meant to: ending it is the End button's, not the screen's.
+        .onDisappear { runner.stop() }
         .confirmationDialog("End this session?", isPresented: $confirmingEnd) {
             Button("End and save", role: .destructive) { Task { await finish() } }
             Button("Keep going", role: .cancel) {}
@@ -145,23 +146,26 @@ private struct RunningView: View {
 
     // --- The figures -------------------------------------------------------------------------
 
-    /// Two columns, and the pairs read across: the session's figure on the left and this
-    /// interval's beside it, because what an athlete checks mid-interval is the difference.
+    /// Two columns, and every row of them is a pair read across: the session's figure on the
+    /// left and this interval's beside it, because what an athlete checks mid-interval is the
+    /// difference. Which pairs there are is the **session's** sport, not the workout's — a
+    /// recovered ride picked up from a run is still a ride.
     private var readings: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
             Reading(value: Formats.clock(runner.elapsed), unit: "total")
             Reading(value: Formats.clock(runner.intervalElapsed), unit: "interval")
 
-            if cycling {
+            if runner.isCycling {
                 Reading(value: runner.power.map(Formats.whole), unit: "watts")
                 Reading(value: runner.intervalPower.map(Formats.whole), unit: "interval W")
             } else {
                 Reading(value: runner.speedMS.flatMap { Formats.rate($0, cycling: false) }, unit: "per km")
                 Reading(value: runner.intervalPaceSKm.map(Formats.clock), unit: "interval /km")
+                Reading(value: runner.metres.map(Formats.distance), unit: "distance")
                 Reading(value: runner.intervalMetres.map(Formats.distance), unit: "interval distance")
             }
 
-            Reading(value: runner.cadence.map(Formats.whole), unit: cycling ? "rpm" : "spm")
+            Reading(value: runner.cadence.map(Formats.whole), unit: runner.isCycling ? "rpm" : "spm")
             Reading(value: runner.heartRate.map(Formats.whole), unit: "bpm")
         }
     }

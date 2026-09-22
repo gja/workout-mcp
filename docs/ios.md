@@ -59,11 +59,15 @@ through the data source instead.
 
 **What is on the screen is what is read mid-effort, and each reading is absent until
 something measures it.** A runner gets total and interval time, pace and interval pace,
-interval distance, cadence and heart rate; a cyclist gets total and interval time, power and
-interval power, cadence and heart rate. Each pair reads across, the session's figure beside
-this interval's, because what is checked mid-interval is the difference. A dash rather than a
-zero, for the reason [stats.md](stats.md) gives and the same rule the FIT file is written
-under.
+distance and interval distance, cadence and heart rate; a cyclist gets total and interval
+time, power and interval power, cadence and heart rate. Every row is a pair read across, the
+session's figure beside this interval's, because what is checked mid-interval is the
+difference. A dash rather than a zero, for the reason [stats.md](stats.md) gives and the same
+rule the FIT file is written under.
+
+Which pairs there are is the **session's** sport and not the workout's, for the same reason
+the recovery below reads its configuration off the session it found: a ride picked up from a
+run's screen is still a ride.
 
 Where each comes from is not uniform, and the differences are the ones worth knowing:
 
@@ -74,6 +78,7 @@ Where each comes from is not uniform, and the differences are the ones worth kno
 | Interval pace | This interval's distance over its elapsed time, and absent under 20 m of it, where it is the rounding on one fix |
 | Heart rate | A strap or buds on the standard Bluetooth profile. An iPhone has no sensor for one |
 | Cycling cadence, power | A paired Bluetooth sensor — see the limitation below |
+| Either cadence, and power | Asked for by name. `HKLiveWorkoutDataSource` collects neither on its own, and a type nobody collects is a dash for ever and a channel the FIT file leaves empty — so `enableCollection` asks for them whether or not a sensor is paired, which costs nothing when nothing writes them |
 | Running cadence | The steps of the last fifteen seconds over those seconds. HealthKit counts steps and does not count them per minute, and a cadence off one second of them swings by twenty with every stride landing either side of a tick |
 | Interval power | Averaged over this interval's own readings, about one a second, because the builder's average is the whole session's and does not come apart again at a lap. The averages in the **file** are HealthKit's own samples, read back by `SessionReader` — not these |
 
@@ -92,6 +97,12 @@ below rules out: nothing is guessed and nobody is asked, because this app was ha
 workout and started the session for it. It is asked first everywhere, ahead of
 `HKWorkout.workoutPlan`, being both the one that cannot be wrong and the one that costs no
 round trip — which is what lets a wake upload a phone-recorded session at all.
+
+**Ending waits for the session to have ended.** `endCollection` on a session that has not
+reached `.ended` is refused, and a refusal there is the whole recording — so the delegate's
+own word for it is waited on rather than the call that asked for it. With a limit, and the
+limit releases the wait itself, because a wait that never returns loses the session exactly
+as completely as saving too early would.
 
 **A session outlives the app.** HealthKit holds it, not this process, so a force-quit
 mid-run leaves it recording and refuses a second one. Starting the same workout again

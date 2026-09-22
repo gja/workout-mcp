@@ -61,6 +61,11 @@ enum HealthAccess {
             HKQuantityType(.activeEnergyBurned),
             HKQuantityType(.distanceWalkingRunning),
             HKQuantityType(.distanceCycling),
+            // Cadence and power, which `WorkoutRunner` asks the live source to collect by
+            // name. A type it collects and cannot save is a channel lost at `finishWorkout`.
+            HKQuantityType(.stepCount),
+            HKQuantityType(.cyclingCadence),
+            HKQuantityType(.cyclingPower),
         ]
     }
 

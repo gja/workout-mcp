@@ -50,18 +50,23 @@ final class WorkoutRunner: NSObject, ObservableObject {
 
     let workout: PlannedWorkout
     let steps: [RunStep]
-    let indoors: Bool
 
     var step: RunStep? { steps.indices.contains(interval) ? steps[interval] : nil }
 
-    private let configuration: HKWorkoutConfiguration
-    private let cycling: Bool
-    private let distanceType: HKQuantityType
+    /// Everything that follows from the session's own configuration, and therefore not `let`:
+    /// a recovered session brings its own, and reading a ride with a run's quantity types
+    /// would show an empty screen over a recording that is going perfectly well.
+    private(set) var indoors: Bool
+    private(set) var isCycling: Bool
+    private var configuration: HKWorkoutConfiguration
+    private var distanceType: HKQuantityType
+
     private var session: HKWorkoutSession?
     private var builder: HKLiveWorkoutBuilder?
     private var route: HKWorkoutRouteBuilder?
     private let locations = CLLocationManager()
     private var clock: Task<Void, Never>?
+    private var ending: CheckedContinuation<Void, Never>?
 
     /// Where this interval started, in the figures that only ever count up. Everything the
     /// screen says about the interval is the difference between now and one of these.
@@ -77,6 +82,10 @@ final class WorkoutRunner: NSObject, ObservableObject {
     private static let cadenceWindow = 15.0
     private static let cadenceFloor = 5.0
 
+    /// When the last usable fix arrived, so a pace can be dropped once it stops being one.
+    private var fixedAt: Date?
+    private static let staleFix = 10.0
+
     /// A fix this far out is the phone guessing, and a guess this app records is a guess the
     /// server will compute a pace from. Apple's own advice for a workout route.
     private static let usableAccuracy = 50.0
@@ -89,6 +98,10 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// enough in, it is a pace.
     private static let paceableMetres = 20.0
 
+    /// How long to wait for the session to actually end before saving anyway. A wait with no
+    /// limit loses the recording exactly as completely as saving too early would.
+    private static let endingLimit = 10.0
+
     init(workout: PlannedWorkout, steps: [RunStep], indoors: Bool) {
         self.workout = workout
         self.steps = steps
@@ -98,8 +111,8 @@ final class WorkoutRunner: NSObject, ObservableObject {
         configuration.activityType = Sports.activityType(workout.sport)
         configuration.locationType = indoors ? .indoor : .outdoor
         self.configuration = configuration
-        cycling = configuration.activityType == .cycling
-        distanceType = cycling ? HKQuantityType(.distanceCycling) : HKQuantityType(.distanceWalkingRunning)
+        isCycling = configuration.activityType == .cycling
+        distanceType = isCycling ? HKQuantityType(.distanceCycling) : HKQuantityType(.distanceWalkingRunning)
 
         super.init()
     }
@@ -117,7 +130,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
 
         do {
             let session = try HKWorkoutSession(healthStore: HealthAccess.store, configuration: configuration)
-            attach(to: session)
+            adopt(session)
 
             let at = Date()
             session.startActivity(with: at)
@@ -134,6 +147,11 @@ final class WorkoutRunner: NSObject, ObservableObject {
             follow()
             phase = .running
         } catch {
+            // The session was started before whatever threw, and a session nothing ends keeps
+            // recording with no screen left that can stop it.
+            session?.end()
+            session = nil
+            stop()
             phase = .failed(error.localizedDescription)
         }
     }
@@ -145,19 +163,24 @@ final class WorkoutRunner: NSObject, ObservableObject {
     private func resumeRecovered() async -> Bool {
         guard let recovered = try? await HealthAccess.store.recoverActiveWorkoutSession() else { return false }
 
-        attach(to: recovered)
+        adopt(recovered)
         follow()
         phase = recovered.state == .paused ? .paused : .running
         return true
     }
 
-    /// The wiring both ways in have to do. The builder comes off the session rather than
-    /// being made beside it, so a recovered session brings its own collected samples with it.
-    private func attach(to session: HKWorkoutSession) {
+    /// The wiring both ways in have to do, and the one place the session's configuration is
+    /// read rather than assumed: a recovered ride is a ride whatever screen picked it up. The
+    /// builder comes off the session rather than being made beside it, so a recovered session
+    /// brings its own collected samples with it.
+    private func adopt(_ session: HKWorkoutSession) {
+        configuration = session.workoutConfiguration
+        indoors = configuration.locationType == .indoor
+        isCycling = configuration.activityType == .cycling
+        distanceType = isCycling ? HKQuantityType(.distanceCycling) : HKQuantityType(.distanceWalkingRunning)
+
         let builder = session.associatedWorkoutBuilder()
-        builder.dataSource = HKLiveWorkoutDataSource(
-            healthStore: HealthAccess.store, workoutConfiguration: configuration
-        )
+        builder.dataSource = source()
         session.delegate = self
         builder.delegate = self
 
@@ -167,6 +190,19 @@ final class WorkoutRunner: NSObject, ObservableObject {
             route = HKWorkoutRouteBuilder(healthStore: HealthAccess.store, device: nil)
             startLocating()
         }
+    }
+
+    /// Cadence and power are **not** in what a live data source collects on its own, and a
+    /// type nobody collects is a reading that is a dash for ever and a channel the FIT file
+    /// leaves empty. Asked for by name, therefore, and asked for whether or not a sensor for
+    /// them is paired — collecting a type nothing writes costs nothing.
+    private func source() -> HKLiveWorkoutDataSource {
+        let source = HKLiveWorkoutDataSource(
+            healthStore: HealthAccess.store, workoutConfiguration: configuration
+        )
+        source.enableCollection(for: HKQuantityType(isCycling ? .cyclingCadence : .stepCount), predicate: nil)
+        if isCycling { source.enableCollection(for: HKQuantityType(.cyclingPower), predicate: nil) }
+        return source
     }
 
     // --- While it runs ---------------------------------------------------------------------
@@ -190,15 +226,18 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// on the screen and left there; advancing it on a timer is the workout engine docs/ios.md
     /// declines to write, and it would be wrong the first time somebody stopped at a junction.
     func nextInterval() {
-        guard let session, phase == .running || phase == .paused else { return }
+        guard phase == .running || phase == .paused else { return }
 
-        let at = Date()
-        session.endCurrentActivity(on: at)
         interval += 1
-        openInterval(at: at)
+        openInterval(at: Date())
     }
 
+    /// Every interval opens the same way, the first one included: the activity that is open is
+    /// closed first. Without that the session's own primary activity is still open when the
+    /// first lap begins, and it is saved as an extra activity spanning the whole session —
+    /// which `SessionReader` reads as a lap, so nothing lines up with the plan any more.
     private func openInterval(at: Date) {
+        session?.endCurrentActivity(on: at)
         session?.beginNewActivity(configuration: configuration, date: at, metadata: nil)
 
         intervalFromElapsed = elapsed
@@ -211,26 +250,30 @@ final class WorkoutRunner: NSObject, ObservableObject {
         intervalPower = nil
     }
 
-    /// Ending is three things that have to happen in order and a fourth that can fail without
-    /// costing the session: the last lap is closed, the session stops, the builder is closed
-    /// and saved, and the route is attached to the workout that came back. A route that will
-    /// not attach is a session with no line on the map, which is worth less than the session
-    /// and not worth losing it.
+    /// Ending is four things in order, the last of which can fail without costing the session:
+    /// the open lap is closed, the session is stopped and **waited for**, the builder is
+    /// closed and saved, and the route is attached to the workout that came back.
+    ///
+    /// The wait is the part that is not obvious. `endCollection` on a session that has not
+    /// reached `.ended` is refused, and a refusal here is the whole recording — so the
+    /// delegate's own word for it is waited on, with a limit, because a wait that never
+    /// returns loses the session exactly as completely. A route that will not attach is a
+    /// session with no line on the map, which is worth less than the session.
     func end() async {
         phase = .saving
-        stopLocating()
-        clock?.cancel()
-        clock = nil
+        stop()
 
         guard let session, let builder else {
             phase = .failed("Nothing was recording.")
             return
         }
 
+        let at = Date()
+        session.endCurrentActivity(on: at)
+        session.end()
+        await waitUntilEnded()
+
         do {
-            let at = Date()
-            session.endCurrentActivity(on: at)
-            session.end()
             try await builder.endCollection(at: at)
             guard let saved = try await builder.finishWorkout() else {
                 phase = .failed("Health did not save the session.")
@@ -243,21 +286,51 @@ final class WorkoutRunner: NSObject, ObservableObject {
         }
     }
 
+    private func waitUntilEnded() async {
+        guard let session, session.state != .ended else { return }
+
+        let limit = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.endingLimit))
+            await self?.stopWaiting()
+        }
+        await withCheckedContinuation { ending = $0 }
+        limit.cancel()
+    }
+
+    /// Resumed from exactly one of two places — the delegate saying `.ended`, or the limit
+    /// running out — and the continuation is cleared first so neither can resume it twice.
+    private func stopWaiting() {
+        let waiting = ending
+        ending = nil
+        waiting?.resume()
+    }
+
+    /// Everything of this object's that outlives the screen: the clock would tick for the
+    /// life of the process, and location updates would keep the arrow in the status bar.
+    func stop() {
+        clock?.cancel()
+        clock = nil
+        stopLocating()
+    }
+
     /// Elapsed comes off the builder rather than off a start date this class keeps, because
     /// the builder is the one that knows what was paused.
     private func follow() {
         guard clock == nil else { return }
-        read()
+        read(onTick: true)
 
         clock = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
-                await self?.read()
+                await self?.read(onTick: true)
             }
         }
     }
 
-    private func read() {
+    /// `onTick` is what separates the figures that are simply read from the one that is
+    /// accumulated: the builder's delegate fires whenever samples land, which is neither
+    /// once a second nor at any rate worth averaging against.
+    private func read(onTick: Bool) {
         guard let builder else { return }
 
         elapsed = builder.elapsedTime
@@ -272,27 +345,23 @@ final class WorkoutRunner: NSObject, ObservableObject {
         }
 
         heartRate = latest(HKQuantityType(.heartRate), in: .count().unitDivided(by: .minute()))
-        power = latest(HKQuantityType(cycling ? .cyclingPower : .runningPower), in: .watt())
-        readPower()
-        readCadence()
-        if indoors || speedMS == nil {
-            speedMS = latest(
-                HKQuantityType(cycling ? .cyclingSpeed : .runningSpeed),
-                in: .meter().unitDivided(by: .second())
-            )
+        power = latest(HKQuantityType(isCycling ? .cyclingPower : .runningPower), in: .watt())
+        if onTick {
+            averagePower()
+            readCadence()
         }
+        readSpeed()
     }
 
     private func latest(_ type: HKQuantityType, in unit: HKUnit) -> Double? {
         builder?.statistics(for: type)?.mostRecentQuantity()?.doubleValue(for: unit)
     }
 
-    /// Averaged over the readings this interval has taken rather than over the samples
-    /// HealthKit holds, because the builder's own average is the whole session's and does not
-    /// come apart again at a lap. A meter emits about once a second and this reads about once
+    /// Averaged over this interval's own readings, one a second, because the builder's average
+    /// is the whole session's and does not come apart again at a lap. A meter emits about once
     /// a second, so the two agree closely enough for a number to pedal at — and the averages
     /// in the **file** are HealthKit's own samples, read back by `SessionReader`, not these.
-    private func readPower() {
+    private func averagePower() {
         guard let watts = power else { return }
         powerSum += watts
         powerReadings += 1
@@ -303,7 +372,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// steps, so a runner's is the steps of the last few seconds over those seconds, which is
     /// also why it is absent for the first few: a cadence needs a window to be taken over.
     private func readCadence() {
-        if cycling {
+        if isCycling {
             cadence = latest(HKQuantityType(.cyclingCadence), in: .count().unitDivided(by: .minute()))
             return
         }
@@ -320,12 +389,23 @@ final class WorkoutRunner: NSObject, ObservableObject {
         cadence = span >= Self.cadenceFloor ? (steps - oldest.steps) / span * 60 : nil
     }
 
+    /// A fix that has stopped arriving is a pace that has stopped being true — GPS under trees
+    /// drops for seconds at a time, and the last one it managed is not what is happening now.
+    /// What is left, indoors or in the gap, is the sport's own speed series off the pedometer.
+    private func readSpeed() {
+        if let fixedAt, Date().timeIntervalSince(fixedAt) > Self.staleFix { speedMS = nil }
+        guard indoors || speedMS == nil else { return }
+        speedMS = latest(
+            HKQuantityType(isCycling ? .cyclingSpeed : .runningSpeed),
+            in: .meter().unitDivided(by: .second())
+        )
+    }
+
     // --- Where the phone is ------------------------------------------------------------------
 
     /// The route, and the live speed a screen can show: HealthKit generates distance and
     /// energy on its own, but a distance divided by an elapsed time is an average rather than
-    /// what the athlete is doing now. Indoors there is no route and no fix, and the pace falls
-    /// back to the sport's own speed series, which the pedometer feeds.
+    /// what the athlete is doing now.
     ///
     /// When-in-use with background updates on, rather than always: a recording runs with the
     /// arrow in the status bar and stops when it ends, so the stronger grant would buy
@@ -353,6 +433,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
         // as standing still, so it leaves the reading alone rather than zeroing it.
         if let speed = usable.last?.speed, speed >= 0 {
             speedMS = speed < Self.movingMS ? nil : speed
+            fixedAt = Date()
         }
         route?.insertRouteData(usable) { _, _ in }
     }
@@ -372,13 +453,21 @@ extension WorkoutRunner: HKWorkoutSessionDelegate {
             switch toState {
             case .running: self.phase = .running
             case .paused: self.phase = .paused
-            default: break // Ending is `end()`'s to report, and it has the save to wait for.
+            // Not a phase: `end()` is saving by now and has the save to wait for. This is
+            // what it is waiting on.
+            case .ended: self.stopWaiting()
+            default: break
             }
         }
     }
 
     nonisolated func workoutSession(_ workoutSession: HKWorkoutSession, didFailWithError error: Error) {
-        Task { @MainActor in self.phase = .failed(error.localizedDescription) }
+        Task { @MainActor in
+            // Released as well as reported: a failure while `end()` is waiting would otherwise
+            // hold it there until the limit, with nothing left to wait for.
+            self.stopWaiting()
+            self.phase = .failed(error.localizedDescription)
+        }
     }
 }
 
@@ -389,7 +478,7 @@ extension WorkoutRunner: HKLiveWorkoutBuilderDelegate {
     nonisolated func workoutBuilder(
         _ workoutBuilder: HKLiveWorkoutBuilder, didCollectDataOf collectedTypes: Set<HKSampleType>
     ) {
-        Task { @MainActor in self.read() }
+        Task { @MainActor in self.read(onTick: false) }
     }
 
     nonisolated func workoutBuilderDidCollectEvent(_ workoutBuilder: HKLiveWorkoutBuilder) {}

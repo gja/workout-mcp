@@ -59,6 +59,14 @@ struct PlannedWorkoutView: View {
         .navigationTitle(current.name)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: workout.key) { await load() }
+        // On the list and not on the button that presents it: the button is inside a section
+        // that is there only while the workout is not done, and an upload landing mid-run
+        // would take the running screen down with it while HealthKit kept recording.
+        .fullScreenCover(isPresented: $running) {
+            if #available(iOS 26.0, *), let plan {
+                RunView(workout: current, steps: RunStep.of(plan.steps))
+            }
+        }
     }
 
     /// Below the plan rather than above it, and absent once the session is done: the button
@@ -77,11 +85,6 @@ struct PlannedWorkoutView: View {
                     Label("Start on this iPhone", systemImage: "play.circle.fill")
                 }
                 .disabled(plan == nil)
-                .fullScreenCover(isPresented: $running) {
-                    if let plan {
-                        RunView(workout: current, steps: RunStep.of(plan.steps))
-                    }
-                }
             } footer: {
                 Text("Recorded here and saved to Health, then sent up when you stop. Each interval is a lap you press; nothing advances on its own and nothing beeps.")
             }
