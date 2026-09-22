@@ -51,6 +51,13 @@ struct RunView: View {
             Text(workout.name).font(.title2.weight(.semibold)).multilineTextAlignment(.center)
             Text(Formats.summary(of: workout.planned)).foregroundStyle(.secondary)
 
+            // The count the flattening produced, before anybody walks anywhere on it. A plan
+            // whose repeats did not come apart is six intervals that say three, and the only
+            // place that is cheap to notice is here.
+            Text(steps.isEmpty ? "No steps" : "\(steps.count) intervals")
+                .font(.footnote)
+                .foregroundStyle(steps.isEmpty ? Color.red : Color.secondary)
+
             Picker("Where", selection: $indoors) {
                 Text("Outdoors").tag(false)
                 Text("Indoors").tag(true)
@@ -76,6 +83,7 @@ struct RunView: View {
                 Button("Start", systemImage: "play.fill") { Task { await start() } }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
+                    .disabled(steps.isEmpty)
             }
             Button("Not now") { dismiss() }
                 .padding(.bottom, 24)

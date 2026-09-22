@@ -168,20 +168,26 @@ enum SessionReader {
         into filled: inout [RecordedSample],
         assign: (inout RecordedSample, Double) -> Void
     ) {
+        // Spread across the seconds the sample covers rather than landed on the one it ends
+        // in. A watch writes a reading a second, where the two are the same thing; a phone
+        // writes distance and energy in long sparse samples, and one covering a whole walk
+        // would leave every second at nothing and the last at the lot — which is a session
+        // whose laps have no distance and whose final lap has all of it, at 2:46/km.
         var total = 0.0
-        var marks: [Int: Double] = [:]
+        var gained = [Double](repeating: 0, count: filled.count)
 
         for sample in samples {
-            total += sample.quantity.doubleValue(for: unit)
+            let value = sample.quantity.doubleValue(for: unit)
             guard let span = timeline.span(from: sample.startDate, to: sample.endDate) else { continue }
-            // The total stands from the moment the sample it came from ended.
-            marks[span.upperBound] = total
+            let each = value / Double(span.count)
+            for index in span { gained[index] += each }
+            total += value
         }
         guard total > 0 else { return }
 
         var carried = 0.0
         for index in filled.indices {
-            if let here = marks[index] { carried = here }
+            carried += gained[index]
             assign(&filled[index], carried)
         }
     }

@@ -91,7 +91,11 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// Where this interval started, in the figures that only ever count up. Everything the
     /// screen says about the interval is the difference between now and one of these.
     private var intervalFromElapsed: TimeInterval = 0
-    private var intervalFromMetres: Double = 0
+    /// Nil until distance is known *within this interval*. Zero would do instead, and did,
+    /// and it is wrong in the one direction that matters: a step opening before HealthKit has
+    /// handed any distance over would count the whole session's metres as its own and find a
+    /// 150 m step due the instant the first reading arrived.
+    private var intervalFromMetres: Double?
     /// Whether an activity of this app's has been begun, so there is one to close at the end.
     private var cutting = false
     private var powerSum = 0.0
@@ -104,8 +108,13 @@ final class WorkoutRunner: NSObject, ObservableObject {
     private static let cadenceWindow = 15.0
     private static let cadenceFloor = 5.0
 
-    /// When the last usable fix arrived, so a pace can be dropped once it stops being one.
+    /// When the last usable fix arrived, so a pace can be dropped once it stops being one,
+    /// and the speeds of the last few of them. One fix's speed swings by minutes a kilometre
+    /// between strides — a quarter of a test walk read 10:27/km and the next 22:38 — and a
+    /// figure nobody can read while moving is not worth showing.
     private var fixedAt: Date?
+    private var fixes: [(at: Date, speed: Double)] = []
+    private static let paceWindow = 10.0
     private static let staleFix = 10.0
 
     /// Cumulative distance, kept for as long as a speed is taken over it. Wider than the
@@ -339,7 +348,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// session, and one more at the moment somebody reopened the app is not a lap they ran.
     private func rebase() {
         intervalFromElapsed = elapsed
-        intervalFromMetres = metres ?? 0
+        intervalFromMetres = metres
         powerSum = 0
         powerReadings = 0
         intervalElapsed = 0
@@ -446,7 +455,10 @@ final class WorkoutRunner: NSObject, ObservableObject {
         intervalElapsed = max(0, elapsed - intervalFromElapsed)
 
         metres = builder.statistics(for: distanceType)?.sumQuantity()?.doubleValue(for: .meter())
-        intervalMetres = metres.map { max(0, $0 - intervalFromMetres) }
+        // The baseline is taken at the first reading of the interval rather than at its
+        // opening, because there may not have been one to take then.
+        if intervalFromMetres == nil { intervalFromMetres = metres }
+        intervalMetres = metres.flatMap { now in intervalFromMetres.map { max(0, now - $0) } }
         intervalPaceSKm = intervalMetres.flatMap { metres in
             metres >= Self.paceableMetres && intervalElapsed > 0
                 ? intervalElapsed / (metres / 1000)
@@ -549,7 +561,12 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// over those seconds — the same shape as the cadence and for the same reason. It moves in
     /// steps rather than smoothly, because that is how the pedometer hands distance over.
     private func readSpeed(at now: Date) {
-        if let fixedAt, now.timeIntervalSince(fixedAt) > Self.staleFix { speedMS = nil }
+        if let fixedAt, now.timeIntervalSince(fixedAt) > Self.staleFix {
+            // Dropped as well as cleared: what is in it is older than the gap, and averaging
+            // it back in when the fixes return would be a pace from before the athlete stopped.
+            speedMS = nil
+            fixes.removeAll()
+        }
         guard indoors || speedMS == nil else { return }
 
         if let series = latest(
@@ -603,8 +620,13 @@ final class WorkoutRunner: NSObject, ObservableObject {
         // A negative speed is CoreLocation saying it does not have one, which is not the same
         // as standing still, so it leaves the reading alone rather than zeroing it.
         if let speed = usable.last?.speed, speed >= 0 {
-            speedMS = speed < Self.movingMS ? nil : speed
-            fixedAt = Date()
+            let now = Date()
+            fixes.append((at: now, speed: speed))
+            fixes.removeAll { now.timeIntervalSince($0.at) > Self.paceWindow }
+
+            let mean = fixes.reduce(0) { $0 + $1.speed } / Double(fixes.count)
+            speedMS = mean < Self.movingMS ? nil : mean
+            fixedAt = now
         }
         route?.insertRouteData(usable) { _, _ in }
     }
