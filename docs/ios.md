@@ -78,7 +78,15 @@ switched off inside a kilometre.
 **A lap press cuts an `HKWorkoutActivity`.** That is what makes the saved workout a session
 of laps rather than one long one: `SessionReader` already reads `workoutActivities` back in
 preference to everything else, so the FIT file carries a `lap` message each and the server
-matches them against the steps the plan was written with. A session nobody pressed lap in is
+matches them against the steps the plan was written with.
+
+`beginNewActivity` **ends whichever activity is open**, the session's own primary activity
+included, so nothing closes one first. Closing one first is what broke the first session
+ever recorded here: `endCurrentActivity` with nothing of this app's open failed the session,
+and a failed session neither advances its steps nor shows its buttons — while HealthKit went
+on recording behind it, which is how it was still going when the app was reopened. That is
+also why a failure now offers *End and save* rather than a button that only dismisses the
+screen. A session nobody pressed lap in is
 one lap and says so. Lap presses may run past the end of the plan — the athlete is still
 running, and a seventeenth interval on a plan of sixteen is a fact to record rather than one
 to refuse.

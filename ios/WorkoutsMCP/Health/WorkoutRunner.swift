@@ -89,6 +89,8 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// screen says about the interval is the difference between now and one of these.
     private var intervalFromElapsed: TimeInterval = 0
     private var intervalFromMetres: Double = 0
+    /// Whether an activity of this app's has been begun, so there is one to close at the end.
+    private var cutting = false
     private var powerSum = 0.0
     private var powerReadings = 0
 
@@ -181,6 +183,11 @@ final class WorkoutRunner: NSObject, ObservableObject {
         guard let recovered = try? await HealthAccess.store.recoverActiveWorkoutSession() else { return false }
 
         adopt(recovered)
+        // Read before rebasing, or the interval counts from zero while the session is
+        // already minutes in — and the first tick finds a 60-second step long since due and
+        // advances it. That is what put a recovered session straight onto interval two.
+        read(onTick: false)
+        rebase()
         follow()
         phase = recovered.state == .paused ? .paused : .running
         return true
@@ -249,14 +256,23 @@ final class WorkoutRunner: NSObject, ObservableObject {
         openInterval(at: Date())
     }
 
-    /// Every interval opens the same way, the first one included: the activity that is open is
-    /// closed first. Without that the session's own primary activity is still open when the
-    /// first lap begins, and it is saved as an extra activity spanning the whole session —
-    /// which `SessionReader` reads as a lap, so nothing lines up with the plan any more.
+    /// Beginning an activity ends whichever one is open, the session's own primary activity
+    /// included, so nothing is closed here first. Closing it here is what broke the first
+    /// session ever recorded: `endCurrentActivity` with nothing of ours open failed the
+    /// session, and a failed session neither advances nor shows its buttons, while HealthKit
+    /// went on recording behind it.
     private func openInterval(at: Date) {
-        session?.endCurrentActivity(on: at)
         session?.beginNewActivity(configuration: configuration, date: at, metadata: nil)
+        cutting = true
 
+        rebase()
+        voice.say(step?.spoken(number: interval + 1, of: steps.count) ?? "Past the plan.")
+    }
+
+    /// What this interval counts from. Separate from opening one because a recovered session
+    /// needs the counting reset without a lap being cut: the laps it already has are in the
+    /// session, and one more at the moment somebody reopened the app is not a lap they ran.
+    private func rebase() {
         intervalFromElapsed = elapsed
         intervalFromMetres = metres ?? 0
         powerSum = 0
@@ -268,7 +284,6 @@ final class WorkoutRunner: NSObject, ObservableObject {
 
         watches = (step?.targets ?? []).compactMap(TargetWatch.init)
         countedDown = false
-        voice.say(step?.spoken(number: interval + 1, of: steps.count) ?? "Past the plan.")
     }
 
     /// Ending is four things in order, the last of which can fail without costing the session:
@@ -290,7 +305,8 @@ final class WorkoutRunner: NSObject, ObservableObject {
         }
 
         let at = Date()
-        session.endCurrentActivity(on: at)
+        // Only what this app opened. `session.end()` closes whatever is still open anyway.
+        if cutting { session.endCurrentActivity(on: at) }
         session.end()
         await waitUntilEnded()
 

@@ -199,10 +199,20 @@ private struct RunningView: View {
             case .starting, .saving:
                 ProgressView()
 
-            case .saved, .failed:
+            case .saved:
                 Button("Done") { dismiss() }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
+
+            // A failure is not the session stopping — HealthKit goes on recording behind
+            // one — so the way out of it has to be the way out of a recording. The first
+            // session ever recorded here failed a minute in, offered nothing but a button
+            // that dismissed the screen, and was still going when the app was reopened.
+            case .failed:
+                Button("End and save", systemImage: "stop.fill") { Task { await finish() } }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                Button("Leave it running") { dismiss() }
             }
         }
         .padding(.bottom, 24)
