@@ -146,10 +146,19 @@ cut are in the session, which is where they matter.
 
 **It is behind a compile-time switch.** `ON_PHONE_RECORDING` is in
 `SWIFT_ACTIVE_COMPILATION_CONDITIONS` for **Debug** and not for Release, so a local build has
-it and an archive — which is what goes to TestFlight — does not. It gates the start button
-and `HealthAccess.shareTypes`, which between them are the whole feature: with no button
-nothing records, and with no share types the build never asks to write to Health. The files
-still compile in both, on purpose, so the switch cannot rot.
+it and an archive — which is what goes to TestFlight — does not.
+
+Six files are inside it whole: `WorkoutRunner`, `RunVoice`, `TargetWatch`, `RunView`,
+`RunSteps` and `Spoken`. What is left in the shared files is the start button, the cover's
+contents, the Settings toggle and `HealthAccess.shareTypes` — with no share types the build
+never asks to write to Health, which is the only thing about it an athlete would otherwise
+see. `HealthAccess.recordedKey` is deliberately **not** switched out: it is three lines, and
+a session recorded by a local build should still upload from an archive installed over it.
+
+The cost is that a Release build does not compile the recorder, so nothing catches a break in
+it but a Debug build — which is every build anybody runs, and CI compiles no Swift at all.
+What the switch does not reach is `Info.plist`: `audio` and `location` are declared in both,
+and are inert in a build with nothing to ask for them.
 
 **It is iOS 26 and above.** The deployment target stays at 18, and `Sports.isRecordable`
 plus one `#available` keep the button off a phone that has no session to start; the app is

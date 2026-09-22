@@ -10,6 +10,10 @@
 // beside `location` — announcements are for the phone in an armband, which is when nobody is
 // looking at any of this.
 
+// Compiled only where `ON_PHONE_RECORDING` is — Debug, and not an archive. See
+// "Recording it on the phone" in docs/ios.md.
+
+#if ON_PHONE_RECORDING
 import AVFoundation
 import Foundation
 
@@ -83,3 +87,5 @@ extension RunVoice: AVSpeechSynthesizerDelegate {
         Task { @MainActor in self.finished() }
     }
 }
+
+#endif

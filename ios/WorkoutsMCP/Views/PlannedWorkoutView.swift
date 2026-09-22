@@ -61,14 +61,20 @@ struct PlannedWorkoutView: View {
         .task(id: workout.key) { await load() }
         // On the list and not on the button that presents it: the button is inside a section
         // that is there only while the workout is not done, and an upload landing mid-run
-        // would take the running screen down with it while HealthKit kept recording. Not
-        // inside `ON_PHONE_RECORDING` as the button below is: a modifier is awkward to
-        // compile out, and with no button to set `running` there is nothing to present.
-        .fullScreenCover(isPresented: $running) {
-            if #available(iOS 26.0, *), let plan {
-                RunView(workout: current, steps: RunStep.of(plan.steps))
-            }
+        // would take the running screen down with it while HealthKit kept recording.
+        .fullScreenCover(isPresented: $running) { run }
+    }
+
+    /// `RunView` is compiled out of a build without `ON_PHONE_RECORDING`, so what is named
+    /// here has to be too. The modifier above stays either way: nothing sets `running` when
+    /// there is no button, and a cover that never presents costs nothing.
+    @ViewBuilder
+    private var run: some View {
+        #if ON_PHONE_RECORDING
+        if #available(iOS 26.0, *), let plan {
+            RunView(workout: current, steps: RunStep.of(plan.steps))
         }
+        #endif
     }
 
     /// Below the plan rather than above it, and absent once the session is done: the button

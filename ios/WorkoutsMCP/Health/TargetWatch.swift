@@ -6,6 +6,10 @@
 // kilometre. So a reading has to stay on one side for `dwell` seconds before it is said, and
 // nothing is said twice for the same side.
 
+// Compiled only where `ON_PHONE_RECORDING` is — Debug, and not an archive. See
+// "Recording it on the phone" in docs/ios.md.
+
+#if ON_PHONE_RECORDING
 import Foundation
 
 struct TargetWatch {
@@ -97,3 +101,5 @@ struct TargetWatch {
         }
     }
 }
+
+#endif

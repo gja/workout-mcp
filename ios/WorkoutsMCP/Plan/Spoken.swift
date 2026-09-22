@@ -5,6 +5,10 @@
 // `Formats`, which is the Swift half of `src/client/format.ts` and has to keep saying what
 // the dashboard says; nothing here is written down anywhere.
 
+// Compiled only where `ON_PHONE_RECORDING` is — Debug, and not an archive. See
+// "Recording it on the phone" in docs/ios.md.
+
+#if ON_PHONE_RECORDING
 import Foundation
 
 enum Spoken {
@@ -80,3 +84,5 @@ enum Spoken {
         return high.map { "below \(Formats.whole($0.value)) \(unit($0))" }
     }
 }
+
+#endif

@@ -5,6 +5,10 @@
 // one thing about a session that cannot be changed once it has and that the plan cannot
 // always settle: the same easy 40 minutes is a park or a treadmill depending on the weather.
 
+// Compiled only where `ON_PHONE_RECORDING` is — Debug, and not an archive. See
+// "Recording it on the phone" in docs/ios.md.
+
+#if ON_PHONE_RECORDING
 import SwiftUI
 
 @available(iOS 26.0, *)
@@ -236,3 +240,5 @@ private struct Reading: View {
         }
     }
 }
+
+#endif

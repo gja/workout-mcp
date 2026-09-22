@@ -8,6 +8,10 @@
 // Nothing here decides what a step *means*: the durations and targets are the server's,
 // already resolved. See docs/workouts.md.
 
+// Compiled only where `ON_PHONE_RECORDING` is — Debug, and not an archive. See
+// "Recording it on the phone" in docs/ios.md.
+
+#if ON_PHONE_RECORDING
 import Foundation
 
 struct RunStep {
@@ -68,3 +72,5 @@ struct RunStep {
         }
     }
 }
+
+#endif

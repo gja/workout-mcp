@@ -180,8 +180,12 @@ matches against the steps of the plan. See
 [docs/ios.md](../docs/ios.md#recording-it-on-the-phone).
 
 **It is behind `ON_PHONE_RECORDING`**, which is set for Debug and not for Release: a local
-build has the feature and a TestFlight archive does not. The switch gates the start button
-and the Health share types — with neither, nothing records and nothing is written.
+build has the feature and a TestFlight archive does not compile it at all. Six files are
+inside the switch whole — `WorkoutRunner`, `RunVoice`, `TargetWatch`, `RunView`, `RunSteps`
+and `Spoken` — and what is left in the shared files is the start button, the Settings toggle
+and the Health share types, which is the only part of it an athlete would otherwise see.
+`Info.plist` is the one thing the switch does not reach: `audio` and `location` are declared
+in both builds, and do nothing in one with nothing to ask for them.
 
 **Settings.** Who is signed in, which deployment this build talks to, **Log out**, a
 **Heart rate** sheet — a year of Health as the two figures zones are built from, an average

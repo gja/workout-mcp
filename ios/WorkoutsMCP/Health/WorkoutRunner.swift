@@ -9,6 +9,10 @@
 // band or come back to it. The lap button is still there, and is the only way through a step
 // that ends when the athlete says it does. See "Recording it on the phone" in docs/ios.md.
 
+// Compiled only where `ON_PHONE_RECORDING` is — Debug, and not an archive. See
+// "Recording it on the phone" in docs/ios.md.
+
+#if ON_PHONE_RECORDING
 import CoreLocation
 import Foundation
 import HealthKit
@@ -555,3 +559,5 @@ extension WorkoutRunner: CLLocationManagerDelegate {
     /// it already says by showing nothing; it is not a reason to interrupt a recording.
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {}
 }
+
+#endif
