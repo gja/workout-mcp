@@ -645,11 +645,19 @@ extension WorkoutRunner: HKWorkoutSessionDelegate {
         Task { @MainActor in
             if toState == self.waitingFor { self.stopWaiting() }
 
+            // Said from here rather than from the buttons, so it is the session's own word
+            // for what happened. Resuming is announced only from a pause — every workout
+            // reaches `.running` when it starts, and it has just said what it is starting.
             switch toState {
-            case .running: self.phase = .running
-            case .paused: self.phase = .paused
+            case .running:
+                self.phase = .running
+                if fromState == .paused { self.voice.say("Resumed.") }
+            case .paused:
+                self.phase = .paused
+                self.voice.say("Paused.")
             // Ending is `end()`'s to report, and it has the save still to wait for.
-            default: break
+            default:
+                break
             }
         }
     }
