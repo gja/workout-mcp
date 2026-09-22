@@ -151,6 +151,8 @@ struct RunningView: View {
     /// comes out having been tapped by a thigh; what it must not have been tapped into is the
     /// next interval or the end of the recording.
     @State private var locked = false
+    /// How far the lock has been dragged along its track, in points.
+    @State private var slid: CGFloat = 0
 
     var body: some View {
         ZStack {
@@ -308,7 +310,10 @@ struct RunningView: View {
                 // Where Apple keeps the heart rate mute, and the slot that balances the pause
                 // into the middle. Reachable without pausing first, because pausing to lock
                 // the screen would cost the recording the seconds spent deciding to.
-                Button { locked = true } label: {
+                Button {
+                    slid = 0
+                    locked = true
+                } label: {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 24, weight: .bold))
                         .foregroundStyle(.white)
@@ -320,25 +325,40 @@ struct RunningView: View {
         }
     }
 
-    /// Held rather than tapped, which is the whole point of having locked it.
+    /// Slid rather than tapped, which is the whole point of having locked it, and slid rather
+    /// than held because that is the gesture Apple's own lock uses and the one a hand already
+    /// knows. It goes back where it came from unless it is taken most of the way.
     private var unlock: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "lock.fill")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 52, height: 52)
-                .background(Circle().fill(Color.white.opacity(0.16)))
+        GeometryReader { frame in
+            let knob: CGFloat = 52
+            let travel = max(frame.size.width - knob - 12, 1)
 
-            Text("Hold to Unlock")
-                .font(.system(size: 20, weight: .medium))
-                .foregroundStyle(.secondary)
-            Spacer()
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.07))
+
+                Text("Unlock Controls")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .opacity(1 - Double(slid / travel))
+
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: knob, height: knob)
+                    .background(Circle().fill(Color.white.opacity(0.16)))
+                    .offset(x: 6 + slid)
+                    .gesture(
+                        DragGesture()
+                            .onChanged { slid = min(max(0, $0.translation.width), travel) }
+                            .onEnded { _ in
+                                if slid >= travel * 0.7 { locked = false }
+                                withAnimation(.snappy) { slid = 0 }
+                            }
+                    )
+            }
         }
-        .padding(6)
-        .frame(maxWidth: .infinity)
-        .background(Capsule().fill(Color.white.opacity(0.07)))
-        .contentShape(Capsule())
-        .onLongPressGesture(minimumDuration: 0.8) { locked = false }
+        .frame(height: 64)
     }
 
     /// Ending is behind the pause, as it is on Apple's own screen, and that answers two

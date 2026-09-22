@@ -129,7 +129,9 @@ moving. Nothing ends a running session in one tap.
 **The controls lock without pausing first.** A phone goes into a pocket mid-session and comes
 out having been tapped by a thigh, and what it must not have been tapped into is the next
 interval or the end of the recording. Locked, the figures keep going and the bar collapses to
-one pill that is **held** rather than tapped — which is the whole point of having locked it.
+one pill whose lock is **slid** rather than tapped — which is the whole point of having
+locked it, and slid rather than held because that is the gesture Apple's own lock uses and
+the one a hand already knows.
 It is reachable while running rather than only from the paused menu, because pausing in order
 to lock would cost the recording the seconds spent deciding to.
 
