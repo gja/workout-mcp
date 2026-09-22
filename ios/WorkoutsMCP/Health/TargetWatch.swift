@@ -93,7 +93,7 @@ struct TargetWatch {
     /// is running too fast. Same side, different sentence.
     private func phrase(for side: Side) -> String {
         switch (side, metric) {
-        case (.inside, _): return "back on target"
+        case (.inside, _): return "in range"
         case (.above, .speed): return "too fast"
         case (.below, .speed): return "too slow"
         case (.above, _): return "above target"

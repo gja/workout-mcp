@@ -51,9 +51,10 @@ plan, which has no step behind it to be due.
 
 **And it is said out loud.** *Now: Tempo. 4 minutes at target pace 4 minutes to 4 minutes 15
 per kilometre* as a step opens — no interval number, which is on the screen for anyone who wants
-it and is not what an athlete needs told at the moment a step changes — then "5 seconds left"
-before a timed step closes, and a call when a reading leaves the band it was given or comes back to
-it. `Health/RunVoice.swift` is Apple's synthesiser over an `AVAudioSession` that is
+it and is not what an athlete needs told at the moment a step changes — "Paused" and
+"Resumed", off the session's own state change rather than the button that asked for it —
+then "5 seconds left" before a timed step closes, and a call when a reading leaves the band it
+was given, or "in range" when it comes back to it. `Health/RunVoice.swift` is Apple's synthesiser over an `AVAudioSession` that is
 activated per utterance and released as soon as the last one finishes — held open, it would
 duck the music for the length of the run. `.duckOthers` turns music down;
 `.interruptSpokenAudioAndMixWithOthers` pauses a podcast instead, because a sentence under a
