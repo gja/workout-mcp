@@ -135,6 +135,18 @@ out of the session's metadata, so neither is worth waiting for.
 That is also why `PlanDuration` and `PlanTarget` are `Codable` rather than `Decodable`. They
 are never sent to the server; what reads them back is the copy a session keeps of itself.
 
+**The session is asked; the screen is told.** Every control calls the session and then waits
+to be called back: pause and resume are one button whose transition the session decides, a
+lap is refused unless the session says it is running, and what is drawn follows
+`sessionState`, which is mirrored from the delegate and written nowhere else. `RunPhase` is
+the **app's** lifecycle only — starting, live, saving, saved, failed — and deliberately has
+no running or paused in it.
+
+A screen that keeps its own copy of those ends up disagreeing with the session, because the
+copy is set when the button is pressed and the truth arrives a callback later. What that
+produced was a pause over a session already paused, answering *unable to perform 'pause'
+from current state 'Paused'* — one tap too many inside the window where only the screen knew.
+
 **A recovered session may be over rather than going.** `recoverActiveWorkoutSession` hands
 back one that has **ended** as readily as one that is running, and reading anything but
 `.paused` as running put a pause button over a finished recording — which answered *unable to

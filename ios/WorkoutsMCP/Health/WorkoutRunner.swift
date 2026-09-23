@@ -17,12 +17,17 @@ import CoreLocation
 import Foundation
 import HealthKit
 
-/// Where a recording has got to. `failed` carries what to put in front of the athlete,
-/// because every way this can go wrong happens while they are standing outside waiting.
+/// Where the **app** has got to with a recording — not where the recording has got to.
+/// Running and paused are the session's own business and are not repeated here: a screen
+/// that keeps its own copy of them ends up disagreeing with the session, and what that
+/// produced was a pause button over an already-paused session answering *unable to perform
+/// 'pause' from current state 'Paused'*. See `WorkoutRunner.sessionState`.
+///
+/// `failed` carries what to put in front of the athlete, because every way this can go wrong
+/// happens while they are standing outside waiting.
 enum RunPhase: Equatable {
     case starting
-    case running
-    case paused
+    case live
     case saving
     case saved
     case failed(String)
@@ -32,6 +37,16 @@ enum RunPhase: Equatable {
 @MainActor
 final class WorkoutRunner: NSObject, ObservableObject {
     @Published private(set) var phase: RunPhase = .starting
+
+    /// The session's own state, mirrored from its delegate so SwiftUI can see it — and
+    /// **written nowhere else**. Every control asks what the session may do rather than what
+    /// the screen last heard, and every screen follows from the callback that says it
+    /// happened. A button that changes the screen and then tells the session is a button that
+    /// can be pressed twice before the session has been told once.
+    @Published private(set) var sessionState: HKWorkoutSessionState = .notStarted
+
+    /// Paused is the session's answer, not a phase of this app's.
+    var isPaused: Bool { sessionState == .paused }
 
     /// Moving figures, and every one of them optional. A heart rate of zero, a pace of zero
     /// and a cadence of zero are what an absent strap, a cold GPS fix and a phone on a table
@@ -62,7 +77,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
 
     /// Whether there is a session to act on, which is what every control on the screen is
     /// enabled by and what decides whether a second `begin` would be starting anything.
-    var isRecording: Bool { phase == .running || phase == .paused }
+    var isRecording: Bool { phase == .live }
 
     /// Everything that follows from the session's own configuration, and therefore not `let`:
     /// a recovered session brings its own, and reading a ride with a run's quantity types
@@ -187,7 +202,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
             // Over rather than going: saving it is the only thing left, and the caller is
             // told it is not recording so no screen goes up over a session that has ended.
             if case .saving = phase { await end() }
-            return phase == .running || phase == .paused
+            return isRecording
         }
         if await resumeRecovered() { return true }
 
@@ -227,7 +242,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
             if case .failed(let why) = phase { return abandon(why) }
 
             follow()
-            phase = .running
+            phase = .live
             return true
         } catch {
             return abandon(error.localizedDescription)
@@ -281,14 +296,11 @@ final class WorkoutRunner: NSObject, ObservableObject {
         // 'pause' from current state 'Ended'". There is nothing to resume in one that is
         // over; there is only the saving it never got.
         switch recovered.state {
-        case .paused:
-            follow()
-            phase = .paused
         case .ended, .stopped:
             phase = .saving
         default:
             follow()
-            phase = .running
+            phase = .live
         }
     }
 
@@ -309,6 +321,9 @@ final class WorkoutRunner: NSObject, ObservableObject {
 
         self.session = session
         self.builder = builder
+        // Seeded here because adopting a session raises no callback: after this the delegate
+        // is the only thing that writes it.
+        sessionState = session.state
         if !indoors {
             route = HKWorkoutRouteBuilder(healthStore: HealthAccess.store, device: nil)
             startLocating()
@@ -330,12 +345,17 @@ final class WorkoutRunner: NSObject, ObservableObject {
 
     // --- While it runs ---------------------------------------------------------------------
 
-    func pause() {
-        session?.pause()
-    }
-
-    func resume() {
-        session?.resume()
+    /// One button, and what it does is the session's to decide. Asking a paused session to
+    /// pause is refused — *unable to perform 'pause' from current state 'Paused'* — and that
+    /// is exactly what a second tap did while the first was still on its way to the delegate,
+    /// because the screen was reading its own copy of the state rather than the session's.
+    func togglePause() {
+        guard let session else { return }
+        switch session.state {
+        case .running: session.pause()
+        case .paused: session.resume()
+        default: break
+        }
     }
 
     /// The lap press, and the reason the plan is here at all.
@@ -349,9 +369,10 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// on the screen and left there; advancing it on a timer is the workout engine docs/ios.md
     /// declines to write, and it would be wrong the first time somebody stopped at a junction.
     func nextInterval() {
-        // Running only. `beginNewActivity` on a paused session is the same shape of refusal
-        // as `endCurrentActivity` on one with nothing open, and that one failed a session.
-        guard phase == .running else { return }
+        // Running only, and the session is asked rather than the screen. `beginNewActivity`
+        // on a paused session is the same shape of refusal as `endCurrentActivity` on one
+        // with nothing open, and that one failed a session.
+        guard session?.state == .running else { return }
 
         interval += 1
         openInterval(at: Date())
@@ -537,7 +558,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
         // Judged only on the tick, and only once every figure above has been read: a drift
         // counted at the rate samples happen to land is a drift counted at no rate at all,
         // and the advance has to see the distance this second's fix brought in.
-        guard onTick, phase == .running else { return }
+        guard onTick, sessionState == .running else { return }
         advanceIfDue()
         countDown()
         callOutDrift()
@@ -718,19 +739,17 @@ extension WorkoutRunner: HKWorkoutSessionDelegate {
         Task { @MainActor in
             if toState == self.waitingFor { self.stopWaiting() }
 
-            // Said from here rather than from the buttons, so it is the session's own word
-            // for what happened. Resuming is announced only from a pause — every workout
-            // reaches `.running` when it starts, and it has just said what it is starting.
+            // The one place the session's state is written down, and the one place the
+            // screen learns it changed. Said from here rather than from the buttons for the
+            // same reason: it is the session's own word for what happened. Resuming is
+            // announced only from a pause — every workout reaches `.running` when it starts,
+            // and it has just said what it is starting.
+            self.sessionState = toState
+
             switch toState {
-            case .running:
-                self.phase = .running
-                if fromState == .paused { self.voice.say("Resumed.") }
-            case .paused:
-                self.phase = .paused
-                self.voice.say("Paused.")
-            // Ending is `end()`'s to report, and it has the save still to wait for.
-            default:
-                break
+            case .running where fromState == .paused: self.voice.say("Resumed.")
+            case .paused: self.voice.say("Paused.")
+            default: break
             }
         }
     }

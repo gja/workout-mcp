@@ -259,12 +259,10 @@ struct WorkoutView: View {
 
     @ViewBuilder
     private var status: some View {
-        switch runner.phase {
-        case .paused: Text("PAUSED").font(.caption.weight(.bold)).foregroundStyle(.yellow)
-        case .saving: Text("SAVING…").font(.caption.weight(.bold)).foregroundStyle(.secondary)
-        case .saved: Text("SAVED TO HEALTH").font(.caption.weight(.bold)).foregroundStyle(.secondary)
-        case .failed(let why): Text(why).font(.caption).foregroundStyle(.red)
-        case .starting, .running: EmptyView()
+        if runner.isPaused {
+            Text("PAUSED").font(.caption.weight(.bold)).foregroundStyle(.yellow)
+        } else if case .failed(let why) = runner.phase {
+            Text(why).font(.caption).foregroundStyle(.red)
         }
     }
 
@@ -359,20 +357,21 @@ struct WorkoutView: View {
                         .frame(width: 68, height: 68)
                         .background(Circle().stroke(Color.white.opacity(0.35), lineWidth: 2))
                 }
-                // Running only, like the lap it cuts: `beginNewActivity` on a paused session
-                // is refused the way `endCurrentActivity` on an empty one is.
-                .disabled(runner.phase != .running)
+                // Running only, like the lap it cuts, and the session's answer rather than
+                // this screen's: `beginNewActivity` on a paused session is refused the way
+                // `endCurrentActivity` on an empty one is.
+                .disabled(runner.sessionState != .running)
 
                 Spacer()
-                Button {
-                    if runner.phase == .paused { runner.resume() } else { runner.pause() }
-                } label: {
-                    Image(systemName: runner.phase == .paused ? "play.fill" : "pause.fill")
+                // One button either way: which transition it is belongs to the session, and
+                // what it looks like follows the state the session reported.
+                Button { runner.togglePause() } label: {
+                    Image(systemName: runner.isPaused ? "play.fill" : "pause.fill")
                         .font(.system(size: 32, weight: .bold))
-                        .foregroundStyle(runner.phase == .paused ? Color.yellow : .white)
+                        .foregroundStyle(runner.isPaused ? Color.yellow : .white)
                         .frame(width: 88, height: 88)
                         .background(Circle().fill(
-                            runner.phase == .paused ? Color.yellow.opacity(0.22) : Color.white.opacity(0.14)
+                            runner.isPaused ? Color.yellow.opacity(0.22) : Color.white.opacity(0.14)
                         ))
                 }
                 .disabled(!isLive)
@@ -437,7 +436,7 @@ struct WorkoutView: View {
     /// seconds anybody was moving. Nothing ends a running session in one tap.
     @ViewBuilder
     private var ending: some View {
-        if runner.phase == .paused {
+        if isLive, runner.isPaused {
             Button { Task { await finish() } } label: {
                 Label("End Workout", systemImage: "xmark")
                     .font(.system(size: 19, weight: .semibold))
@@ -483,7 +482,7 @@ struct WorkoutView: View {
     /// Whether there is a recording to act on. Nothing but **End Workout** leaves a live
     /// session: *Done* belongs to a session already in Health and appears nowhere else, which
     /// is what it cost to have it sitting over one that was still going.
-    private var isLive: Bool { runner.phase == .running || runner.phase == .paused }
+    private var isLive: Bool { runner.isRecording }
 
     private var saved: Bool {
         if case .saved = runner.phase { return true }
