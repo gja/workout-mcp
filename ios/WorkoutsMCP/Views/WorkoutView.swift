@@ -333,8 +333,13 @@ struct WorkoutView: View {
 
             if locked {
                 unlock
-            } else {
+            } else if isLive {
                 buttons
+                ending
+            } else {
+                // A lap, a pause and a lock are about a session that is going. Once one is
+                // saved there is one thing left to do with this screen, so it is the only
+                // thing on it.
                 ending
             }
         }
@@ -463,7 +468,7 @@ struct WorkoutView: View {
                     .font(.system(size: 17))
                     .foregroundStyle(.secondary)
             }
-        } else if done {
+        } else if saved {
             Button { dismiss() } label: {
                 Text("Done")
                     .font(.system(size: 19, weight: .semibold))
@@ -475,8 +480,9 @@ struct WorkoutView: View {
         }
     }
 
-    /// Whether there is a recording to act on. A saved or failed session still shows the bar,
-    /// so the one button that still means something is the one that gets out of here.
+    /// Whether there is a recording to act on. Nothing but **End Workout** leaves a live
+    /// session: *Done* belongs to a session already in Health and appears nowhere else, which
+    /// is what it cost to have it sitting over one that was still going.
     private var isLive: Bool { runner.phase == .running || runner.phase == .paused }
 
     private var saved: Bool {
@@ -490,12 +496,6 @@ struct WorkoutView: View {
     }
 
     private var failed: Bool {
-        if case .failed = runner.phase { return true }
-        return false
-    }
-
-    private var done: Bool {
-        if case .saved = runner.phase { return true }
         if case .failed = runner.phase { return true }
         return false
     }
