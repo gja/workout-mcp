@@ -327,6 +327,22 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// When the session said it ended, kept for `endCollection`.
     private var closedAt: Date?
 
+    /// How much of the builder's clock was spent paused.
+    ///
+    /// `HKLiveWorkoutBuilder.elapsedTime` is documented as *"the elapsed time for the workout
+    /// based on the builder's current contents, **including pauses**"* — so it keeps counting
+    /// through one. This app reads it only while running, which froze the figure on the
+    /// screen but did nothing about the gap: at the resume it picked up from a value that had
+    /// grown by the length of the pause, and the clock jumped. So the pause is measured on
+    /// the builder's own timeline and taken back off it.
+    private var pausedFor: TimeInterval = 0
+    private var pausedFrom: TimeInterval?
+
+    /// The builder's clock with the pauses taken out, which is what a workout clock means.
+    private var moving: TimeInterval { max(0, (builder?.elapsedTime ?? 0) - pausedFor) }
+
+
+
     // --- Starting, and picking up one that was lost ---------------------------------------
 
     /// One tap, and the first thing it does is look for a session already running.
@@ -721,6 +737,21 @@ final class WorkoutRunner: NSObject, ObservableObject {
         let was = sessionState
         sessionState = state
         problem = nil
+
+        // Measured on the builder's own clock, which runs through a pause, so that the total
+        // on the screen does not jump by the length of one at the resume.
+        switch state {
+        case .paused where pausedFrom == nil:
+            pausedFrom = builder?.elapsedTime
+        case .running:
+            if let from = pausedFrom {
+                pausedFor += max(0, (builder?.elapsedTime ?? from) - from)
+                pausedFrom = nil
+            }
+        default:
+            break
+        }
+
         // Every account, with where it landed and what had been asked for, because the
         // question this cannot answer from here is why the drift starts where it does — and
         // the answer is a sequence rather than any one moment in it.
@@ -802,7 +833,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
         // time the callback arrives — measuring the interval from the callback instead would
         // lose however long HealthKit took to answer out of the step's own seconds.
         advancingTo = advancing
-        openedFrom = (elapsed: builder?.elapsedTime ?? elapsed, metres: metres)
+        openedFrom = (elapsed: moving, metres: metres)
 
         opening = true
         openingBy?.cancel()
@@ -816,14 +847,14 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// needs the counting reset without a lap being cut: the laps it already has are in the
     /// session, and one more at the moment somebody reopened the app is not a lap they ran.
     private func rebase() {
-        // Off the builder rather than off the last figure read from it. `elapsedTime` is the
-        // clock with the pauses taken out — a step resumes where it was left and a pause of
-        // any length costs it nothing — whereas the cached copy is deliberately not read
-        // while paused, so baselining against it would hand the new step whatever second the
-        // screen last happened to see.
+        // Off `moving` rather than off the last figure read from it. `elapsedTime` counts
+        // *through* a pause — Apple's own wording is "including pauses", and the comment here
+        // used to claim the reverse — so what a step is measured against is that clock with
+        // the paused stretches taken back off. A step then resumes where it was left and a
+        // pause of any length costs it nothing.
         // Taken when the lap was cut where there is one, since that is when the activity
         // begins; `recovered` and the rest have none and read the builder here instead.
-        intervalFromElapsed = openedFrom?.elapsed ?? builder?.elapsedTime ?? elapsed
+        intervalFromElapsed = openedFrom?.elapsed ?? moving
         intervalFromMetres = openedFrom?.metres ?? metres
         openedFrom = nil
         powerSum = 0
@@ -1029,6 +1060,13 @@ final class WorkoutRunner: NSObject, ObservableObject {
         // one of them out loud, which is what a test walk got: *paused, resumed, paused,
         // resumed*, and a screen that ended up disagreeing with the session anyway. What the
         // batch actually says is where it leaves the session, so that is all it is asked.
+        // Only the last of a batch is news; the rest are history. The *type* is kept rather
+        // than just the state it implies, because the system pausing a workout by itself is
+        // not the same event as an athlete pausing it.
+        // Only the last of a batch is news; the rest are history. `.motionPaused` is the
+        // system pausing the workout rather than the athlete, and it is treated exactly as a
+        // pause, because a paused workout is a paused workout however it got there — and
+        // there is no API to stop it happening, only the choice of whether to say so.
         let settled = fresh.compactMap { event -> HKWorkoutSessionState? in
             switch event.type {
             case .pause, .motionPaused: return .paused
@@ -1061,7 +1099,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
         // Only while the session says it is running. A total that goes on counting under a
         // PAUSED line is the screen saying something the session is not doing — and whether
         // `elapsedTime` stops on its own is not something to take on trust.
-        if sessionState == .running { elapsed = builder.elapsedTime }
+        if sessionState == .running { elapsed = moving }
         intervalElapsed = max(0, elapsed - intervalFromElapsed)
 
         metres = builder.statistics(for: distanceType)?.sumQuantity()?.doubleValue(for: .meter())

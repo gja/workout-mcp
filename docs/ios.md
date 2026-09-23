@@ -136,7 +136,21 @@ app handled `.pause` and `.resume` and let the rest fall through a `default`, so
 automatic pause was dropped — a screen saying running over a session HealthKit had paused,
 which is the refusal chased through this whole branch. It explains a walk saved with
 `timer_s: 12` out of 78 seconds elapsed, and the `autopause_active` flag the server put on it.
-Any event type this app does not understand is now written to the log by name.
+It is now treated **exactly** as `.pause`, and `.motionResumed` as `.resume`: a paused workout
+is a paused workout however it got there. Any event type this app does not understand is
+written to the log by name.
+
+There is **no way to turn auto-pause off** — no property on the session, the configuration or
+the data source, and Apple documents it as the athlete's own setting rather than the app's
+(*Settings › General › Workout › Autopause*). Undoing each one by resuming was tried and
+backed out: an app fighting the system over whether a workout is running is worse than one
+that reports what it is.
+
+**The clock has the pauses taken out of it by hand.** `HKLiveWorkoutBuilder.elapsedTime` is
+documented as counting *"including pauses"*, so reading it only while running froze the figure
+on screen but did nothing about the gap — at the resume it picked up from a value that had
+grown by the length of the pause, and the total jumped. Each pause is measured on the
+builder's own clock and subtracted, which is also what a step is counted against.
 
 **`pauseOrResumeRequest` is answered nowhere.** Apple: *"the user can request a pause or resume
 by pressing both watch buttons."* It is a watch gesture, and this screen exists for the athlete
