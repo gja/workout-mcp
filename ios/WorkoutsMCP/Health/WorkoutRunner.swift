@@ -111,6 +111,10 @@ final class WorkoutRunner: NSObject, ObservableObject {
         .pause, .resume, .motionPaused, .motionResumed,
     ]
 
+    /// The two states a workout moves between while it is going, and the only two that can
+    /// arrive out of order and undo one another.
+    private static let live: Set<HKWorkoutSessionState> = [.running, .paused]
+
     private var waiting: CheckedContinuation<Void, Never>?
     private var waitingFor: HKWorkoutSessionState?
     private static let stateLimit = 10.0
@@ -744,9 +748,19 @@ final class WorkoutRunner: NSObject, ObservableObject {
 
     /// The one place `sessionState` is written.
     private func became(_ state: HKWorkoutSessionState, at: Date) {
-        // Late, and about a moment this screen has already moved past.
-        if let stateAt, at < stateAt {
-            SyncLog.record(.upload, "stale \(state.rawValue), \(Int(stateAt.timeIntervalSince(at)))s behind")
+        // **Only a pause and a resume are policed by date.** They are the pair that arrives
+        // down several paths at once and can undo each other; everything else —
+        // notStarted, prepared, running for the first time, stopped, ended — is a lifecycle
+        // that only goes one way, and holding one back on a timestamp from a different source
+        // is how this refused to start at all: `.running` was dropped for being a fraction of
+        // a second behind `.prepared`, which the delegate and the builder do not date alike.
+        let flapping = Self.live.contains(state) && Self.live.contains(sessionState)
+        if flapping, let stateAt, at < stateAt {
+            SyncLog.record(
+                .upload,
+                "stale \(state.rawValue) over \(sessionState.rawValue),"
+                    + " \(String(format: "%.2f", stateAt.timeIntervalSince(at)))s behind"
+            )
             return
         }
         // Moved **before** the no-change guard, not after. A word repeating the state on the

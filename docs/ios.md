@@ -161,13 +161,19 @@ one of them out loud.
 decides the athlete has stopped moving and there is no API to turn that off, so the line reads
 *AUTO PAUSED* rather than letting it look like somebody pressed the button.
 
-**A word older than the state on the screen is not news.** The same pause reaches this app
-down more than one path — the session's state change, the session's event, the builder's
-array — and they do not arrive in step. One path collapses a batch to its last event, another
-hands them over one at a time, so a stale `.pause` landing after a `.resume` has already been
-applied turns the screen round: it says paused over a running session, and the next press is
-refused for the opposite reason to the last one. Every state carries the date HealthKit gave
-it, and one dated before the state already on screen is logged and dropped.
+**A pause older than the one on the screen is not news.** The same pause reaches this app down
+more than one path — the session's state change, the session's event, the builder's array —
+and they do not arrive in step. One path collapses a batch to its last event, another hands
+them over one at a time, so a stale `.pause` landing after a `.resume` has already been applied
+turns the screen round: it says paused over a running session, and the next press is refused
+for the opposite reason to the last one. Every state carries the date HealthKit gave it, and an
+older one is logged and dropped.
+
+**Only the pause and the resume are policed that way.** They are the pair that can undo each
+other; everything else — `notStarted`, `prepared`, running for the first time, `stopped`,
+`ended` — is a lifecycle that goes one way, and the sources do not date alike. Guarding those
+too is how this refused to start at all: `.running` was dropped for arriving a fraction of a
+second behind `.prepared`, so the session never reached running and the start was abandoned.
 
 **`pauseOrResumeRequest` is answered nowhere.** Apple: *"the user can request a pause or resume
 by pressing both watch buttons."* It is a watch gesture, and this screen exists for the athlete
