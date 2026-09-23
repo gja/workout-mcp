@@ -72,12 +72,22 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// the resume after it can arrive the wrong way round.
     private enum Word {
         case state(HKWorkoutSessionState, Date)
-        case event(HKWorkoutEventType)
+        case event(HKWorkoutEventType, Date)
         case activityBegan
         case refused(String)
     }
     private let words = AsyncStream.makeStream(of: Word.self, bufferingPolicy: .unbounded)
     private var listening: Task<Void, Never>?
+
+    /// When the state on the screen happened, by HealthKit's own clock.
+    ///
+    /// The same pause reaches this app down more than one path — the session's state change,
+    /// the session's event, the builder's array — and they do not arrive in step. One path
+    /// collapses a batch to its last event, another hands them over one at a time, so a stale
+    /// `.pause` landing after a `.resume` has already been applied turns the screen round: it
+    /// says paused over a running session, and the next press is refused for the opposite
+    /// reason to the last one. A word older than the state on the screen is not news.
+    private var stateAt: Date?
 
     /// When the session said it stopped. `endCollection` uses it; a date read afterwards is a
     /// guess, and one a second late is refused with "workout activity did not occur".
@@ -519,7 +529,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
         eventsRead = events.count
 
         if let last = fresh.last(where: { Self.stateful.contains($0.type) }) {
-            words.continuation.yield(.event(last.type))
+            words.continuation.yield(.event(last.type, last.dateInterval.start))
         }
         for event in fresh where !Self.stateful.contains(event.type) {
             SyncLog.record(.upload, "event \(event.type.rawValue) ignored")
@@ -697,14 +707,14 @@ final class WorkoutRunner: NSObject, ObservableObject {
         case .state(let state, let date):
             if state == .ended || state == .stopped { stoppedAt = date }
             if state == waitingFor { stopWaiting() }
-            became(state)
+            became(state, at: date)
 
-        case .event(let type):
+        case .event(let type, let date):
             // `.motionPaused` is the system pausing the workout itself, and a paused workout is a
             // paused workout however it got there. There is no API to turn it off.
             switch type {
-            case .pause, .motionPaused: became(.paused)
-            case .resume, .motionResumed: became(.running)
+            case .pause, .motionPaused: became(.paused, at: date)
+            case .resume, .motionResumed: became(.running, at: date)
             // `.pauseOrResumeRequest` is answered nowhere: Apple documents it as the athlete
             // pressing both *watch* buttons, and this screen exists for the athlete with none.
             default: SyncLog.record(.upload, "event \(type.rawValue) ignored")
@@ -724,8 +734,15 @@ final class WorkoutRunner: NSObject, ObservableObject {
     }
 
     /// The one place `sessionState` is written.
-    private func became(_ state: HKWorkoutSessionState) {
+    private func became(_ state: HKWorkoutSessionState, at: Date) {
         guard state != sessionState else { return }
+        // Late, and about a moment this screen has already moved past.
+        if let stateAt, at < stateAt {
+            SyncLog.record(.upload, "stale \(state.rawValue), \(Int(stateAt.timeIntervalSince(at)))s behind")
+            return
+        }
+        stateAt = at
+
         let was = sessionState
         sessionState = state
         problem = nil
@@ -772,7 +789,7 @@ extension WorkoutRunner: HKWorkoutSessionDelegate {
     }
 
     nonisolated func workoutSession(_ workoutSession: HKWorkoutSession, didGenerate event: HKWorkoutEvent) {
-        words.continuation.yield(.event(event.type))
+        words.continuation.yield(.event(event.type, event.dateInterval.start))
     }
 
     /// The word for a lap being open. `beginNewActivity` is asynchronous, and until this arrives

@@ -157,6 +157,14 @@ says where the session is;
 the rest are history, and playing them one at a time flips the screen for each and says every
 one of them out loud.
 
+**A word older than the state on the screen is not news.** The same pause reaches this app
+down more than one path — the session's state change, the session's event, the builder's
+array — and they do not arrive in step. One path collapses a batch to its last event, another
+hands them over one at a time, so a stale `.pause` landing after a `.resume` has already been
+applied turns the screen round: it says paused over a running session, and the next press is
+refused for the opposite reason to the last one. Every state carries the date HealthKit gave
+it, and one dated before the state already on screen is logged and dropped.
+
 **`pauseOrResumeRequest` is answered nowhere.** Apple: *"the user can request a pause or resume
 by pressing both watch buttons."* It is a watch gesture, and this screen exists for the athlete
 with no watch. Unlike `.pause` and `.resume`, which are idempotent through `became`, it is an
