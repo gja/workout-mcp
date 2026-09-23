@@ -161,7 +161,9 @@ struct WorkoutView: View {
             Color.black.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 0) {
-                if saved {
+                if isSaving {
+                    saving
+                } else if saved {
                     summary
                 } else {
                     heading
@@ -169,7 +171,9 @@ struct WorkoutView: View {
                     readings
                 }
                 Spacer(minLength: 12)
-                controls
+                // Nothing to press while it is being written: the buttons are about a session
+                // that is still going, and this one is not any more.
+                if !isSaving { controls }
             }
             .padding(.horizontal, 22)
             .padding(.top, 8)
@@ -205,6 +209,21 @@ struct WorkoutView: View {
     private var title: String {
         if let step = runner.step { return step.title }
         return runner.steps.isEmpty ? (runner.workout?.name ?? "Recording") : "Workout complete"
+    }
+
+    /// Closing a builder and writing a session into Health takes a moment, and a moment with
+    /// nothing on the screen is a moment an athlete spends deciding whether it worked.
+    private var saving: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ProgressView().controlSize(.large).tint(.white)
+            Text("Saving to Health…")
+                .font(.system(size: 24, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+            Text("Keep the app open.")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// What it came to, once it is in Health. Shown rather than dismissed straight past,
@@ -422,6 +441,22 @@ struct WorkoutView: View {
                     .background(RoundedRectangle(cornerRadius: 28, style: .continuous)
                         .fill(Color.red.opacity(0.18)))
             }
+        } else if failed {
+            // A save that did not work is worth another go: the session is still there, and
+            // until this the only way to try again was to kill the app.
+            VStack(spacing: 10) {
+                Button { Task { await finish() } } label: {
+                    Label("Try again", systemImage: "arrow.clockwise")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity, minHeight: 56)
+                        .background(RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .fill(Color.yellow))
+                }
+                Button("Leave it") { dismiss() }
+                    .font(.system(size: 17))
+                    .foregroundStyle(.secondary)
+            }
         } else if done {
             Button { dismiss() } label: {
                 Text("Done")
@@ -431,8 +466,6 @@ struct WorkoutView: View {
                     .background(RoundedRectangle(cornerRadius: 28, style: .continuous)
                         .fill(Color.white.opacity(0.14)))
             }
-        } else if case .saving = runner.phase {
-            ProgressView().frame(minHeight: 56)
         }
     }
 
@@ -442,6 +475,16 @@ struct WorkoutView: View {
 
     private var saved: Bool {
         if case .saved = runner.phase { return true }
+        return false
+    }
+
+    private var isSaving: Bool {
+        if case .saving = runner.phase { return true }
+        return false
+    }
+
+    private var failed: Bool {
+        if case .failed = runner.phase { return true }
         return false
     }
 

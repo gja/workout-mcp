@@ -401,6 +401,10 @@ final class WorkoutRunner: NSObject, ObservableObject {
             return
         }
 
+        // Not a guarantee. `wait(for:)` gives up after its limit and lets this go on rather
+        // than hanging for ever, so the state is read again rather than assumed — and what
+        // follows is attempted either way, since a save that might work beats one that is
+        // not tried.
         // A session that has already ended is not ended again: "unable to end a workout that
         // is not currently active" is what that costs, and what is left to do — closing the
         // builder and saving — is the same either way.
@@ -433,6 +437,9 @@ final class WorkoutRunner: NSObject, ObservableObject {
             Underway.clear()
             phase = .saved
         } catch {
+            // Written down, because the one failure that matters most is the one an athlete
+            // reads once on a screen they then close. See Settings › Sync log.
+            SyncLog.record(.upload, "could not save the session: \(SyncLog.describe(error))")
             phase = .failed(error.localizedDescription)
         }
     }
