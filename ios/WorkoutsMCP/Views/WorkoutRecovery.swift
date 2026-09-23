@@ -73,13 +73,13 @@ private struct Offer: ViewModifier {
     private func carryOn() async {
         guard let made = await adopted() else { return }
 
-        if made.isRecording || await made.begin() {
-            continuing = true
+        guard await recording(made) else {
+            // Not recording after all: HealthKit hands back a session that has ended as
+            // readily as one going, and `begin` saves that rather than screening it.
+            await settle(made)
             return
         }
-        // Not recording after all: HealthKit hands back a session that has ended as readily
-        // as one that is going, and `begin` saves that rather than putting a screen over it.
-        await settle(made)
+        continuing = true
     }
 
     /// Ended without ever opening the screen, and uploaded on the terms every other session
@@ -89,8 +89,17 @@ private struct Offer: ViewModifier {
 
         // Only where it is still going: one that had already ended was saved by `begin`, and
         // ending it a second time is a finished builder being asked to finish again.
-        if made.isRecording || await made.begin() { await made.end() }
+        if await recording(made) { await made.end() }
         await settle(made)
+    }
+
+    /// Whether there is a session under this runner to act on, beginning it only where there
+    /// is not — beginning one already recording would adopt the session a second time. Not
+    /// `isRecording || begin()`: `||` takes its right side as an autoclosure, and an
+    /// autoclosure cannot await.
+    private func recording(_ made: WorkoutRunner) async -> Bool {
+        if made.isRecording { return true }
+        return await made.begin()
     }
 
     /// **One** runner for the session, however many times this offer is answered. A second
