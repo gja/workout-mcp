@@ -288,19 +288,23 @@ first tick and advances itself, which put a resumed session straight onto interv
 interval the athlete was on is not recoverable: it lived in the process that went away, and
 the screen says one.
 
-**It is behind a compile-time switch.** `ON_PHONE_RECORDING` is in
-`SWIFT_ACTIVE_COMPILATION_CONDITIONS` for **Debug** and not Release, so a local build has it
-and a TestFlight archive does not. Six files are inside it whole — `WorkoutRunner`,
+**It is behind a compile-time switch, and the switch is now on in both builds.**
+`ON_PHONE_RECORDING` is in `SWIFT_ACTIVE_COMPILATION_CONDITIONS` for Debug and Release alike,
+so a TestFlight archive carries the recorder. It was Debug-only while the pause was being
+chased through HealthKit's several disagreeing accounts of a session's state; it went to
+Release once a real outdoor walk came back whole — laps matched to their steps with real
+distances, cadence recorded, and the session's moving time within two seconds of its elapsed
+time.
+
+The switch stays rather than being deleted, because it is what makes the feature removable
+from a build without unpicking it. Six files are inside it whole — `WorkoutRunner`,
 `RunVoice`, `TargetWatch`, `WorkoutView`, `RunSteps`, `Spoken` — and what is left in the
 shared files is the start button, the cover's contents, the Settings toggle and
-`HealthAccess.shareTypes`, with no share types meaning the build never asks to write to
-Health, the only part an athlete would otherwise see. `HealthAccess.recordedKey` is
-deliberately **not** switched out: three lines, so a session recorded by a local build still
-uploads from an archive installed over it.
-
-The cost is that a Release build does not compile the recorder, so nothing catches a break in
-it but a Debug build — and CI compiles no Swift at all. `Info.plist` is outside the switch:
-`audio` and `location` are declared in both and inert where nothing asks for them.
+`HealthAccess.shareTypes`, with no share types meaning a build without it never asks to write
+to Health, the only part an athlete would otherwise see. `HealthAccess.recordedKey` is
+deliberately **not** switched out: three lines, so a session recorded by a build that has the
+recorder still uploads from one that does not. `Info.plist` is outside the switch too:
+`audio` and `location` are declared either way and inert where nothing asks for them.
 
 **It is iOS 26 and above.** The deployment target stays at 18, and `Sports.isRecordable` plus
 one `#available` keep the button off a phone with no session to start. Health authorization
