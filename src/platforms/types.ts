@@ -1,7 +1,7 @@
 // What a training platform has to be able to do. Adapters are stateless — handed
 // the athlete's OAuth access token on every call, storing nothing. See docs/architecture.md.
 
-import type { Sport, Workout } from '../workout';
+import type { Sport, Workout, WorkoutInput } from '../workout';
 
 export type PlatformId = 'intervals';
 
@@ -26,6 +26,22 @@ export type Completion = {
   completed_at: string;
   activity: Recording | null;
   comment: string | null;
+};
+
+/**
+ * A workout planned on the platform, in our own shape.
+ *
+ * The adapter does the translating, as it does on the way out, but the plan is still put
+ * through `parseWorkout` before it is stored: one set of rules, whoever wrote it.
+ *
+ * `external_id` is the key the event carries upstream, which is the workout id we pushed
+ * it under when the event is one of ours — and so the first thing that says not to read
+ * it back in.
+ */
+export type PlannedWorkout = {
+  remote_id: string;
+  external_id: string | null;
+  plan: WorkoutInput;
 };
 
 /** A session the athlete recorded on the platform, theirs entirely — we never pushed it. */
@@ -76,6 +92,15 @@ export type Platform = {
 
   /** Sessions the platform has matched to the workouts we pushed, by date. */
   completions(token: string, from: string, to: string): Promise<Completion[]>;
+
+  /**
+   * What the athlete has planned on the platform, by date, ours included — telling
+   * those apart is the sync layer's job, since only it knows what we pushed.
+   *
+   * Optional: a platform with no calendar of its own never offers it, and the switch
+   * the athlete turns on is only shown where it is offered.
+   */
+  planned?(token: string, from: string, to: string): Promise<PlannedWorkout[]>;
 
   /** Hand the token back, so a disconnect here releases the grant there. */
   revoke?(token: string): Promise<void>;

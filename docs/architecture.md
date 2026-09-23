@@ -9,6 +9,7 @@ src/describe.ts         human-readable rendering, shared by MCP and the dashboar
 src/db.ts               D1 queries, the readable window and the per-athlete cap
 src/plan.ts             every write to the plan, and the platforms it tells
 src/platforms/          training platforms: the interface, the store, intervals.icu
+                        and their own plan format, which is how one comes back
 src/drive/              a scheduled copier, no routes of its own
 src/recordings/         those same sessions as one signed, streaming ZIP download
 src/identity.ts         signing in with Google or Apple
@@ -48,6 +49,11 @@ arrived over REST or MCP — reading the row a write is about, carrying the comp
 across it, and knowing the day a workout has left so its platform link can follow, all
 live there once, and each caller only shapes the error. It is also the one place the
 connected platforms hear about a change.
+
+The two writes that do not come through it are the two that came *off* a platform: a
+completion read back, and a workout copied off its calendar. Both go straight to
+`src/db.ts`, for the same reason — going through the door would announce the change
+back to the platform it arrived from. See [integrations.md](integrations.md).
 
 ## Layering
 

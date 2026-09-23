@@ -11,9 +11,14 @@ export type Connection = {
   platform: PlatformId;
   account: string | null;
   last_error: string | null;
+  /** Whether what is planned on the platform is copied in. Off unless they asked. */
+  import_plan: boolean;
   created_at: string;
   updated_at: string;
 };
+
+/** A connection ready to be worked, as the scheduled passes take them. */
+export type Usable = { user_id: string; token: string | null; import_plan: boolean };
 
 export class CredentialsUnavailable extends Error {
   constructor() {
@@ -64,7 +69,7 @@ export async function decryptSecret(env: Env, stored: string): Promise<string | 
 
 // --- Connections -----------------------------------------------------------
 
-const CONNECTION_COLUMNS = ['platform', 'account', 'last_error', 'created_at', 'updated_at'] as const;
+const CONNECTION_COLUMNS = ['platform', 'account', 'last_error', 'import_plan', 'created_at', 'updated_at'] as const;
 
 /** Re-authorizing replaces the token, so a fresh grant lands on the same row. */
 export async function saveConnection(
@@ -86,10 +91,13 @@ export async function saveConnection(
         account: account.name ?? account.id,
         account_id: account.id,
         last_error: null,
+        import_plan: 0,
         created_at: now,
         updated_at: now,
       })
-      // A fresh grant clears the last failure: it was the old token's.
+      // A fresh grant clears the last failure: it was the old token's. `import_plan` is
+      // left out of the update on purpose — reconnecting renews a token, and is not a
+      // withdrawal of what the athlete asked this connection to do.
       .onConflict((clash) =>
         clash.columns(['user_id', 'platform']).doUpdateSet((eb) => ({
           secret: eb.ref('excluded.secret'),
@@ -103,34 +111,53 @@ export async function saveConnection(
 }
 
 export async function listConnections(env: Env, userId: string): Promise<Connection[]> {
-  return all(
+  const rows = await all(
     env,
     qb
       .selectFrom('platform_connections')
       .select([...CONNECTION_COLUMNS])
       .where('user_id', '=', userId)
       .orderBy('platform'),
-  ) as Promise<Connection[]>;
+  );
+  return rows.map((row) => ({ ...row, platform: row.platform as PlatformId, import_plan: row.import_plan === 1 }));
+}
+
+/** Whether what is planned on the platform is copied in. False where nothing was updated. */
+export async function setImportPlan(
+  env: Env,
+  userId: string,
+  platform: PlatformId,
+  enabled: boolean,
+): Promise<boolean> {
+  const written = await changes(
+    env,
+    qb
+      .updateTable('platform_connections')
+      .set({ import_plan: enabled ? 1 : 0, updated_at: new Date().toISOString() })
+      .where('user_id', '=', userId)
+      .where('platform', '=', platform),
+  );
+  return written > 0;
 }
 
 /** Least recently visited first, which is what makes consecutive sweeps work round. */
-export async function connectionBatch(
-  env: Env,
-  platform: PlatformId,
-  limit: number,
-): Promise<Array<{ user_id: string; token: string | null }>> {
+export async function connectionBatch(env: Env, platform: PlatformId, limit: number): Promise<Usable[]> {
   const rows = await all(
     env,
     qb
       .selectFrom('platform_connections')
-      .select(['user_id', 'secret'])
+      .select(['user_id', 'secret', 'import_plan'])
       .where('platform', '=', platform)
       .orderBy('updated_at')
       .limit(limit),
   );
 
   return Promise.all(
-    rows.map(async (row) => ({ user_id: row.user_id, token: await decryptSecret(env, row.secret) })),
+    rows.map(async (row) => ({
+      user_id: row.user_id,
+      token: await decryptSecret(env, row.secret),
+      import_plan: row.import_plan === 1,
+    })),
   );
 }
 
@@ -190,6 +217,19 @@ export async function credentialFor(env: Env, userId: string, platform: Platform
   return row ? decryptSecret(env, row.secret) : null;
 }
 
+/** Whether this connection copies in what is planned on the platform. */
+export async function importsPlanned(env: Env, userId: string, platform: PlatformId): Promise<boolean> {
+  const row = await one(
+    env,
+    qb
+      .selectFrom('platform_connections')
+      .select('import_plan')
+      .where('user_id', '=', userId)
+      .where('platform', '=', platform),
+  );
+  return row?.import_plan === 1;
+}
+
 /** Connections with their tokens already decrypted; unreadable ones drop out. */
 export async function usableConnections(
   env: Env,
@@ -240,10 +280,15 @@ export async function forgetConnection(env: Env, userId: string, platform: Platf
 
 // --- Links -----------------------------------------------------------------
 
+/** Which side the event behind a link came from. See the migration. */
+export type LinkSource = 'local' | 'platform';
+
 export type Link = {
   date: string;
   workout_id: string;
   remote_id: string;
+  /** `platform` where the workout was copied off their calendar rather than pushed to it. */
+  source: LinkSource;
   /** A digest of the plan as it was last pushed. See the migration. */
   fingerprint: string;
   /** The completion already read back off the platform and applied. */
@@ -260,6 +305,7 @@ const LINK_COLUMNS = [
   'fingerprint',
   'applied_completion',
   'applied_comment',
+  'source',
   'synced_at',
 ] as const;
 
@@ -269,7 +315,9 @@ const scopedLinks = (userId: string, platform: PlatformId) =>
     .selectFrom('platform_links')
     .select([...LINK_COLUMNS])
     .where('user_id', '=', userId)
-    .where('platform', '=', platform);
+    .where('platform', '=', platform)
+    // `source` is a column of two spellings, which the schema knows only as TEXT.
+    .$castTo<Link>();
 
 /** Leaves the applied columns alone: re-pushing the plan neither changes nor un-does them. */
 export async function saveLink(
@@ -280,6 +328,7 @@ export async function saveLink(
   workoutId: string,
   remoteId: string,
   fingerprint: string,
+  source: LinkSource = 'local',
 ): Promise<void> {
   await run(
     env,
@@ -294,12 +343,14 @@ export async function saveLink(
         fingerprint,
         applied_completion: null,
         applied_comment: null,
+        source,
         synced_at: new Date().toISOString(),
       })
       .onConflict((clash) =>
         clash.columns(['user_id', 'platform', 'date', 'workout_id']).doUpdateSet((eb) => ({
           remote_id: eb.ref('excluded.remote_id'),
           fingerprint: eb.ref('excluded.fingerprint'),
+          source: eb.ref('excluded.source'),
           synced_at: eb.ref('excluded.synced_at'),
         })),
       ),
@@ -415,16 +466,25 @@ export async function recordAppliedComment(
   );
 }
 
-export async function countLinks(env: Env, userId: string, platform: PlatformId): Promise<number> {
+/** What the dashboard reports: everything tracked, and how much of it came from there. */
+export async function countLinks(
+  env: Env,
+  userId: string,
+  platform: PlatformId,
+): Promise<{ synced: number; imported: number }> {
   const row = await one(
     env,
     qb
       .selectFrom('platform_links')
-      .select((eb) => eb.fn.countAll<number>().as('n'))
+      .select((eb) => [
+        eb.fn.countAll<number>().as('n'),
+        // One read rather than two: the same rows, counted twice over.
+        eb.fn.count<number>(eb.case().when('source', '=', 'platform').then(1).end()).as('inbound'),
+      ])
       .where('user_id', '=', userId)
       .where('platform', '=', platform),
   );
-  return row?.n ?? 0;
+  return { synced: row?.n ?? 0, imported: row?.inbound ?? 0 };
 }
 
 // Outside the window only: inside it, a link with no workout is a delete `syncNow` still owes.

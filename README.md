@@ -103,8 +103,9 @@ and how sessions and `wk_` API tokens are stored.
 ### [docs/integrations.md](docs/integrations.md)
 
 Training platforms, of which intervals.icu is the first. Connecting by OAuth, why the token
-is encrypted rather than hashed, and the sync semantics: upserts on a stable key, a
-platform failure never failing your write, and completions by webhook.
+is encrypted rather than hashed, and the sync semantics both ways: upserts on a stable key,
+a failure there never failing your write, completions by webhook, and reading their
+calendar back.
 
 ### [docs/recordings.md](docs/recordings.md)
 

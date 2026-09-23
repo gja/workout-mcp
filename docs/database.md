@@ -100,8 +100,8 @@ a rewrite carries across.
 | `sessions` | Session id hashes |
 | `tokens` | API token hashes and their prefixes |
 | `login_states` | In-flight sign-ins, single use, ten minutes |
-| `platform_connections` | An encrypted platform credential and its standing error |
-| `platform_links` | Where a workout lives upstream, its fingerprint, the completion applied |
+| `platform_connections` | An encrypted platform credential, its standing error, and whether what is planned there is copied in |
+| `platform_links` | Where a workout lives upstream, its fingerprint, the completion applied, and which side the event came from |
 | `drive_connections` | Where the copier puts an athlete's recorded sessions |
 | `drive_copies` | One row per session copied, so it is never copied twice |
 

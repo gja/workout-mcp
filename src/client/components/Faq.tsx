@@ -117,7 +117,9 @@ export function Faq() {
               intervals.icu
             </a>{' '}
             is the calendar and the analysis. Planned sessions land on it, recorded ones come back, and your
-            thresholds live there so a target written as "threshold" means the right number for you today.
+            thresholds live there so a target written as "threshold" means the right number for you today. If you
+            or a coach plan sessions on it as well, <strong>Import planned workouts</strong> in Setup copies those
+            here so Claude plans around them.
           </p>
           <p className="note">
             <a href="https://www.watchletic.com" target="_blank" rel="noreferrer">

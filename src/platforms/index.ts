@@ -6,10 +6,21 @@ import type { Env, User } from '../db';
 import { intervalsConfigured } from '../identity';
 import { MAX_RECORDING_BYTES, statsFrom, statsUnreadable } from '../stats';
 import type { StatsSummary } from '../stats';
-import type { Workout } from '../workout';
+import { shiftDate, today } from '../units';
+import { parseWorkout } from '../workout';
+import type { Workout, WorkoutInput } from '../workout';
 import { intervals } from './intervals';
 import * as store from './store';
-import type { Account, Completion, Platform, PlatformId, Recorded, RecordedFile, Recording } from './types';
+import type {
+  Account,
+  Completion,
+  Platform,
+  PlatformId,
+  PlannedWorkout,
+  Recorded,
+  RecordedFile,
+  Recording,
+} from './types';
 import { PlatformError } from './types';
 
 export { CredentialsUnavailable, credentialsConfigured } from './store';
@@ -28,8 +39,14 @@ export const PUSH_LIMIT = 40;
 /** The upsert key upstream: the workout's own id, so an edit or a move cannot change it. */
 const syncKey = (workout: Pick<Workout, 'id'>): string => workout.id;
 
+/** Our key for a workout copied in, so the same event lands on the same row every pass. */
+const importKey = (platformId: PlatformId, remoteId: string): string => `${platformId}:${remoteId}`;
+
+/** The plan, as both directions compare it: what is stale here, and what changed there. */
+type Planned = Pick<Workout, 'date' | 'name' | 'sport' | 'sub_sport' | 'notes' | 'tags' | 'steps'>;
+
 // Decides what is stale. Not `updated_at`: a completion read back off a platform bumps that.
-const fingerprint = (workout: Workout): Promise<string> =>
+const fingerprint = (workout: Planned): Promise<string> =>
   sha256(
     JSON.stringify([
       workout.date,
@@ -91,10 +108,19 @@ export type PlatformStatus = {
   account: string | null;
   /** Whether this deployment was given the platform's OAuth client at all. */
   oauth: boolean;
+  /** Whether the platform can say what is planned on it, and so offer the switch below. */
+  imports: boolean;
+  /** Whether the athlete asked for what is planned there to be copied in. Off by default. */
+  import_plan: boolean;
   last_error: string | null;
   synced: number;
+  /** How many of those workouts came from there rather than went to it. */
+  imported: number;
   updated_at: string | null;
 };
+
+/** Whether a platform can hand back what is planned on it at all. */
+export const offersPlanImport = (platformId: PlatformId): boolean => PLATFORMS[platformId].planned !== undefined;
 
 // Here rather than on the adapter: whether this deployment was given the platform's
 // OAuth client is not the adapter's business.
@@ -110,6 +136,9 @@ export async function status(env: Env, user: User): Promise<PlatformStatus[]> {
   return Promise.all(
     Object.values(PLATFORMS).map(async (platform) => {
       const connection = connections.get(platform.id);
+      const links = connection
+        ? await store.countLinks(env, user.id, platform.id)
+        : { synced: 0, imported: 0 };
       return {
         id: platform.id,
         label: platform.label,
@@ -118,8 +147,11 @@ export async function status(env: Env, user: User): Promise<PlatformStatus[]> {
         connected: connection !== undefined,
         account: connection?.account ?? null,
         oauth: oauthOnOffer(env, platform.id),
+        imports: offersPlanImport(platform.id),
+        import_plan: connection?.import_plan ?? false,
         last_error: connection?.last_error ?? null,
-        synced: connection ? await store.countLinks(env, user.id, platform.id) : 0,
+        synced: links.synced,
+        imported: links.imported,
         updated_at: connection?.updated_at ?? null,
       };
     }),
@@ -166,6 +198,10 @@ export async function onWorkoutSaved(
     for (const { platform: platformId, token } of await store.usableConnections(env, user.id)) {
       const platform = PLATFORMS[platformId];
       if (!platform) continue;
+      // A workout copied off their calendar is not pushed back at it: the event is
+      // theirs, and ours would be a second one beside it. See docs/integrations.md.
+      const link = await store.findLink(env, user.id, platformId, workout.date, workout.id);
+      if (link?.source === 'platform') continue;
       try {
         await pushOne(env, user.id, platform, token, workout);
       } catch (err) {
@@ -229,12 +265,22 @@ export type SyncReport = {
   removed: number;
   remaining: number;
   completed: number;
+  /** Copied off their calendar, where the athlete asked for that. */
+  imported: number;
   error: string | null;
 };
 
 /** Bring a platform back into step, and read completions back. See docs/integrations.md. */
 export async function syncNow(env: Env, user: User, platformId: PlatformId): Promise<SyncReport> {
-  const report: SyncReport = { platform: platformId, pushed: 0, removed: 0, remaining: 0, completed: 0, error: null };
+  const report: SyncReport = {
+    platform: platformId,
+    pushed: 0,
+    removed: 0,
+    remaining: 0,
+    completed: 0,
+    imported: 0,
+    error: null,
+  };
 
   try {
     const token = await store.credentialFor(env, user.id, platformId);
@@ -249,15 +295,19 @@ export async function syncNow(env: Env, user: User, platformId: PlatformId): Pro
     const links = await store.listLinks(env, user.id, platformId);
     const stored = new Set(workouts.map((workout) => `${workout.date}/${workout.id}`));
 
-    // A link naming no workout, inside the window, is a delete that never landed.
+    // A link naming no workout, inside the window, is a delete that never landed — unless
+    // the event is theirs, where the link is instead how a workout deleted here is
+    // remembered as one not to copy back in.
     const window = db.retentionWindow();
     const abandoned = [...links.entries()]
-      .filter(([keyed, link]) => !stored.has(keyed) && link.date >= window.from && link.date <= window.to)
+      .filter(([keyed, link]) => !stored.has(keyed) && link.source === 'local')
+      .filter(([, link]) => link.date >= window.from && link.date <= window.to)
       .map(([, link]) => link);
 
     const stale: Workout[] = [];
     for (const workout of workouts) {
       const link = links.get(`${workout.date}/${workout.id}`);
+      if (link?.source === 'platform') continue;
       if (!link || link.fingerprint !== (await fingerprint(workout))) stale.push(workout);
     }
 
@@ -278,16 +328,154 @@ export async function syncNow(env: Env, user: User, platformId: PlatformId): Pro
     }
     report.remaining = abandoned.length - report.removed + (stale.length - report.pushed);
 
+    // Before the completions, so a workout copied in today is ticked off in the same run
+    // if they have already done it.
+    if (await store.importsPlanned(env, user.id, platformId)) {
+      const run = await importPlanned(env, user.id, platformId, token);
+      report.imported = run.imported;
+      report.error = run.error;
+    }
+
     // No stats budget: a person is waiting on this one, and a recording is a download
     // and a FIT decode. The webhook and the hourly pass read them instead.
     report.completed = await applyCompletions(env, user.id, platformId, token, { left: 0 });
     // The only place a standing error is cleared, and only with nothing left queued.
-    await store.recordSyncError(env, user.id, platformId, report.remaining > 0 ? `${report.remaining} left to sync` : null);
+    const outstanding = report.error ?? (report.remaining > 0 ? `${report.remaining} left to sync` : null);
+    await store.recordSyncError(env, user.id, platformId, outstanding);
   } catch (err) {
     report.error = message(err);
     await store.recordSyncError(env, user.id, platformId, report.error);
   }
   return report;
+}
+
+// --- What is planned there, copied in ---------------------------------------
+
+export type ImportReport = {
+  imported: number;
+  /** Events their calendar offered that could not be stored; `error` says why the first was. */
+  skipped: number;
+  error: string | null;
+};
+
+const noneImported = (error: string | null = null): ImportReport => ({ imported: 0, skipped: 0, error });
+
+/**
+ * How far of their calendar is read: the fortnight ahead, which is what this keeps, plus
+ * a day behind. Theirs is keyed on the athlete's local day and ours on UTC, so a workout
+ * planned for their today is not going to be skipped for being yesterday.
+ */
+const importWindow = (now: Date = new Date()): { from: string; to: string } => ({
+  from: shiftDate(today(now), -db.READ_SLACK_DAYS),
+  to: db.retentionWindow(now).to,
+});
+
+/**
+ * One workout off their calendar, written straight to the database — not through
+ * `src/plan.ts`, for the reason a completion is not: it came from the platform, so it
+ * must not be pushed straight back out at it. The link is what says so afterwards.
+ *
+ * False where there was nothing to do, which is the steady state: an event we already
+ * hold, unchanged since we read it.
+ */
+async function importOne(
+  env: Env,
+  userId: string,
+  platformId: PlatformId,
+  event: PlannedWorkout,
+  link: store.Link | undefined,
+  existing: Workout | undefined,
+): Promise<boolean> {
+  // Their plan meets the rules a caller's would: one set, whoever wrote it.
+  const input: WorkoutInput = parseWorkout({ ...event.plan, external_id: importKey(platformId, event.remote_id) });
+  const print = await fingerprint(input);
+
+  // Unchanged upstream. An edit made here stands until it changes there: their calendar
+  // is what an imported workout follows, and only news from it is news.
+  if (link?.fingerprint === print) return false;
+  // A session was recorded against this one, so the plan it was run to is the plan.
+  if (existing?.completed_at) return false;
+
+  const workout = await db.putWorkout(env, userId, input, existing?.id);
+  if (existing && existing.date !== workout.date) {
+    await store.moveLinks(env, userId, { date: existing.date, id: existing.id }, { date: workout.date, id: workout.id });
+  }
+  await store.saveLink(env, userId, platformId, workout.date, workout.id, event.remote_id, print, 'platform');
+  return true;
+}
+
+/**
+ * Everything planned on the platform and not by us, copied in. One outbound call and two
+ * reads for the whole window, however many workouts are in it. See docs/integrations.md.
+ */
+async function importPlanned(
+  env: Env,
+  userId: string,
+  platformId: PlatformId,
+  token: string,
+): Promise<ImportReport> {
+  const platform = PLATFORMS[platformId];
+  if (!platform.planned) return noneImported();
+
+  const window = importWindow();
+  const planned = await platform.planned(token, window.from, window.to);
+  if (planned.length === 0) return noneImported();
+
+  // Both sides, read once: what is here, and what we have already pushed or copied.
+  const workouts = await db.listWorkouts(env, userId);
+  const links = await store.listLinks(env, userId, platformId);
+  const byRemote = new Map([...links.values()].map((link) => [link.remote_id, link]));
+  const byId = new Map(workouts.map((workout) => [workout.id, workout]));
+  const byKey = new Map(
+    workouts.filter((workout) => workout.external_id).map((workout) => [workout.external_id as string, workout]),
+  );
+
+  const report = noneImported();
+  for (const event of planned) {
+    const link = byRemote.get(event.remote_id);
+    // Ours, either way it can be told: the key we pushed it under, or the link saying so.
+    if (link?.source === 'local' || (event.external_id && byId.has(event.external_id))) continue;
+
+    const existing = byKey.get(importKey(platformId, event.remote_id));
+    // A link naming no workout is one deleted here: deleting it is not asking for it back.
+    if (link && !existing) continue;
+
+    try {
+      if (await importOne(env, userId, platformId, event, link, existing)) report.imported += 1;
+    } catch (err) {
+      // Per workout: one their calendar describes in a way this cannot store must not
+      // cost the rest of the week.
+      report.skipped += 1;
+      report.error ??= message(err);
+      console.error(`importing ${platformId} event ${event.remote_id} failed: ${message(err)}`, err);
+    }
+  }
+  return report;
+}
+
+/**
+ * Turn the import on or off. Turning it on reads their calendar there and then, so the
+ * fortnight ahead is here by the time the answer is, rather than within the hour. Null
+ * where there is no such connection to set it on.
+ */
+export async function setPlanImport(
+  env: Env,
+  user: User,
+  platformId: PlatformId,
+  enabled: boolean,
+): Promise<ImportReport | null> {
+  if (!(await store.setImportPlan(env, user.id, platformId, enabled))) return null;
+  if (!enabled) return noneImported();
+
+  const token = await store.credentialFor(env, user.id, platformId);
+  if (!token) return noneImported('no usable credential for this platform; connect it again');
+
+  try {
+    return await importPlanned(env, user.id, platformId, token);
+  } catch (err) {
+    await store.recordSyncError(env, user.id, platformId, message(err));
+    return noneImported(message(err));
+  }
 }
 
 // --- Completions coming back -----------------------------------------------
@@ -528,9 +716,10 @@ export async function onAccountActivity(
 export const PULL_BATCH = 40;
 
 /** The hourly pass. Errors are per-athlete, and every connection visited is stamped. */
-export async function pullEveryCompletion(env: Env): Promise<number> {
+export async function pullEveryCompletion(env: Env): Promise<{ marked: number; imported: number }> {
   const budget: Budget = { left: STATS_LIMIT };
-  let marked = 0;
+  const total = { marked: 0, imported: 0 };
+
   for (const platformId of Object.keys(PLATFORMS) as PlatformId[]) {
     for (const connection of await store.connectionBatch(env, platformId, PULL_BATCH)) {
       if (!connection.token) {
@@ -542,14 +731,29 @@ export async function pullEveryCompletion(env: Env): Promise<number> {
         );
         continue;
       }
+
+      // Their calendar first, so a session planned there and already done comes back
+      // done on the same pass.
+      if (connection.import_plan) {
+        try {
+          const run = await importPlanned(env, connection.user_id, platformId, connection.token);
+          total.imported += run.imported;
+          if (run.error) await store.recordSyncError(env, connection.user_id, platformId, run.error);
+        } catch (err) {
+          // Never the completions' problem: a calendar we could not read is not a
+          // session that did not happen.
+          await store.recordSyncError(env, connection.user_id, platformId, message(err));
+        }
+      }
+
       try {
-        marked += await applyCompletions(env, connection.user_id, platformId, connection.token, budget);
+        total.marked += await applyCompletions(env, connection.user_id, platformId, connection.token, budget);
       } catch (err) {
         await store.recordSyncError(env, connection.user_id, platformId, message(err));
       }
     }
   }
-  return marked;
+  return total;
 }
 
 /** Drop links to workouts gone for good. Outside the window only; inside, `syncNow` has them. */
