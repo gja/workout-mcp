@@ -14,6 +14,7 @@ struct PlannedWorkoutView: View {
 
     @State private var plan: ResolvedPlan?
     @State private var failure: String?
+    @State private var running = false
 
     /// The listing's copy, which an upload a moment ago may have moved on from.
     private var current: PlannedWorkout { model.current(workout) }
@@ -51,11 +52,51 @@ struct PlannedWorkoutView: View {
             if let totals = current.stats?.session {
                 Section("What you did") { Text(Formats.line(totals)).font(.callout) }
             }
+
+            start
         }
         .listStyle(.insetGrouped)
         .navigationTitle(current.name)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: workout.key) { await load() }
+        // On the list and not on the button that presents it: the button is inside a section
+        // that is there only while the workout is not done, and an upload landing mid-run
+        // would take the running screen down with it while HealthKit kept recording.
+        .fullScreenCover(isPresented: $running) { run }
+    }
+
+    /// `WorkoutStart` is compiled out of a build without `ON_PHONE_RECORDING`, so what is named
+    /// here has to be too. The modifier above stays either way: nothing sets `running` when
+    /// there is no button, and a cover that never presents costs nothing.
+    @ViewBuilder
+    private var run: some View {
+        #if ON_PHONE_RECORDING
+        if #available(iOS 26.0, *), let plan {
+            WorkoutStart(workout: current, steps: RunStep.of(plan.steps))
+        }
+        #endif
+    }
+
+    /// Below the plan rather than above it, and absent once the session is done: the button
+    /// is what an athlete reaches for after reading the steps, and a workout already
+    /// completed offers it again only to file a second session against the same day.
+    @ViewBuilder
+    private var start: some View {
+        #if ON_PHONE_RECORDING
+        if #available(iOS 26.0, *), Sports.isRecordable(current.sport), !current.isDone {
+            Section {
+                // A run is started against a plan, so the button waits for one: the screen
+                // counts the intervals out of the steps above it and says what each is aimed
+                // at, and it has neither until the plan has loaded.
+                Button {
+                    running = true
+                } label: {
+                    Label("Start on this iPhone", systemImage: "play.circle.fill")
+                }
+                .disabled(plan == nil)
+            }
+        }
+        #endif
     }
 
     private var sport: String {

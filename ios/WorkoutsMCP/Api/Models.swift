@@ -97,7 +97,7 @@ struct PlanEffort: Decodable {
     var isRecovery: Bool { intensity == "rest" || intensity == "recovery" }
 }
 
-enum PlanDuration: Decodable {
+enum PlanDuration: Codable {
     case open
     case time(seconds: Double)
     case distance(meters: Double)
@@ -112,18 +112,34 @@ enum PlanDuration: Decodable {
         default: self = .open
         }
     }
+
+    /// The same shape back out. Not for the server, which is never sent one: for the copy a
+    /// session underway keeps of its own steps. See `Health/Underway.swift`.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .open:
+            try container.encode("open", forKey: .type)
+        case .time(let seconds):
+            try container.encode("time", forKey: .type)
+            try container.encode(seconds, forKey: .seconds)
+        case .distance(let meters):
+            try container.encode("distance", forKey: .type)
+            try container.encode(meters, forKey: .meters)
+        }
+    }
 }
 
 /// A bound the plan wrote as an absolute number or as a percentage of something only the
 /// athlete's own profile knows. The percentage forms are carried, not converted.
-struct PlanBound: Decodable {
+struct PlanBound: Codable {
     let unit: String
     let value: Double
 
     var isAbsolute: Bool { unit == "bpm" || unit == "watts" }
 }
 
-enum PlanTarget: Decodable {
+enum PlanTarget: Codable {
     case open
     case zone(metric: String, zone: Int)
     case heartRate(low: PlanBound?, high: PlanBound?)
@@ -166,6 +182,36 @@ enum PlanTarget: Decodable {
             )
         default:
             self = .open
+        }
+    }
+
+    /// The same shape back out, for the reason `PlanDuration.encode` gives.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .open:
+            try container.encode("open", forKey: .type)
+        case .zone(let metric, let zone):
+            try container.encode("zone", forKey: .type)
+            try container.encode(metric, forKey: .metric)
+            try container.encode(zone, forKey: .zone)
+        case .heartRate(let low, let high):
+            try container.encode("heart_rate", forKey: .type)
+            try container.encodeIfPresent(low, forKey: .low)
+            try container.encodeIfPresent(high, forKey: .high)
+        case .speed(let low, let high, let unit):
+            try container.encode("speed", forKey: .type)
+            try container.encodeIfPresent(low, forKey: .low)
+            try container.encodeIfPresent(high, forKey: .high)
+            try container.encode(unit, forKey: .unit)
+        case .power(let low, let high):
+            try container.encode("power", forKey: .type)
+            try container.encodeIfPresent(low, forKey: .low)
+            try container.encodeIfPresent(high, forKey: .high)
+        case .cadence(let low, let high):
+            try container.encode("cadence", forKey: .type)
+            try container.encodeIfPresent(low, forKey: .low)
+            try container.encodeIfPresent(high, forKey: .high)
         }
     }
 }

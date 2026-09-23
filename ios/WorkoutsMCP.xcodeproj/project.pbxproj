@@ -191,7 +191,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG ON_PHONE_RECORDING $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = Debug;
@@ -241,6 +241,7 @@
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "ON_PHONE_RECORDING $(inherited)";
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -259,7 +260,8 @@
 				INFOPLIST_KEY_CFBundleDisplayName = WorkoutsMCP;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "WorkoutsMCP reads your recorded runs and rides so it can build a FIT file from them and upload it to your own server, and your heart rate so it can show you what you rest at and the highest you have been recorded working.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "WorkoutsMCP never writes anything to Health. It only reads the runs and rides you have already recorded.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "WorkoutsMCP saves the sessions you record in it — the run or ride itself, its route, and the distance, heart rate and energy measured during it — so they appear in Health like any other workout. It writes nothing else.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "WorkoutsMCP uses your location while you are recording a session, for your pace and the route of the run or ride. It is not used at any other time.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -290,7 +292,8 @@
 				INFOPLIST_KEY_CFBundleDisplayName = WorkoutsMCP;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "WorkoutsMCP reads your recorded runs and rides so it can build a FIT file from them and upload it to your own server, and your heart rate so it can show you what you rest at and the highest you have been recorded working.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "WorkoutsMCP never writes anything to Health. It only reads the runs and rides you have already recorded.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "WorkoutsMCP saves the sessions you record in it — the run or ride itself, its route, and the distance, heart rate and energy measured during it — so they appear in Health like any other workout. It writes nothing else.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "WorkoutsMCP uses your location while you are recording a session, for your pace and the route of the run or ride. It is not used at any other time.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";

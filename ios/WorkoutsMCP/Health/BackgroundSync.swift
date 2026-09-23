@@ -10,9 +10,10 @@
 // answered, or HealthKit reads the observer as not coping and stops waking the app — which
 // is what `Wake` below exists for.
 //
-// What it does on waking is deliberately narrow: only where the watch itself named the
-// plan. The day-and-sport fallback is a guess, fine when the athlete is looking at it and
-// wrong when it files a session against a workout nobody chose.
+// What it does on waking is deliberately narrow: only where the session itself names the
+// plan — this app wrote the name in when it recorded the session, or the watch did. The
+// day-and-sport fallback is a guess, fine when the athlete is looking at it and wrong when
+// it files a session against a workout nobody chose.
 
 import Foundation
 import HealthKit
@@ -163,7 +164,7 @@ enum BackgroundSync {
         }
     }
 
-    /// Only the sessions the watch itself matched to a plan, and only the ones this app is
+    /// Only the sessions that name the plan they were run against, and only the ones this app is
     /// not already finished with — `Settled` says so locally, because a wake has seconds and
     /// the listing that used to answer it is the slowest call in the path. Everything the
     /// POST needs is the workout key, which `PlanLink` already holds.
@@ -244,16 +245,24 @@ enum BackgroundSync {
                 continue
             }
 
-            guard let planID = await HealthAccess.planID(of: activity) else {
-                // Whether the watch named a plan is fixed when it records the session, so
-                // this answer will not change — and asking costs a round trip to the store.
-                Settled.settle(activity.uuid)
-                unplanned += 1
-                continue
+            // A session this app recorded itself already says which workout it was, in its
+            // own metadata, and saying so cost nothing — no round trip and no index. Asked
+            // before `planID`, which is neither.
+            var key = HealthAccess.recordedKey(of: activity)
+
+            if key == nil {
+                guard let planID = await HealthAccess.planID(of: activity) else {
+                    // Whether the watch named a plan is fixed when it records the session, so
+                    // this answer will not change — and asking costs a round trip to the store.
+                    Settled.settle(activity.uuid)
+                    unplanned += 1
+                    continue
+                }
+                // Not settled: this one *can* change, since scheduling the workout again
+                // writes the link that is missing here.
+                key = PlanLink.workoutKey(forPlan: planID)
             }
-            // Not settled: this one *can* change, since scheduling the workout again writes
-            // the link that is missing here.
-            guard let key = PlanLink.workoutKey(forPlan: planID) else { unplanned += 1; continue }
+            guard let key else { unplanned += 1; continue }
 
             // Before the work, not only after it: reading the session, encoding the file and
             // posting it are where a wake runs out of time, and a line written only on

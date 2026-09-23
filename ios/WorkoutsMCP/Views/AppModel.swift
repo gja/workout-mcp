@@ -257,10 +257,17 @@ final class AppModel: ObservableObject {
 
     // --- Back from Apple -------------------------------------------------------------------
 
-    /// The plan id the watch carried, and failing that the one workout of that sport planned
-    /// for that day. Never a question the athlete is asked: anything past those two is a
-    /// guess the plan, the dashboard and the assistant are all better placed to settle.
+    /// The workout this app wrote into the session when it recorded it, then the plan id the
+    /// watch carried, and failing both the one workout of that sport planned for that day.
+    /// Never a question the athlete is asked: anything past those three is a guess the plan,
+    /// the dashboard and the assistant are all better placed to settle.
     func suggestion(for activity: HKWorkout) -> PlannedWorkout? {
+        // First because it is the only one of the three that cannot be wrong: this app was
+        // handed the workout, started the session for it and wrote the key down there and
+        // then. See `WorkoutRunner`.
+        if let key = HealthAccess.recordedKey(of: activity), let mine = workouts.first(where: { $0.key == key }) {
+            return mine
+        }
         if let id = planIDs[activity.uuid], let key = PlanLink.workoutKey(forPlan: id) {
             return workouts.first { $0.key == key }
         }

@@ -100,7 +100,14 @@ enum SessionReader {
         // and one figure for the two would not say which half to go after. See docs/ios.md.
         let health = SyncLog.took(asked.timeIntervalSince(began))
         let filling = SyncLog.took(Date().timeIntervalSince(asked))
-        SyncLog.record(.upload, "read \(seconds)s of session — Health \(health) (route \(routing)), timeline \(filling)")
+        // How many distance samples there were, because that is what decides whether a lap can
+        // have a distance of its own: one sample spanning the session can only be read as
+        // spread evenly across it, however the seconds were actually walked.
+        SyncLog.record(
+            .upload,
+            "read \(seconds)s of session — Health \(health) (route \(routing)), timeline \(filling), "
+                + "\(distances.count) distance samples, \(route.count) fixes"
+        )
 
         return RecordedSession(
             sport: sport,
@@ -168,20 +175,26 @@ enum SessionReader {
         into filled: inout [RecordedSample],
         assign: (inout RecordedSample, Double) -> Void
     ) {
+        // Spread across the seconds the sample covers rather than landed on the one it ends
+        // in. A watch writes a reading a second, where the two are the same thing; a phone
+        // writes distance and energy in long sparse samples, and one covering a whole walk
+        // would leave every second at nothing and the last at the lot — which is a session
+        // whose laps have no distance and whose final lap has all of it, at 2:46/km.
         var total = 0.0
-        var marks: [Int: Double] = [:]
+        var gained = [Double](repeating: 0, count: filled.count)
 
         for sample in samples {
-            total += sample.quantity.doubleValue(for: unit)
+            let value = sample.quantity.doubleValue(for: unit)
             guard let span = timeline.span(from: sample.startDate, to: sample.endDate) else { continue }
-            // The total stands from the moment the sample it came from ended.
-            marks[span.upperBound] = total
+            let each = value / Double(span.count)
+            for index in span { gained[index] += each }
+            total += value
         }
         guard total > 0 else { return }
 
         var carried = 0.0
         for index in filled.indices {
-            if let here = marks[index] { carried = here }
+            carried += gained[index]
             assign(&filled[index], carried)
         }
     }

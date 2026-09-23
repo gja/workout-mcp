@@ -1,5 +1,6 @@
-// Permission, and the listing of what the athlete actually recorded. Read-only: this app
-// never writes a sample back into Health.
+// Permission, and the listing of what the athlete actually recorded. It writes one thing
+// and only on iOS 26: a session `WorkoutRunner` recorded on the phone. Everything else here
+// reads.
 
 import FITSwiftSDK
 import Foundation
@@ -48,9 +49,52 @@ enum HealthAccess {
         ]
     }
 
+    /// What a session recorded on this phone saves, and nothing else. Empty below iOS 26 and
+    /// empty in a build without `ON_PHONE_RECORDING`: a permission sheet asking to write what
+    /// the app cannot write is a question with no answer worth giving.
+    static var shareTypes: Set<HKSampleType> {
+        #if !ON_PHONE_RECORDING
+        return []
+        #else
+        guard #available(iOS 26.0, *) else { return [] }
+        return [
+            HKObjectType.workoutType(),
+            HKSeriesType.workoutRoute(),
+            HKQuantityType(.heartRate),
+            HKQuantityType(.activeEnergyBurned),
+            HKQuantityType(.distanceWalkingRunning),
+            HKQuantityType(.distanceCycling),
+            // Cadence and power, which `WorkoutRunner` asks the live source to collect by
+            // name. A type it collects and cannot save is a channel lost at `finishWorkout`.
+            HKQuantityType(.stepCount),
+            HKQuantityType(.cyclingCadence),
+            HKQuantityType(.cyclingPower),
+            // Collected by the live source on its own for a run, and read back by the
+            // screen: a type it collects and cannot save is that channel lost at
+            // `finishWorkout`, which is what this list is for.
+            HKQuantityType(.runningSpeed),
+            HKQuantityType(.runningPower),
+            HKQuantityType(.cyclingSpeed),
+            HKQuantityType(.basalEnergyBurned),
+        ]
+        #endif
+    }
+
+    /// The metadata key a session recorded here carries its planned workout in. `<date>/<id>`,
+    /// and the same name the FIT file's developer field uses, because it is the same fact
+    /// written down in the second place it has to survive.
+    static let workoutKeyMetadata = "workout_mcp_id"
+
+    /// The planned workout a session names, where this app recorded it and therefore knew.
+    /// Not a guess and not a round trip — unlike `planID`, which is both — so it is asked
+    /// first everywhere a session has to be placed.
+    static func recordedKey(of workout: HKWorkout) -> String? {
+        workout.metadata?[workoutKeyMetadata] as? String
+    }
+
     static func request() async throws {
         guard HKHealthStore.isHealthDataAvailable() else { throw HealthError.unavailable }
-        try await store.requestAuthorization(toShare: [], read: readTypes)
+        try await store.requestAuthorization(toShare: shareTypes, read: readTypes)
     }
 
     /// The runs, rides and walks of the last `days` days, newest first. Swim is out of scope.
