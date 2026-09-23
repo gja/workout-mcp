@@ -148,6 +148,19 @@ reading a stale copy of it, and the first attempt at this fix read the session a
 exactly the same way: a second tap saw `.running`, asked a session already on its way to
 paused to pause, and got *unable to perform 'pause' from current state 'Paused'*.
 
+**Three ways in, one funnel.** `observed(_:)` is where every account of the session's state
+arrives: the session's own delegate, the **pause and resume events the builder collects**,
+and a reconciliation against `HKWorkoutSession.state` once a second. The delegate is the
+flow; the other two are the net under it, and the net is not theoretical — a callback went
+missing on the fourth lap of a test walk, so the screen said running over a session HealthKit
+had paused, the clock went on, the step advanced itself, and the next tap on pause was
+refused by a session that had been paused for a minute. Any of the three arriving is enough
+now, and a lost one heals within the second.
+
+`pauseOrResumeRequest` comes through the same door, and is the one that is not an account but
+a **question**: it is the system asking this app to toggle, which is how a control outside
+this screen pauses a workout. Answering it is the only thing that makes such a control work.
+
 So nothing is asked of the session while something is outstanding. `asked` holds the
 transition that has been requested and not yet reported back, the delegate clears it on any
 state it reports, and a limit clears it if HealthKit never answers, because a request dropped

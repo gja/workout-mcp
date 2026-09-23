@@ -407,6 +407,50 @@ final class WorkoutRunner: NSObject, ObservableObject {
         clearing = nil
     }
 
+    /// **Every way the session's state reaches this app comes through here**: its own
+    /// delegate, the pause and resume events the builder collects, and the reconciliation on
+    /// the tick. The delegate is the flow; the other two are the net under it.
+    ///
+    /// They are there because a callback that never arrives is a screen left saying running
+    /// over a session HealthKit has paused — the clock goes on, the step advances itself, and
+    /// the next tap on pause is refused by a session that had been paused for a minute. That
+    /// is not hypothetical: it is what the fourth lap of a test walk did.
+    private func observed(_ state: HKWorkoutSessionState) {
+        // What was asked for has arrived, so the button listens again.
+        if state == asked { answered() }
+        guard state != sessionState else { return }
+        answered()
+
+        let was = sessionState
+        sessionState = state
+        problem = nil
+
+        switch state {
+        case .running where was == .paused:
+            voice.say("Resumed.")
+        case .paused:
+            voice.say("Paused.")
+        case .ended, .stopped:
+            // Ended from somewhere that is not this screen — Siri, the Lock Screen, the
+            // system. Nothing is left but to save it, and `end()` ignores a second ask.
+            if case .live = phase { Task { await end() } }
+        default:
+            break
+        }
+    }
+
+    /// The net: HealthKit's own answer, read once a second and treated exactly as the
+    /// callback that should have come. A lost event heals within the second rather than
+    /// lasting the rest of the session.
+    private func reconcile() {
+        guard let session, session.state != sessionState else { return }
+        SyncLog.record(
+            .upload,
+            "state drifted: heard \(sessionState.rawValue), session says \(session.state.rawValue)"
+        )
+        observed(session.state)
+    }
+
     /// The lap press, and the reason the plan is here at all.
     ///
     /// It cuts an **`HKWorkoutActivity`**, which is what makes the saved workout a session of
@@ -579,9 +623,15 @@ final class WorkoutRunner: NSObject, ObservableObject {
         clock = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
-                self?.read(onTick: true)
+                self?.tick()
             }
         }
+    }
+
+    /// Reconciled whatever the session is doing, and read only while it is running.
+    private func tick() {
+        reconcile()
+        read(onTick: true)
     }
 
     /// `onTick` is what separates the figures that are simply read from the one that is
@@ -799,31 +849,7 @@ extension WorkoutRunner: HKWorkoutSessionDelegate {
     ) {
         Task { @MainActor in
             if toState == self.waitingFor { self.stopWaiting() }
-
-            // The one place the session's state is written down, and the one place the
-            // screen learns it changed. Said from here rather than from the buttons for the
-            // same reason: it is the session's own word for what happened. Resuming is
-            // announced only from a pause — every workout reaches `.running` when it starts,
-            // and it has just said what it is starting.
-            // The answer to whatever was asked, whatever it was: the block comes off on any
-            // state the session reports, not only the one that was wanted.
-            self.answered()
-            self.sessionState = toState
-            self.problem = nil
-
-            switch toState {
-            case .running where fromState == .paused:
-                self.voice.say("Resumed.")
-            case .paused:
-                self.voice.say("Paused.")
-            case .ended, .stopped:
-                // Ended from somewhere that is not this screen — Siri, the Lock Screen, the
-                // system. Nothing is left but to save it, and `end()` ignores a second ask,
-                // so this does not fight an ending already under way.
-                if case .live = self.phase { Task { await self.end() } }
-            default:
-                break
-            }
+            self.observed(toState)
         }
     }
 
@@ -862,7 +888,22 @@ extension WorkoutRunner: HKLiveWorkoutBuilderDelegate {
         Task { @MainActor in self.read(onTick: false) }
     }
 
-    nonisolated func workoutBuilderDidCollectEvent(_ workoutBuilder: HKLiveWorkoutBuilder) {}
+    /// The other side of the same story. A pause reaches the builder as an event as well as
+    /// the session as a state change, so either one arriving is enough — and
+    /// `pauseOrResumeRequest` is the system **asking** this app to toggle, which is how a
+    /// control outside this screen pauses a workout. Answering it is the only way that
+    /// control does anything.
+    nonisolated func workoutBuilderDidCollectEvent(_ workoutBuilder: HKLiveWorkoutBuilder) {
+        Task { @MainActor in
+            guard let event = self.builder?.workoutEvents.last else { return }
+            switch event.type {
+            case .pause: self.observed(.paused)
+            case .resume: self.observed(.running)
+            case .pauseOrResumeRequest: self.togglePause()
+            default: break
+            }
+        }
+    }
 }
 
 @available(iOS 26.0, *)
