@@ -95,6 +95,16 @@ location the moment Start is tapped, so the count-in is three seconds of GPS loc
 recording does not have to spend — and the seconds it would otherwise spend are the ones the
 athlete is standing still for, whose pace comes out as nonsense.
 
+**Core Location is told not to pause itself**, which it otherwise does by default: it stops
+updates when it decides the athlete has stopped moving, and with `.fitness` it will decide
+that at a traffic light. Paused, it does not necessarily start again on its own — the app is
+told and is expected to ask. A recorder cannot have the receiver choosing which parts of a run
+are worth keeping, so `pausesLocationUpdatesAutomatically` is off and
+`locationManagerDidPauseLocationUpdates` starts it again if it happens anyway. Authorization
+is watched too: `startUpdatingLocation` on a manager with no permission yet does nothing, and
+the sheet is answered a moment later, so a run begun before the athlete tapped *Allow* still
+gets its route.
+
 **A session underway keeps its own plan.** `Health/Underway.swift` writes the flattened steps
 down before the first is counted, so carrying one on in another process costs no round trip.
 Without it, recovery fetched the listing and then the plan again before the screen had a step
@@ -128,6 +138,20 @@ straightforward fixes each failed the same way:
 Reading an error message is not how this is supposed to work. It is here because five goes at
 the supported way were each the same bug.
 
+**A lap is not open when `beginNewActivity` returns**, and there *is* a word for when it is:
+`workoutSession(_:didBeginActivityWith:date:)`, with `workoutBuilder(_:didBegin:)` beside it.
+This app spent a long time believing neither existed, and that gap is where the pause has been
+going wrong all along — pressed inside it, the command goes into a session part-way through
+swapping one activity for the next, and what comes back is a refusal or nothing at all. So a
+press in the gap is **held rather than sent**, and goes the moment the activity is open. The
+button shows its spinner meanwhile, so the press is neither lost nor refused. Two seconds
+without a word and it is sent anyway, because a lap that never reports itself open must not
+cost an athlete a pause.
+
+`workoutSession(_:didGenerate:)` is the session's own account of an event, handed over rather
+than left in an array to be noticed. The builder's `workoutEvents` is still drained on the
+tick, because nothing here has earned being the only way in.
+
 **Sending the same command again is a question, not a repetition**, and given the above it is
 the only question this session reliably answers. Pause a paused session and it is still
 paused; resume a running one and it is still running. So either the command applies, or it is
@@ -146,6 +170,13 @@ so it is read on the tick as well as on the callback, whatever is in flight. The
 by index, in order, exactly once each: reading `.last` instead dropped events whenever two
 landed close together, which is why it worked on lap one and decayed after. A session adopted
 on recovery starts its count where the array already is, so old pauses are not replayed aloud.
+
+**Only the last of a batch is news; the rest are history.** These arrive late and in bursts,
+and four landing together is HealthKit catching up rather than a workout that paused and
+resumed twice while nobody was looking. Played through `observed` one at a time, such a burst
+flips the screen four times and says every one of them out loud — which is what a test walk
+got: *paused, resumed, paused, resumed*, ending on a screen that disagreed with the session
+anyway. What a batch actually says is where it leaves the session, so that is all it is asked.
 
 `pauseOrResumeRequest` comes through the same door and is the one that is a question rather
 than an account — the system asking this app to toggle, which is how a control outside this
@@ -202,9 +233,9 @@ recording the seconds spent deciding to.
 holds on a spinner until the session is running with its first lap open, because
 `startActivity` returning is not the session running and a lap cut before `.running` is
 refused. A start that gets as far as recording and no further **ends** the session: one
-nothing ends is the stranded recording this all exists to prevent. Nothing acknowledges
-`beginNewActivity`, so the first lap is followed by a quarter-second settle and a check that
-the session has not failed meanwhile — a settle, not a proof.
+nothing ends is the stranded recording this all exists to prevent. The first lap is then
+followed by a quarter-second settle and a check that the session has not failed meanwhile — a
+settle, not a proof, for the outcome `didBeginActivityWith` does not cover.
 
 **Indoors or outdoors is asked before anything starts.** It cannot be changed once a session
 has begun and the plan cannot always settle it: the same easy 40 minutes is a park or a
