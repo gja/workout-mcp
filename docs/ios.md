@@ -122,6 +122,19 @@ three seconds of GPS lock the recording does not have to spend — and the secon
 otherwise spend are the first of the session, which is the stretch the athlete is standing
 still for and the one whose pace comes out as nonsense.
 
+**A session underway keeps its own plan.** `Health/Underway.swift` writes the flattened
+steps down before the first one is counted, so carrying one on in another process costs no
+round trip at all. Without it, recovery had to fetch the listing and then the plan again
+before the screen had a step to show — two requests, on a phone that is outdoors and may have
+no signal, for something the app had in hand when it started; and what that produced when it
+failed was a run screen with no steps on it. One entry, overwritten each time a session
+starts and cleared when one saves, and a stale one is harmless because it is only ever read
+for the workout it names. The name is still the listing's to add, and the upload names itself
+out of the session's metadata, so neither is worth waiting for.
+
+That is also why `PlanDuration` and `PlanTarget` are `Codable` rather than `Decodable`. They
+are never sent to the server; what reads them back is the copy a session keeps of itself.
+
 **A recovered session may be over rather than going.** `recoverActiveWorkoutSession` hands
 back one that has **ended** as readily as one that is running, and reading anything but
 `.paused` as running put a pause button over a finished recording — which answered *unable to

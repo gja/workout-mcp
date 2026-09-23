@@ -212,6 +212,10 @@ final class WorkoutRunner: NSObject, ObservableObject {
             await wait(for: .running)
             guard session.state == .running else { return abandon("Health did not start the session.") }
 
+            // Written down before a step is counted, so a session picked up in another
+            // process has its plan without going back to the network for it.
+            Underway.remember(key: workout.key, steps: steps)
+
             openInterval(at: Date())
             // Nothing acknowledges `beginNewActivity`; a lap it could not cut arrives as the
             // session failing, on the delegate's own turn rather than this one.
@@ -424,6 +428,9 @@ final class WorkoutRunner: NSObject, ObservableObject {
                 return
             }
             if let route { _ = try? await route.finishRoute(with: saved, metadata: nil) }
+            // Only once it is in Health: a session that could not be saved is one whose plan
+            // the next attempt still needs.
+            Underway.clear()
             phase = .saved
         } catch {
             phase = .failed(error.localizedDescription)

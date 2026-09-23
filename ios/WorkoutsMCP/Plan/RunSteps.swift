@@ -14,7 +14,7 @@
 #if ON_PHONE_RECORDING
 import Foundation
 
-struct RunStep {
+struct RunStep: Codable {
     let title: String
     let duration: PlanDuration
     let targets: [PlanTarget]

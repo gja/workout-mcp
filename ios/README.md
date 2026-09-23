@@ -185,7 +185,7 @@ offers to carry on or to end and send it up. You never have to find the workout 
 
 **It is behind `ON_PHONE_RECORDING`**, which is set for Debug and not for Release: a local
 build has the feature and a TestFlight archive does not compile it at all. Six files are
-inside the switch whole — `WorkoutRunner`, `RunVoice`, `TargetWatch`, `WorkoutView`, `RunSteps`
+inside the switch whole — `WorkoutRunner`, `RunVoice`, `TargetWatch`, `Underway`, `WorkoutView`, `RunSteps`
 and `Spoken` — and what is left in the shared files is the start button, the Settings toggle
 and the Health share types, which is the only part of it an athlete would otherwise see.
 `Info.plist` is the one thing the switch does not reach: `audio` and `location` are declared

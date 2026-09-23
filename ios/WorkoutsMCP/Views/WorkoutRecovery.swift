@@ -119,9 +119,18 @@ private struct Offer: ViewModifier {
     private func place() async {
         guard workout == nil, let running, let key = WorkoutRunner.workoutKey(of: running) else { return }
 
-        // Opening the app starts the listing and this at the same moment, and the listing
-        // usually loses — which left a recovered session with no workout and no steps, and a
-        // screen with nothing on it but dashes.
+        // What the session wrote down when it started, which is everything the screen needs
+        // and costs nothing to read. The name is the listing's to add and the upload names
+        // itself out of the session's own metadata, so neither is worth a round trip on a
+        // phone that is outdoors and may have no signal.
+        if let kept = Underway.steps(forWorkout: key) {
+            steps = kept
+            return
+        }
+
+        // Only where nothing was written down — a session started by an older build. Opening
+        // the app starts the listing and this at the same moment, and the listing usually
+        // loses, which is what left a recovered session with a screen of dashes.
         if model.workouts.isEmpty { await model.refresh(using: session.client) }
         guard let planned = model.workouts.first(where: { $0.key == key }) else { return }
 
