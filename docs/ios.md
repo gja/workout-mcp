@@ -15,343 +15,211 @@ What is given up is control over what the watch shows mid-interval.
 ## Recording it on the phone
 
 An athlete with no Apple Watch has nothing to schedule a plan onto, and until iOS 26 there
-was nothing this app could do about it: `HKWorkoutSession` was watchOS-only, and recording a
-session on the phone meant deriving distance from `CLLocation`, energy from nothing at all,
-and matching that against what the watch writes for everyone else. iOS 26 put the same
-session, the same `HKLiveWorkoutBuilder` and the same live data source on iPhone, so
-`Health/WorkoutRunner.swift` is a few hundred lines against Apple's own API rather than a
-second recorder to keep honest.
+was nothing to do about it: `HKWorkoutSession` was watchOS-only. iOS 26 put the session,
+`HKLiveWorkoutBuilder` and the live data source on iPhone, so `Health/WorkoutRunner.swift`
+wraps Apple's recorder rather than being a second one to keep honest.
 
 What it saves is an **ordinary `HKWorkout`**, which is the whole point: the Executed tab
-lists it, `SessionReader` reads it, `ActivityFit` writes the same file from it and the wake
-uploads it, none of them knowing or caring which device recorded it. Nothing in the return
-path is new.
+lists it, `SessionReader` reads it, `ActivityFit` writes the file and the wake uploads it,
+none of them knowing which device recorded it. Nothing in the return path is new.
 
-**It is started against a plan.** The resolved steps are flattened first — eight times
-through a pair of them is sixteen intervals, because the interval an athlete is on is the
-fourth of sixteen and not the fourth of two on the second time round — and
-`Plan/RunSteps.swift` is the only thing that does it. What that buys is the screen saying
-which interval of how many, what this one is aimed at, and what the last lap press did. The
-button is disabled until the plan has loaded, because a run with no steps is a screen with
-nothing to count.
+**It is started against a plan.** `Plan/RunSteps.swift` flattens the resolved steps first —
+eight times through a pair is sixteen intervals, because the interval an athlete is on is the
+fourth of sixteen, not the fourth of two on the second time round. That is what lets the
+screen say which interval of how many and what it is aimed at. Start is disabled until the
+plan has loaded, since a run with no steps is a screen with nothing to count.
 
-**It conducts, and that was argued against first.** The case for recording and nothing more
-was that a timer advancing an athlete is wrong the first time they stop at a junction, and
-that conducting is what `CustomWorkout` already has the watch doing. The case against it is
-the one that won: the athlete this screen exists for has no watch, so there is nothing else
-to do the conducting, and a step measured in metres cannot advance early — you cannot cross
-800 m without having run it. A step measured in time still can, which is the junction
-problem, and what answers it is that the countdown is spoken and the lap button never goes
-away.
+**It conducts**, which was argued against: a timer advancing an athlete is wrong the first
+time they stop at a junction. What won the argument is that the athlete this screen exists
+for has no watch, so there is nothing else to do it — and a step measured in metres cannot
+advance early, since you cannot cross 800 m without running it. For a step measured in time,
+the countdown is spoken and the lap button never goes away. So `advanceIfDue` closes a step
+at `RunStep.seconds` or `RunStep.metres`; a step with no end — *until lap press* — never
+advances itself, and neither does a press past the end of the plan.
 
-So a step with an end advances itself at it: `advanceIfDue` on each tick against
-`RunStep.seconds` or `RunStep.metres`. A step with no end — *until lap press* — never does,
-because that is what the plan means by open, and neither does a press past the end of the
-plan, which has no step behind it to be due.
+**A distance goal is a poor one indoors.** The pedometer hands distance over in lumps rather
+than steadily, so a step measured in metres sits at nothing and then jumps: a 100 m step on a
+test walk took 213 seconds to advance. Nothing here can smooth that; a step measured in time
+behaves.
 
 **And it is said out loud.** *Now: Tempo. 4 minutes at target pace 4 minutes to 4 minutes 15
-per kilometre* as a step opens — no interval number, which is on the screen for anyone who wants
-it and is not what an athlete needs told at the moment a step changes — "Paused" and
-"Resumed", off the session's own state change rather than the button that asked for it —
-then "5 seconds left" before a timed step closes, and a call when a reading leaves the band it
-was given, or "in range" when it comes back to it. `Health/RunVoice.swift` is Apple's synthesiser over an `AVAudioSession` that is
-activated per utterance and released as soon as the last one finishes — held open, it would
-duck the music for the length of the run. `.duckOthers` turns music down;
-`.interruptSpokenAudioAndMixWithOthers` pauses a podcast instead, because a sentence under a
-sentence is neither. Speaking with the screen off is why `UIBackgroundModes` carries `audio`
-beside `location`. *Settings › Speak the intervals* turns the lot off, read at each thing
-there is to say rather than held, so it takes effect mid-run.
+per kilometre* as a step opens — no interval number, which is on the screen for anyone who
+wants it — then "5 seconds left" before a timed step closes, a call when a reading leaves its
+band or comes back "in range", and "Paused" and "Resumed" off the session's own state change
+rather than the button that asked for it.
 
-What is *said* is not what is *written*: `Plan/Spoken.swift` is separate from `Formats`,
-which has to keep saying what the dashboard says. A synthesiser reads `4:05/km` as a time of
-day and `800 m` as a letter.
+`Health/RunVoice.swift` is Apple's synthesiser over an `AVAudioSession` activated per
+utterance and released when the last finishes; held open, it would duck the music for the
+length of the run. `.duckOthers` turns music down and
+`.interruptSpokenAudioAndMixWithOthers` pauses a podcast, because a sentence under a sentence
+is neither. Speaking with the screen off is why `UIBackgroundModes` carries `audio` beside
+`location`. *Settings › Speak the intervals* turns it off, read at each thing there is to say
+so it takes effect mid-run. What is *said* is not what is *written*: `Plan/Spoken.swift` is
+separate from `Formats`, because a synthesiser reads `4:05/km` as a time of day.
 
 **A band is announced more readily than it is policed.** `TargetWatch` judges speed, cadence,
-and heart rate and power where their bounds are absolute. A zone, or a bound written as a
-percentage, is spoken when the interval opens and never judged: resolving either needs the
-athlete's own profile, and `workout-zones` on the server is the single source of truth for
-physiology — the same reason no zones are computed for the heart rate screen.
+and heart rate and power where their bounds are absolute. A zone, or a percentage, is spoken
+when the interval opens and never judged: resolving either needs the athlete's profile, and
+`workout-zones` on the server is the single source of truth for physiology.
 
-The restraint is the part that matters. A GPS pace crosses a band twice a minute on its own,
-so a reading has to hold one side for ten of them before it is called, and nothing is said
-twice for the same side. A voice that called every crossing would be switched off inside a
-kilometre.
+The restraint matters more than the judging. A GPS pace crosses a band twice a minute on its
+own, so a reading must hold one side for **ten readings — not ten seconds** — before it is
+called, and nothing is said twice for the same side. Counted rather than timed because a
+reading that does not arrive is evidence of nothing: it neither matures a call nor cancels
+one. Timed, and reset by every absent reading, a step begun too slow went uncalled through a
+whole indoor walk, where the pace blinks out between the pedometer's lumps.
 
-**Ten readings, not ten seconds.** A reading that does not arrive is evidence of nothing, so
-it neither matures a call nor cancels one — the count simply does not grow, and picks up
-where it left off. Timed instead, and reset by every absent reading, a step begun too slow
-was never called at all wherever the pace went absent every few seconds, which is the whole
-of an indoor walk: the pedometer hands distance over in lumps, so the pace derived from it
-blinks out between them. What that produced was the mixed behaviour of being told only once
-the athlete had been in the band and left it again.
-
-**A lap press cuts an `HKWorkoutActivity`.** That is what makes the saved workout a session
-of laps rather than one long one: `SessionReader` already reads `workoutActivities` back in
-preference to everything else, so the FIT file carries a `lap` message each and the server
-matches them against the steps the plan was written with.
+**A lap press cuts an `HKWorkoutActivity`.** That is what makes the saved workout a session of
+laps rather than one long one: `SessionReader` reads `workoutActivities` back in preference to
+everything else, the FIT file carries a `lap` message each, and the server matches them
+against the plan's steps.
 
 `beginNewActivity` **ends whichever activity is open**, the session's own primary activity
-included, so nothing closes one first. Closing one first is what broke the first session
-ever recorded here: `endCurrentActivity` with nothing of this app's open failed the session,
-and a failed session neither advances its steps nor shows its buttons — while HealthKit went
-on recording behind it, which is how it was still going when the app was reopened. That is
-also why a failure now offers *End and save* rather than a button that only dismisses the
-screen. A session nobody pressed lap in is
-one lap and says so. Lap presses may run past the end of the plan — the athlete is still
-running, and a seventeenth interval on a plan of sixteen is a fact to record rather than one
-to refuse. Past the last step it says **Workout complete**: what has finished is the plan,
-and the session is still theirs to end.
+included, so nothing closes one first. Closing one first broke the first session recorded
+here: `endCurrentActivity` with nothing of this app's open failed the session, which then
+neither advanced its steps nor showed its buttons while HealthKit went on recording behind it
+— which is also why a failure offers *End and save* rather than a button that only dismisses.
+Presses may run past the end of the plan, a seventeenth interval on a plan of sixteen being a
+fact to record rather than one to refuse; past the last step the screen says **Workout
+complete**, because what has finished is the plan and the session is still theirs to end.
 
-**A distance goal is a poor one indoors.** The pedometer hands its distance over in lumps
-rather than steadily, so a step measured in metres sits at nothing and then jumps — a 100 m
-step on a test walk took 213 seconds to advance itself. Nothing here can smooth that, and a
-step measured in time behaves.
+**The screen is Apple's, as closely as it can be.** Black, figures left-aligned and as large
+as they go with their units under them in small caps, every control in one bar at the bottom
+where a thumb is: the session clock in the middle, the interval number as the lap button on
+the left, a pause the size of a thumb, and the end on the right. That is the screen every
+athlete has already learned to read at arm's length in the rain. Where Apple's has the
+activity rings, this has what is coming — a tap opens the plan with the current step marked.
 
-**The screen is Apple's, as closely as it can be.** Black, the figures left-aligned and as
-large as they go with their units under them in small caps, and every control in one bar at
-the bottom where a thumb is: the session's own clock in the middle of it, the interval number
-as the lap button on the left, a pause the size of a thumb in the middle and the end on the
-right. That is the screen every athlete has already learned to read at arm's length in the
-rain, and there is nothing to be gained by teaching them a second one. Where the activity
-rings are on Apple's, this has what is coming instead — a tap opens the plan with the current
-step marked, because an athlete asking what is next is usually asking how much of it is left.
+**Three, two, one before it starts, and the receiver is already running.** `warmUp()` starts
+location the moment Start is tapped, so the count-in is three seconds of GPS lock the
+recording does not have to spend — and the seconds it would otherwise spend are the ones the
+athlete is standing still for, whose pace comes out as nonsense.
 
-**Three, two, one before it starts, and the receiver is already running.** The count-in is
-not ceremony: `warmUp()` starts location the moment Start is tapped, so the three seconds are
-three seconds of GPS lock the recording does not have to spend — and the seconds it would
-otherwise spend are the first of the session, which is the stretch the athlete is standing
-still for and the one whose pace comes out as nonsense.
+**A session underway keeps its own plan.** `Health/Underway.swift` writes the flattened steps
+down before the first is counted, so carrying one on in another process costs no round trip.
+Without it, recovery fetched the listing and then the plan again before the screen had a step
+to show — two requests, on a phone outdoors that may have no signal, for something the app had
+in hand when it started. One entry, overwritten when a session starts and cleared when one
+saves; a stale one is harmless because it is only read for the workout it names. This is also
+why `PlanDuration` and `PlanTarget` are `Codable` rather than `Decodable`: they are never sent
+to the server, and what reads them back is the copy a session keeps of itself.
 
-**A session underway keeps its own plan.** `Health/Underway.swift` writes the flattened
-steps down before the first one is counted, so carrying one on in another process costs no
-round trip at all. Without it, recovery had to fetch the listing and then the plan again
-before the screen had a step to show — two requests, on a phone that is outdoors and may have
-no signal, for something the app had in hand when it started; and what that produced when it
-failed was a run screen with no steps on it. One entry, overwritten each time a session
-starts and cleared when one saves, and a stale one is harmless because it is only ever read
-for the workout it names. The name is still the listing's to add, and the upload names itself
-out of the session's metadata, so neither is worth waiting for.
+**Tell the session, then wait to be told. That is the only flow there is.** A button calls a
+method on the session; the screen changes when the session reports back, and on nothing else.
+`WorkoutRunner.sessionState` is the one place that state is read from, and `observed(_:)` the
+one funnel every account of it comes through.
 
-That is also why `PlanDuration` and `PlanTarget` are `Codable` rather than `Decodable`. They
-are never sent to the server; what reads them back is the copy a session keeps of itself.
+The ceremony is earned — HealthKit reports this session's state badly enough that four
+straightforward fixes each failed the same way:
 
-**Tell the session, then wait to be told. That is the only flow there is.**
+- **`HKWorkoutSession.state` can contradict its own session.** Asked to pause, no callback,
+  and the log reads `no callback for 4 in 5s: session says 2` — four is `.paused`, two is
+  `.running` — while the next `pause()` is refused for being Paused. It is not a late answer
+  to be waited out, it is a different one. So it is consulted about `.ended` and `.stopped`
+  only, which are terminal and have nothing to be late about; `reconcile` adopts those and
+  nothing else, and never while a transition is outstanding.
+- **A command can work silently.** `pause()` succeeds, and no delegate call, no builder event
+  and no change in `state` follows it. One walk saved with `timer_s: 12` out of 78 seconds
+  elapsed: HealthKit had it paused for a minute while the screen counted on.
+- **The refusal is the one account that has never been wrong.** *Unable to perform 'pause'
+  from current state 'Paused'* names the real state, and cannot be stale, because the session
+  declined the call on the strength of it. So it is parsed and fed through `observed`.
 
-`WorkoutRunner.sessionState` is the one place the session's state is read from anywhere in
-the app. The delegate writes it; `adopt` seeds it once, because adopting a session raises no
-callback; everything else reads it — the buttons, the guards, the tick, the screen.
-`HKWorkoutSession.state` is deliberately never consulted.
+Reading an error message is not how this is supposed to work. It is here because five goes at
+the supported way were each the same bug.
 
-That last part is not fussiness. **`state` does not move when `pause()` returns** — the
-delegate is what moves it — so reading the session inside that window is no better than
-reading a stale copy of it, and the first attempt at this fix read the session and failed in
-exactly the same way: a second tap saw `.running`, asked a session already on its way to
-paused to pause, and got *unable to perform 'pause' from current state 'Paused'*.
+**Sending the same command again is a question, not a repetition**, and given the above it is
+the only question this session reliably answers. Pause a paused session and it is still
+paused; resume a running one and it is still running. So either the command applies, or it is
+refused *for already being in that state* — and both are the answer. Four goes at
+six-tenths of a second, whether the last met silence or a refusal naming a state nobody asked
+for; then the button is freed and the screen keeps what it had. The *same* command goes again,
+held rather than rebuilt, since a second `togglePause` would read `sessionState` afresh and
+could ask for the opposite of what was pressed for.
 
-**And it is worse than late.** Asked to pause, with no callback arriving, the log recorded:
+A refusal confirming what was asked for is **not shown**: the workout is paused, which is what
+was wanted, and a red line over a button that now reads correctly is noise.
 
-```
-no callback for 4 in 5s: session says 2
-```
+**The builder's events are drained once a second, not waited for.** `workoutEvents` is the one
+account here that is a record rather than a reading — every entry is something that happened —
+so it is read on the tick as well as on the callback, whatever is in flight. They are consumed
+by index, in order, exactly once each: reading `.last` instead dropped events whenever two
+landed close together, which is why it worked on lap one and decayed after. A session adopted
+on recovery starts its count where the array already is, so old pauses are not replayed aloud.
 
-Four is `.paused` and two is `.running` — and the next `pause()` was refused for being
-Paused. Five seconds after the call, with nothing in flight, `state` and the state machine
-behind it gave opposite answers, while `elapsedTime` went on counting and the builder
-collected no event. `state` is not a late answer to be waited out. It is a different answer,
-and four fixes that each amounted to reading it more carefully each failed the same way.
-
-So **`HKWorkoutSession.state` is consulted about exactly one thing**: whether the session has
-`.ended` or `.stopped`, which is terminal and has nothing to be late about. Whether a workout
-is *going* is the delegate's to say — and when the delegate does not say, `refused` does.
-
-**The refusal is the only account of this session that has never been wrong.** *Unable to
-perform 'pause' from current state 'Paused'* names the real state, in a sentence, at the one
-moment when every supported way of asking is either silent or contradicting itself — and it
-cannot be stale, because the session declined the call on the strength of it. So it is
-parsed, and the state it names is fed through `observed` like any other account.
-
-Reading an error message is not how this is supposed to work, and it is not a thing to be
-comfortable about. It is here because five attempts at doing it the supported way were each
-the same bug.
-
-A refusal that confirms what was asked for is **not shown**. Being told *unable to pause,
-already paused* means the workout is paused, which is what the athlete wanted: the screen was
-behind, it has caught up, and a red line over a button that now reads the way they wanted it
-to read is noise. Only a refusal naming a state nobody asked for is a line to read.
-
-**Three ways in, one funnel.** `observed(_:)` is where every account of the session's state
-arrives: the session's own delegate, the **pause and resume events the builder collects**,
-and a reconciliation against `HKWorkoutSession.state` once a second. The delegate is the
-flow; the other two are the net under it, and the net is not theoretical — a callback went
-missing on the fourth lap of a test walk, so the screen said running over a session HealthKit
-had paused, the clock went on, the step advanced itself, and the next tap on pause was
-refused by a session that had been paused for a minute.
-
-The net reads the session, so **the net is only allowed to report the one thing the session
-can be believed about**: `reconcile` adopts `.ended` and `.stopped` and nothing else, and is
-skipped entirely while a transition is outstanding. A tick landing between the tap and the
-callback reads `state` as it was before the tap and hands it back as news, which overwrote a
-pause that had already arrived, put running back on the screen over a paused session, and
-re-armed the exact tap the mechanism exists to stop.
-
-**The builder's events are drained once a second, not waited for.** A 78-second test walk
-saved with `timer_s: 12`: HealthKit counted twelve seconds of it and paused the other
-sixty-six, which means the pause and resume events were sitting in the builder the whole
-time, because the saved duration is computed from them. No callback came, `state` read
-`.running`, and the screen counted up to 0:33 over a session that had stopped at 0:12.
-
-So `workoutEvents` is the one account of this session that is a **record rather than a
-reading** — every entry is something that happened, not something being reported — and it is
-read on the tick as well as on the callback. A pause nobody mentioned is found within the
-second. This runs whatever is in flight, because an event is not a stale property: a pause
-that landed while a pause was outstanding is the answer to it.
-
-They are consumed **by index, in order, exactly once each**. Reading `workoutEvents.last`
-instead worked on the first lap and got less reliable with every lap after it: two events
-landing close together queue two callbacks that both hop to the main actor and *then* read
-the array, so both see the newer one and the older is never seen at all. When the older one
-is the pause, that channel has silently dropped it. A session adopted on recovery starts its
-count at whatever the array already holds — those pauses are history, not news, and replaying
-them would announce each one aloud on the way to a state the session is already in.
-
-`pauseOrResumeRequest` comes through the same door, and is the one that is not an account but
-a **question**: it is the system asking this app to toggle, which is how a control outside
-this screen pauses a workout. Answering it is the only thing that makes such a control work —
-and it is answered only when this app has not just asked for something itself, since
-HealthKit echoing back a pause we requested would toggle it straight off again.
-
-**Sending the same command again is a question, not a repetition** — and it is the only
-question this session reliably answers. The log of a test walk, in order:
-
-```
-lap 2: cutting, state 2
-lap 2: asking 4
-no callback for 4 in 5s: session says 2, keeping 2
-lap 2: asking 4
-session refused something: Unable to perform 'pause' from current state 'Paused'
-lap 2: 2 -> 4, asked 0
-```
-
-A lap is cut, `pause()` is sent, and nothing comes back for five seconds — no delegate call,
-no event on the builder, `state` still reading `.running`. Then the next press is refused for
-being paused already. **The first pause had worked.** HealthKit paused the session and said
-nothing at all about it, and the refusal on the second press was the only notice that the
-first had landed — which existed only because the athlete pressed twice.
-
-So the second press is not left to them. Asking twice is safe in a way almost nothing else
-here is: pause a paused session and it is still paused, resume a running one and it is still
-running. Either the command applies, or it is refused *for already being in that state*, and
-both of those are the answer. Four goes at six-tenths of a second, whether the last one was
-met with silence or with a refusal naming a state nobody asked for; then the button is freed
-and the screen keeps what it had.
-
-It is the *same* command that goes again, held rather than rebuilt, because a second
-`togglePause` would read `sessionState` afresh and could ask for the opposite of what was
-pressed for.
+`pauseOrResumeRequest` comes through the same door and is the one that is a question rather
+than an account — the system asking this app to toggle, which is how a control outside this
+screen works. It is answered only when this app has not just asked for something itself, since
+an echo of our own pause would toggle it straight off.
 
 **Only the answer frees the button.** `asked` holds the transition requested and not yet
-reported back, and nothing else clears it: not a timer, not the tick, not an unrelated state
-change. Each of those freed it early, and early is half the bug — the callback takes about a
-second, and a mechanism that gives up before the answer arrives is a screen still saying
-running over a session that has been paused the whole time. The five-second limit frees the
-button and **changes nothing else**: there is no state to adopt at that point, only a
-property that has been caught disagreeing with its own session, so the screen keeps what the
-delegate last told it and the next tap's refusal sets it right.
+reported back, and no timer, tick or unrelated state change clears it. While it is held the
+pause shows a **spinner** — a dimmed glyph for that second reads as a button that has broken.
 
-A second of a dimmed pause glyph reads as a button that has broken, so it is a **spinner**
-for that second instead. The glyph itself changes only when the session says so.
-
-**A paused workout has no laps in it.** `lappable` is one question with one answer, asked by
-the button, by the step that runs out of seconds, by the step that reaches its distance, and
-again inside `openInterval` on the line before HealthKit — because that refusal has failed a
-session before now. A pause with twenty seconds left in the step is twenty seconds left in
-the step. Settling counts as paused: in the second before the delegate answers, the session is
-on its way somewhere and the screen does not yet know where. The lap button dims to say so
-rather than merely going deaf.
-
-The interval's clock is baselined off `builder.elapsedTime`, which is the clock with the
-pauses taken out, rather than off the last figure read from it — that copy is deliberately not
-read while paused, and baselining against it would hand a new step whatever second the screen
-last happened to see.
+**A paused workout has no laps in it.** `lappable` is one question asked by the lap button, by
+the step that runs out of seconds, by the step that reaches its distance, and again inside
+`openInterval` on the line before HealthKit. A pause with twenty seconds left in a step leaves
+twenty seconds left in it, and the interval clock baselines off `builder.elapsedTime`, the
+clock with the pauses taken out. Settling counts as paused, and the lap button dims to say so.
 
 `RunPhase` is the **app's** lifecycle only — starting, live, saving, saved, failed — and
-deliberately has no running or paused in it.
-
-**A live session that refuses something has not ended.** `failed` means the recording is over
-and offers to try the *save* again; a refused pause is not that, and treating it as that
-ended a workout that was going perfectly well. A refusal is `problem`, a red line under the
-step that the next state change clears — when it is a line worth reading at all, which a
-refusal confirming what was asked for is not.
+deliberately has no running or paused in it. **A live session that refuses something has not
+ended**: `failed` means the recording is over and offers to retry the *save*, which on a
+refused pause ended a workout that was going perfectly well. A refusal is `problem`, a line
+under the step that the next state change clears.
 
 **The clock only moves while the session says it is running.** Whether `elapsedTime` stops on
-its own is not something to take on trust, and a total that goes on counting under a PAUSED
-line is the screen saying something the session is not doing.
+its own is not to be taken on trust, and a total counting on under a PAUSED line is the screen
+saying something the session is not doing.
 
-**A recovered session may be over rather than going.** `recoverActiveWorkoutSession` hands
-back one that has **ended** as readily as one that is running, and reading anything but
-`.paused` as running put a pause button over a finished recording — which answered *unable to
-perform 'pause' from current state 'Ended'*. There is nothing to resume in a session that is
-over; there is only the saving it never got, so that is what happens to it.
+**Ending is three refusals' worth of ordering.** A recovered session may be **over** rather
+than going — `recoverActiveWorkoutSession` hands back an ended one as readily as a running
+one, and reading anything but `.paused` as running put a pause button over a finished
+recording. So ending tolerates a session that has already ended: what is left either way is
+closing the builder and saving. And `endCollection` is called **after** the session has ended,
+never before, because `session.end()` closes the open activity at the moment HealthKit ends
+the session — later than any timestamp captured before the wait — and a collection ended
+before an activity it contains is refused with *workout activity did not occur during this
+workout*. That is a whole recording lost to a timestamp read a second early. The delegate's
+word for `.ended` is what is waited on, with a limit, since a wait that never returns loses
+the session as completely as saving too early.
 
-**Ending is tolerant of a session that has already ended**, because the recovery path reaches
-it with one: what is left either way is closing the builder and saving, and asking a finished
-session to end again costs *unable to end a workout that is not currently active*.
+**Saving happens in the End button**, not on a screen of its own. The figures an athlete was
+reading stay up with *Saving…* where they pressed, and nothing asks them to keep the app open,
+because nothing needs them to.
 
-**The collection is ended after the session is, not before.** `session.end()` closes the open
-activity at the moment HealthKit ends the session, which is later than any moment captured
-before the wait — and a collection ended before an activity it contains is refused with
-*workout activity did not occur during this workout*. That is a whole recording lost to a
-timestamp read a second too early.
-
-**Saving happens in the End button**, not on a screen of its own. Closing a builder and
-writing the session into Health takes a moment; it does not take the workout off the screen,
-and the figures an athlete was reading stay up with *Saving…* where they pressed. Nothing
-asks them to keep the app open, because nothing needs them to.
-
-**Ending is behind the pause**, as it is on Apple's, and that answers two things at once:
-there is no dialog to write, and the seconds spent deciding are not seconds anybody was
-moving. Nothing ends a running session in one tap.
+**Ending is behind the pause**, as on Apple's: no dialog to write, and the seconds spent
+deciding are not seconds anybody was moving. Nothing ends a running session in one tap.
 
 **The controls lock without pausing first.** A phone goes into a pocket mid-session and comes
 out having been tapped by a thigh, and what it must not have been tapped into is the next
 interval or the end of the recording. Locked, the figures keep going and the bar collapses to
-one pill whose lock is **slid** rather than tapped — which is the whole point of having
-locked it, and slid rather than held because that is the gesture Apple's own lock uses and
-the one a hand already knows.
-It is reachable while running rather than only from the paused menu, because pausing in order
-to lock would cost the recording the seconds spent deciding to.
+one pill whose lock is **slid** rather than tapped — Apple's own gesture, and the one a hand
+already knows. Reachable while running, because pausing in order to lock would cost the
+recording the seconds spent deciding to.
 
 **The screen does not appear until there is something recording for it to be about.** Start
-holds where it is, on a spinner, until the session is running with its first lap open, and a
-start that fails says so there rather than on a run screen counting a workout nobody is
-recording. It is not a cosmetic ordering: `startActivity` returning is not the session
-running, and a lap cut in one that has not reached `.running` is refused — so the delegate's
-word for the state is waited for, as it is at the other end before `endCollection`. A start
-that gets as far as recording and no further **ends the session** rather than leaving it,
-because one nothing ends is the stranded recording this all exists to prevent.
-
-Nothing acknowledges `beginNewActivity` on the way out, so the first lap is followed by a
-quarter-second settle and a check that the session has not failed in the meantime. That is a
-settle, not a proof, and the comment in `begin()` says so.
+holds on a spinner until the session is running with its first lap open, because
+`startActivity` returning is not the session running and a lap cut before `.running` is
+refused. A start that gets as far as recording and no further **ends** the session: one
+nothing ends is the stranded recording this all exists to prevent. Nothing acknowledges
+`beginNewActivity`, so the first lap is followed by a quarter-second settle and a check that
+the session has not failed meanwhile — a settle, not a proof.
 
 **Indoors or outdoors is asked before anything starts.** It cannot be changed once a session
-has begun, and the plan cannot always settle it: the same easy 40 minutes is a park or a
-treadmill depending on the weather. The picker opens on the answer the plan's sub-sport
-gives, so an athlete with nothing to change taps one button rather than two. Outdoors is GPS,
-a route and a live speed; indoors is neither, and pace and distance come from the pedometer
-through the data source instead.
+has begun and the plan cannot always settle it: the same easy 40 minutes is a park or a
+treadmill depending on the weather. The picker opens on the plan's sub-sport, so an athlete
+with nothing to change taps one button. Outdoors is GPS, a route and a live speed; indoors is
+neither, and pace and distance come from the pedometer through the data source.
 
-**What is on the screen is what is read mid-effort, and each reading is absent until
-something measures it.** A runner gets total and interval time, pace and interval pace,
-distance and interval distance, cadence and heart rate; a cyclist gets total and interval
-time, power and interval power, cadence and heart rate. Every row is a pair read across, the
-session's figure beside this interval's, because what is checked mid-interval is the
-difference. A dash rather than a zero, for the reason [stats.md](stats.md) gives and the same
-rule the FIT file is written under.
-
-Which pairs there are is the **session's** sport and not the workout's, for the same reason
-the recovery below reads its configuration off the session it found: a ride picked up from a
-run's screen is still a ride.
+**What is on the screen is read mid-effort, and each reading is absent until something
+measures it.** A runner gets total and interval time, pace and interval pace, distance and
+interval distance, cadence and heart rate; a cyclist gets the same with power in place of
+pace and distance. Every row is a pair read across, the session's figure beside this
+interval's, because what is checked mid-interval is the difference — and a dash rather than a
+zero, for the reason [stats.md](stats.md) gives. Which pairs there are is the **session's**
+sport, not the workout's, for the same reason recovery reads its configuration off the session
+it found: a ride picked up from a run's screen is still a ride.
 
 Where each comes from is not uniform, and the differences are the ones worth knowing:
 
@@ -367,69 +235,53 @@ Where each comes from is not uniform, and the differences are the ones worth kno
 | Interval power | Averaged over this interval's own readings, about one a second, because the builder's average is the whole session's and does not come apart again at a lap. The averages in the **file** are HealthKit's own samples, read back by `SessionReader` — not these |
 
 **A power meter does not pair itself to an iPhone.** Apple connects a Bluetooth heart rate
-sensor to a workout session on the phone automatically, and does not do the same for cycling
-power and cadence sensors, which pair themselves to an Apple Watch and not to this. So those
-two readings are a dash on a phone-only ride unless something else is writing the samples,
-and the screen says so the only way it can. Nothing here can fix that; it is worth knowing
-before setting out to ride with one.
+sensor to a phone session automatically and does not do the same for cycling power and cadence
+sensors, which pair to an Apple Watch. So those two are a dash on a phone-only ride unless
+something else writes the samples. Nothing here can fix it; it is worth knowing before setting
+out.
 
 **The session names its own plan.** `WorkoutRunner` writes `<date>/<id>` into the workout's
-metadata under `workout_mcp_id`, the same name the FIT file's developer field uses, when it
-starts — not when it ends, which is where a recording is most likely to be interrupted.
-That is a **third** way of matching a session to a plan and it is not the picker the section
-below rules out: nothing is guessed and nobody is asked, because this app was handed the
-workout and started the session for it. It is asked first everywhere, ahead of
-`HKWorkout.workoutPlan`, being both the one that cannot be wrong and the one that costs no
-round trip — which is what lets a wake upload a phone-recorded session at all.
-
-**Ending waits for the session to have ended.** `endCollection` on a session that has not
-reached `.ended` is refused, and a refusal there is the whole recording — so the delegate's
-own word for it is waited on rather than the call that asked for it. With a limit, and the
-limit releases the wait itself, because a wait that never returns loses the session exactly
-as completely as saving too early would.
+metadata under `workout_mcp_id` — the same name the FIT file's developer field uses — when it
+**starts**, not when it ends, which is where a recording is most likely to be interrupted. It
+is a third way of matching a session to a plan, and not the picker the section below rules
+out: nothing is guessed and nobody is asked, because this app was handed the workout. It is
+asked first everywhere, ahead of `HKWorkout.workoutPlan`, being both the match that cannot be
+wrong and the one that costs no round trip — which is what lets a wake upload a phone-recorded
+session at all.
 
 **A session outlives the app, and the app says so on opening.** HealthKit holds it, not this
-process, so a force-quit or a crash mid-run leaves it recording and refuses a second one.
-`WorkoutRecovery` asks `recoverActiveWorkoutSession` as `RootView` appears and, where there is
-one, offers the two things worth doing with it: carry on, or end it and send it up.
+process, so a force-quit mid-run leaves it recording and refuses a second one.
+`WorkoutRecovery` asks `recoverActiveWorkoutSession` as `RootView` appears and offers the two
+things worth doing: carry on, or end it and send it up. It asks there rather than from the
+start button, which is inside one planned workout — finding a stranded recording meant
+guessing which workout it came from, and a wrong guess was a recording nobody could stop. The
+offer names the workout where it can, reading the key back out of the session's metadata.
 
-It asks there rather than leaving it to the start button because the button is inside one
-planned workout, and finding a stranded recording meant guessing which workout it had been
-started from. Somebody who guessed wrong had a recording they could not stop — which is how
-the first session ever recorded here went. The offer names the workout where it can:
-`WorkoutRunner.workoutKey` reads it back out of the session's own metadata, which is the
-other half of writing that at the start rather than the end. A key with nothing behind it any
-more is not an error — the session is still recorded and still uploaded, and only the name
-and the steps are missing.
-
-**A recovered session counts its interval from where it is.** The laps it has already cut are
-in the session and are not cut again, but the interval on the screen is rebased off the
-session's own elapsed and distance — without that, a step measured in a minute is found long
-since due on the first tick and advances itself, which put a resumed session straight onto
-interval two. Which interval the athlete was on is not recoverable: it lived in the process
-that went away, and the screen says one.
+**A recovered session counts its interval from where it is.** Laps already cut are in the
+session and are not cut again, but the interval on screen is rebased off the session's own
+elapsed and distance — without that, a step measured in a minute is long since due on the
+first tick and advances itself, which put a resumed session straight onto interval two. Which
+interval the athlete was on is not recoverable: it lived in the process that went away, and
+the screen says one.
 
 **It is behind a compile-time switch.** `ON_PHONE_RECORDING` is in
-`SWIFT_ACTIVE_COMPILATION_CONDITIONS` for **Debug** and not for Release, so a local build has
-it and an archive — which is what goes to TestFlight — does not.
-
-Six files are inside it whole: `WorkoutRunner`, `RunVoice`, `TargetWatch`, `WorkoutView`,
-`RunSteps` and `Spoken`. What is left in the shared files is the start button, the cover's
-contents, the Settings toggle and `HealthAccess.shareTypes` — with no share types the build
-never asks to write to Health, which is the only thing about it an athlete would otherwise
-see. `HealthAccess.recordedKey` is deliberately **not** switched out: it is three lines, and
-a session recorded by a local build should still upload from an archive installed over it.
+`SWIFT_ACTIVE_COMPILATION_CONDITIONS` for **Debug** and not Release, so a local build has it
+and a TestFlight archive does not. Six files are inside it whole — `WorkoutRunner`,
+`RunVoice`, `TargetWatch`, `WorkoutView`, `RunSteps`, `Spoken` — and what is left in the
+shared files is the start button, the cover's contents, the Settings toggle and
+`HealthAccess.shareTypes`, with no share types meaning the build never asks to write to
+Health, the only part an athlete would otherwise see. `HealthAccess.recordedKey` is
+deliberately **not** switched out: three lines, so a session recorded by a local build still
+uploads from an archive installed over it.
 
 The cost is that a Release build does not compile the recorder, so nothing catches a break in
-it but a Debug build — which is every build anybody runs, and CI compiles no Swift at all.
-What the switch does not reach is `Info.plist`: `audio` and `location` are declared in both,
-and are inert in a build with nothing to ask for them.
+it but a Debug build — and CI compiles no Swift at all. `Info.plist` is outside the switch:
+`audio` and `location` are declared in both and inert where nothing asks for them.
 
-**It is iOS 26 and above.** The deployment target stays at 18, and `Sports.isRecordable`
-plus one `#available` keep the button off a phone that has no session to start; the app is
-otherwise unchanged there. Health authorization asks to *write* only where that is true —
-`HealthAccess.shareTypes` is empty below 26, because a permission sheet asking for what the
-app cannot do is a question with no answer worth giving.
+**It is iOS 26 and above.** The deployment target stays at 18, and `Sports.isRecordable` plus
+one `#available` keep the button off a phone with no session to start. Health authorization
+asks to *write* only where that is true — `shareTypes` is empty below 26, because a permission
+sheet asking for what the app cannot do is a question with no answer worth giving.
 
 ## The plan, in Apple's shape
 
