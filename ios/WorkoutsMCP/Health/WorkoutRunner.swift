@@ -132,6 +132,12 @@ final class WorkoutRunner: NSObject, ObservableObject {
     private var clock: Task<Void, Never>?
     private static let settle = 0.25
 
+    /// The events are watched far faster than the figures are read, because one is a button
+    /// the athlete is waiting on and the other is a number that changes once a second. A drain
+    /// is an array count against an index, so ten a second costs nothing.
+    private var watching: Task<Void, Never>?
+    private static let drainEvery = 0.1
+
     /// `HKLiveWorkoutBuilder.elapsedTime` is documented as counting "including pauses", so the
     /// paused stretches are measured on its own clock and taken back off.
     private var pausedFor: TimeInterval = 0
@@ -461,6 +467,8 @@ final class WorkoutRunner: NSObject, ObservableObject {
     func stop() {
         clock?.cancel()
         clock = nil
+        watching?.cancel()
+        watching = nil
         stopLocating()
         voice.stop()
     }
@@ -470,7 +478,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
     func follow() {
         guard case .live = phase else { return }
         if !indoors { startLocating() }
-        guard clock == nil else { return }
+        guard clock == nil, watching == nil else { return }
         read(onTick: true)
 
         clock = Task { [weak self] in
@@ -481,11 +489,22 @@ final class WorkoutRunner: NSObject, ObservableObject {
                 self?.tick()
             }
         }
+
+        watching = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(Self.drainEvery)) } catch { return }
+                self?.drainIfLive()
+            }
+        }
+    }
+
+    private func drainIfLive() {
+        guard case .live = phase else { return }
+        drain()
     }
 
     private func tick() {
         guard case .live = phase else { return }
-        drain()
         read(onTick: true)
     }
 
