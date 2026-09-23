@@ -83,6 +83,18 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// guess, and one a second late is refused with "workout activity did not occur".
     private var stoppedAt: Date?
 
+    /// How much of `builder.workoutEvents` has been read.
+    ///
+    /// The builder's array is the only account of a pause that is a **record** rather than a
+    /// notification, and it is read once a second because the notifications are not reliable:
+    /// `didChangeTo` does not report every pause on iPhone, and the builder's own callback
+    /// arrives late and in bursts — flushed by whatever happens next, which is why a pause
+    /// pressed and apparently ignored landed the moment a lap was started.
+    private var eventsRead = 0
+    private static let stateful: Set<HKWorkoutEventType> = [
+        .pause, .resume, .motionPaused, .motionResumed,
+    ]
+
     private var waiting: CheckedContinuation<Void, Never>?
     private var waitingFor: HKWorkoutSessionState?
     private static let stateLimit = 10.0
@@ -254,6 +266,8 @@ final class WorkoutRunner: NSObject, ObservableObject {
 
         self.session = session
         self.builder = builder
+        // Whatever this session did before this app picked it up is history, not news.
+        eventsRead = builder.workoutEvents.count
         // Adopting one raises no callback, so this is the one read of `state` in the app.
         sessionState = session.state
         // Apple calls this when the session is built: it warms the sensors, so starting is not
@@ -471,7 +485,26 @@ final class WorkoutRunner: NSObject, ObservableObject {
 
     private func tick() {
         guard case .live = phase else { return }
+        drain()
         read(onTick: true)
+    }
+
+    /// Everything the builder has collected since the last look, in order, exactly once each.
+    /// Only the last of a batch says where the session is; the rest are history, and playing
+    /// them one at a time flips the screen for each and says every one of them out loud.
+    private func drain() {
+        let events = builder?.workoutEvents ?? []
+        guard events.count > eventsRead else { return }
+
+        let fresh = events[eventsRead...]
+        eventsRead = events.count
+
+        if let last = fresh.last(where: { Self.stateful.contains($0.type) }) {
+            words.continuation.yield(.event(last.type))
+        }
+        for event in fresh where !Self.stateful.contains(event.type) {
+            SyncLog.record(.upload, "event \(event.type.rawValue) ignored")
+        }
     }
 
     /// `onTick` separates the figures simply read from the ones accumulated: the builder's
@@ -748,9 +781,10 @@ extension WorkoutRunner: HKLiveWorkoutBuilderDelegate {
         Task { @MainActor in self.read(onTick: false) }
     }
 
+    /// The same drain the tick does, a second earlier when the callback happens to come. It is
+    /// not relied on: a walk's worth of pauses reached the builder without it.
     nonisolated func workoutBuilderDidCollectEvent(_ workoutBuilder: HKLiveWorkoutBuilder) {
-        guard let event = workoutBuilder.workoutEvents.last else { return }
-        words.continuation.yield(.event(event.type))
+        Task { @MainActor in self.drain() }
     }
 
     nonisolated func workoutBuilder(

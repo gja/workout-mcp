@@ -144,6 +144,16 @@ is yielded synchronously to one stream and consumed one at a time, into one funn
 which is the only writer of `sessionState`. `HKWorkoutSession.state` is read exactly once, on
 adopting a session, because that raises no callback.
 
+**The builder's events are read once a second, not waited for.** `builder.workoutEvents` is
+the only account of a pause that is a **record** rather than a notification, and the
+notifications are not reliable: `didChangeTo` does not report every pause on iPhone, and the
+builder's own callback arrives late and in bursts, flushed by whatever happens next. Deleting
+the once-a-second read as dead weight is exactly what made a pause press do nothing and then
+take effect the moment a lap was started — `beginNewActivity` was what flushed it. The array
+is read by index, exactly once each, and only the last of a batch says where the session is;
+the rest are history, and playing them one at a time flips the screen for each and says every
+one of them out loud.
+
 **`pauseOrResumeRequest` is answered nowhere.** Apple: *"the user can request a pause or resume
 by pressing both watch buttons."* It is a watch gesture, and this screen exists for the athlete
 with no watch. Unlike `.pause` and `.resume`, which are idempotent through `became`, it is an
