@@ -169,6 +169,30 @@ final class WorkoutRunner: NSObject, ObservableObject {
     private var waiting: CheckedContinuation<Void, Never>?
     private var waitingFor: HKWorkoutSessionState?
 
+    /// **The session's state changes, in the order they happened.**
+    ///
+    /// Apple's own sample for this API says why, in as many words: *"The Swift actors don't
+    /// handle tasks in a first-in-first-out manner. Use `AsyncStream` to ensure that the app
+    /// presents the latest state."* Every `Task { @MainActor in … }` hop out of a `nonisolated`
+    /// delegate is a separate task, and nothing orders them — so a pause and the resume after
+    /// it can be delivered the wrong way round, which is a screen that ends up saying the
+    /// opposite of what the session is doing.
+    ///
+    /// The continuation is yielded to **synchronously** from the delegate, so the order is the
+    /// order HealthKit reported. `bufferingNewest(1)` because a state is not a queue of work:
+    /// if two arrive while the consumer is busy, the later one is the answer and the earlier
+    /// one is history — the same rule `drain` applies to a batch of events.
+    private let changes = AsyncStream.makeStream(
+        of: (state: HKWorkoutSessionState, date: Date).self, bufferingPolicy: .bufferingNewest(1)
+    )
+    private var reading: Task<Void, Never>?
+
+    deinit {
+        // The consumer waits on a stream that never ends by itself, so it is ended here. It
+        // holds the stream rather than the runner, so this is reached.
+        changes.continuation.finish()
+    }
+
     private let voice = RunVoice()
     /// The bands of the step being run, and what has already been said about each. Rebuilt
     /// every interval: a watch remembers which side it last announced, and that is about one
@@ -276,7 +300,32 @@ final class WorkoutRunner: NSObject, ObservableObject {
         distanceType = isCycling ? HKQuantityType(.distanceCycling) : HKQuantityType(.distanceWalkingRunning)
 
         super.init()
+
+        // One consumer, one at a time: the next state cannot begin until the last has been
+        // taken, which is what makes the stream an ordering and not just a queue.
+        reading = Task { [weak self] in
+            guard let stream = self?.changes.stream else { return }
+            for await change in stream {
+                await self?.heard(change.state, at: change.date)
+            }
+        }
     }
+
+    /// One state change, in order, off the stream. Not another `took` — this file already
+    /// has two, and an overload set that wide is how the pace smoothing silently stopped
+    /// touching its own property once already.
+    private func heard(_ state: HKWorkoutSessionState, at date: Date) {
+        if state == waitingFor { stopWaiting() }
+        // The session's own word for when it ended, rather than a `Date()` this app reads
+        // afterwards. Apple's sample ends its collection at exactly this date, and a
+        // collection ended a second late is the *workout activity did not occur during this
+        // workout* that cost a recording here.
+        if state == .ended || state == .stopped { closedAt = date }
+        observed(state)
+    }
+
+    /// When the session said it ended, kept for `endCollection`.
+    private var closedAt: Date?
 
     // --- Starting, and picking up one that was lost ---------------------------------------
 
@@ -651,8 +700,9 @@ final class WorkoutRunner: NSObject, ObservableObject {
     }
 
     /// **Every way the session's state reaches this app comes through here**: its own
-    /// delegate, the pause and resume events the builder collects, and the reconciliation on
-    /// the tick. The delegate is the flow; the other two are the net under it.
+    /// delegate, the events the builder collects — `.motionPaused` and `.motionResumed`
+    /// among them, which is the system pausing the workout by itself — and the
+    /// reconciliation on the tick. The delegate is the flow; the other two are the net.
     ///
     /// They are there because a callback that never arrives is a screen left saying running
     /// over a session HealthKit has paused — the clock goes on, the step advances itself, and
@@ -830,12 +880,13 @@ final class WorkoutRunner: NSObject, ObservableObject {
             SyncLog.record(.upload, "ending: session now \(sessionState.rawValue)")
         }
 
-        // **After** the session has ended, not before it. `session.end()` closes the open
-        // activity at the moment HealthKit ends the session, which is later than any moment
-        // captured before the wait — and a collection ended before an activity it contains is
-        // refused with "workout activity did not occur during this workout", which is a whole
-        // recording lost to a timestamp read a second too early.
-        let closed = Date()
+        // **The session's own word for when it ended**, which is what Apple's sample ends its
+        // collection at, falling back to now only if it never said. A collection ended before
+        // an activity it contains is refused with "workout activity did not occur during this
+        // workout" — a whole recording lost to a timestamp read a second too early — and a
+        // date this app reads for itself after the wait is a guess at the one the delegate was
+        // handed.
+        let closed = closedAt ?? Date()
 
         do {
             // Its failure is not reported: a collection already ended refuses a second
@@ -970,22 +1021,26 @@ final class WorkoutRunner: NSObject, ObservableObject {
         // batch actually says is where it leaves the session, so that is all it is asked.
         let settled = fresh.compactMap { event -> HKWorkoutSessionState? in
             switch event.type {
-            case .pause: return .paused
-            case .resume: return .running
+            case .pause, .motionPaused: return .paused
+            case .resume, .motionResumed: return .running
             default: return nil
             }
         }
         if let state = settled.last { observed(state) }
 
-        // Somebody else's control — the Lock Screen, Siri, the system's own idea that this
-        // walk has stopped. Answered once however many arrived, and only when this app has
-        // not just asked for something itself, since HealthKit echoing our own pause back as
-        // a request would toggle it straight off again.
-        if settled.isEmpty, asked == nil,
-            fresh.contains(where: { $0.type == .pauseOrResumeRequest }) {
-            togglePause()
+        // Everything else, by name, because a type nobody handles is a state change nobody
+        // sees — which is how `.motionPaused` went missing for the whole of this branch.
+        for event in fresh where !Self.stateful.contains(event.type) {
+            SyncLog.record(.upload, "event \(event.type.rawValue) ignored")
         }
     }
+
+    /// The event types that say where the session is. Everything else is written to the log
+    /// by name rather than dropped, so the next thing HealthKit does that this app does not
+    /// understand is one line away instead of a walk's worth of guessing.
+    private static let stateful: Set<HKWorkoutEventType> = [
+        .pause, .resume, .motionPaused, .motionResumed,
+    ]
 
     /// `onTick` is what separates the figures that are simply read from the one that is
     /// accumulated: the builder's delegate fires whenever samples land, which is neither
@@ -1208,10 +1263,9 @@ extension WorkoutRunner: HKWorkoutSessionDelegate {
         from fromState: HKWorkoutSessionState,
         date: Date
     ) {
-        Task { @MainActor in
-            if toState == self.waitingFor { self.stopWaiting() }
-            self.observed(toState)
-        }
+        // Yielded synchronously rather than hopped to the main actor, because the hop is
+        // what loses the order. `changes` is a `let`, so it is reachable from here.
+        changes.continuation.yield((state: toState, date: date))
     }
 
     /// **The word for a lap being open**, which this app spent a long time believing did not
@@ -1235,13 +1289,16 @@ extension WorkoutRunner: HKWorkoutSessionDelegate {
     ) {
         Task { @MainActor in
             switch event.type {
-            case .pause: self.observed(.paused)
-            case .resume: self.observed(.running)
-            // `.pauseOrResumeRequest` deliberately *not* handled here. It is an action, not
-            // an account, and unlike `.pause` and `.resume` — which are idempotent because
-            // they go through `observed` — acting on it twice toggles the workout back. The
-            // same event reaches `drain`, which has exactly-once delivery by index, so that
-            // is where it is answered.
+            case .pause, .motionPaused: self.observed(.paused)
+            case .resume, .motionResumed: self.observed(.running)
+            // **`.pauseOrResumeRequest` is not answered anywhere any more.** Apple: "the
+            // user can request a pause or resume by pressing both watch buttons." It is a
+            // watch gesture, and this screen exists for the athlete who has no watch — so on
+            // an iPhone-only session there is no legitimate source for one, and toggling a
+            // workout on something that should never arrive is how a walk got *paused,
+            // resumed, paused, resumed* out of nowhere. Unlike `.pause` and `.resume`, which
+            // are idempotent because they go through `observed`, it is an **action**, and
+            // acting on it twice undoes it. `drain` logs it by name instead.
             default: break
             }
         }
@@ -1319,10 +1376,6 @@ extension WorkoutRunner: HKLiveWorkoutBuilderDelegate {
 
     /// The other side of the same story. A pause reaches the builder as an event as well as
     /// the session as a state change, so either one arriving is enough — and
-    /// `pauseOrResumeRequest` is the system **asking** this app to toggle, which is how a
-    /// control outside this screen pauses a workout. Answering it is the only way that
-    /// control does anything.
-    ///
     /// The same drain the tick does, a second earlier when the callback happens to come. It
     /// is not relied on: a walk's worth of pauses reached the builder without it.
     nonisolated func workoutBuilderDidCollectEvent(_ workoutBuilder: HKLiveWorkoutBuilder) {
