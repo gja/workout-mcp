@@ -161,9 +161,13 @@ struct WorkoutView: View {
             Color.black.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 0) {
-                heading
-                Spacer(minLength: 12)
-                readings
+                if saved {
+                    summary
+                } else {
+                    heading
+                    Spacer(minLength: 12)
+                    readings
+                }
                 Spacer(minLength: 12)
                 controls
             }
@@ -183,7 +187,7 @@ struct WorkoutView: View {
 
     private var heading: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(runner.step?.title ?? "Workout complete")
+            Text(title)
                 .font(.system(size: 26, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
 
@@ -191,6 +195,45 @@ struct WorkoutView: View {
                 Text(line).font(.system(size: 15, weight: .medium)).foregroundStyle(.secondary)
             }
             status
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// "Workout complete" is what is said past the last step of a plan — not what is said by
+    /// a session with no plan behind it at all, which is every recovered one whose workout
+    /// could not be placed. That said complete over a recording still going.
+    private var title: String {
+        if let step = runner.step { return step.title }
+        return runner.steps.isEmpty ? (runner.workout?.name ?? "Recording") : "Workout complete"
+    }
+
+    /// What it came to, once it is in Health. Shown rather than dismissed straight past,
+    /// because "it saved" is the one thing an athlete wants to be told at the end and the
+    /// screen going away on its own says nothing.
+    private var summary: some View {
+        VStack(alignment: .leading, spacing: 26) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Workout saved")
+                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                Text("In Health, and on its way up.")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible(), alignment: .leading),
+                    GridItem(.flexible(), alignment: .leading),
+                ],
+                spacing: 26
+            ) {
+                Reading(value: Formats.clock(runner.elapsed), unit: "total")
+                Reading(value: runner.metres.map(Formats.distance), unit: "distance")
+                if !runner.steps.isEmpty {
+                    Reading(value: "\(runner.interval + 1)", unit: "intervals")
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -300,7 +343,7 @@ struct WorkoutView: View {
                 Button {
                     if runner.phase == .paused { runner.resume() } else { runner.pause() }
                 } label: {
-                    Image(systemName: runner.phase == .paused ? "arrow.clockwise" : "pause.fill")
+                    Image(systemName: runner.phase == .paused ? "play.fill" : "pause.fill")
                         .font(.system(size: 32, weight: .bold))
                         .foregroundStyle(runner.phase == .paused ? Color.yellow : .white)
                         .frame(width: 88, height: 88)
@@ -397,6 +440,11 @@ struct WorkoutView: View {
     /// so the one button that still means something is the one that gets out of here.
     private var isLive: Bool { runner.phase == .running || runner.phase == .paused }
 
+    private var saved: Bool {
+        if case .saved = runner.phase { return true }
+        return false
+    }
+
     private var done: Bool {
         if case .saved = runner.phase { return true }
         if case .failed = runner.phase { return true }
@@ -411,16 +459,14 @@ struct WorkoutView: View {
     /// The upload is the same one a wake would do, on the same terms: this session names its
     /// planned workout, so nothing here has to tell it which. Awaited before the screen goes,
     /// because the athlete is still looking at it and a failure has nowhere else to appear.
+    /// The screen stays on the summary rather than dismissing itself: what it has to say is
+    /// that the session is in Health, and a screen that vanishes says the opposite of that.
+    /// *Done* is what leaves.
     private func finish() async {
-        guard isLive else {
-            dismiss()
-            return
-        }
         await runner.end()
         guard case .saved = runner.phase else { return }
         await BackgroundSync.uploadWhatIsCertain()
         await model.refresh(using: session.client)
-        dismiss()
     }
 }
 

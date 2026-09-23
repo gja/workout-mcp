@@ -122,6 +122,22 @@ three seconds of GPS lock the recording does not have to spend — and the secon
 otherwise spend are the first of the session, which is the stretch the athlete is standing
 still for and the one whose pace comes out as nonsense.
 
+**A recovered session may be over rather than going.** `recoverActiveWorkoutSession` hands
+back one that has **ended** as readily as one that is running, and reading anything but
+`.paused` as running put a pause button over a finished recording — which answered *unable to
+perform 'pause' from current state 'Ended'*. There is nothing to resume in a session that is
+over; there is only the saving it never got, so that is what happens to it.
+
+**Ending is tolerant of a session that has already ended**, because the recovery path reaches
+it with one: what is left either way is closing the builder and saving, and asking a finished
+session to end again costs *unable to end a workout that is not currently active*.
+
+**The collection is ended after the session is, not before.** `session.end()` closes the open
+activity at the moment HealthKit ends the session, which is later than any moment captured
+before the wait — and a collection ended before an activity it contains is refused with
+*workout activity did not occur during this workout*. That is a whole recording lost to a
+timestamp read a second too early.
+
 **Ending is behind the pause**, as it is on Apple's, and that answers two things at once:
 there is no dialog to write, and the seconds spent deciding are not seconds anybody was
 moving. Nothing ends a running session in one tap.

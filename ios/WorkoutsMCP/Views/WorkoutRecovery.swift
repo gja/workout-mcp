@@ -75,9 +75,14 @@ private struct Offer: ViewModifier {
         await place()
 
         let made = WorkoutRunner(workout: workout, steps: steps, indoors: false, recovered: running)
-        guard await made.begin() else { return }
-        runner = made
-        continuing = true
+        if await made.begin() {
+            runner = made
+            continuing = true
+            return
+        }
+        // Not recording after all: HealthKit hands back a session that has ended as readily
+        // as one that is going, and `begin` saves that rather than putting a screen over it.
+        await settle(made)
     }
 
     /// Ended without ever opening the screen, and uploaded on the terms every other session
@@ -87,18 +92,22 @@ private struct Offer: ViewModifier {
         await place()
 
         let made = WorkoutRunner(workout: workout, steps: steps, indoors: false, recovered: running)
-        await made.begin()
-        await made.end()
+        // Only where it is still going: one that had already ended was saved by `begin`, and
+        // ending it a second time is a finished builder being asked to finish again.
+        if await made.begin() { await made.end() }
+        await settle(made)
+    }
 
-        // A save that did not happen must not clear the session: nothing else would offer it
-        // again, and the athlete would be told nothing about a recording now beyond reach.
+    /// A save that did not happen must not clear the session: nothing else would offer it
+    /// again, and the athlete would be told nothing about a recording now beyond reach.
+    private func settle(_ made: WorkoutRunner) async {
         guard case .saved = made.phase else {
             if case .failed(let why) = made.phase { failure = why }
             asking = true
             return
         }
 
-        self.running = nil
+        running = nil
         failure = nil
         await BackgroundSync.uploadWhatIsCertain()
         await model.refresh(using: session.client)
@@ -108,10 +117,13 @@ private struct Offer: ViewModifier {
     /// upstream, or a plan that has not loaded — is not an error: the session is still
     /// recorded and still uploaded, and only the name and the steps are missing.
     private func place() async {
-        guard workout == nil, let running,
-              let key = WorkoutRunner.workoutKey(of: running),
-              let planned = model.workouts.first(where: { $0.key == key })
-        else { return }
+        guard workout == nil, let running, let key = WorkoutRunner.workoutKey(of: running) else { return }
+
+        // Opening the app starts the listing and this at the same moment, and the listing
+        // usually loses — which left a recovered session with no workout and no steps, and a
+        // screen with nothing on it but dashes.
+        if model.workouts.isEmpty { await model.refresh(using: session.client) }
+        guard let planned = model.workouts.first(where: { $0.key == key }) else { return }
 
         workout = planned
         guard let client = session.client else { return }

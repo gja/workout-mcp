@@ -180,7 +180,10 @@ final class WorkoutRunner: NSObject, ObservableObject {
     func begin() async -> Bool {
         if let recovered {
             resume(recovered)
-            return true
+            // Over rather than going: saving it is the only thing left, and the caller is
+            // told it is not recording so no screen goes up over a session that has ended.
+            if case .saving = phase { await end() }
+            return phase == .running || phase == .paused
         }
         if await resumeRecovered() { return true }
 
@@ -263,8 +266,22 @@ final class WorkoutRunner: NSObject, ObservableObject {
         // advances it. That is what put a recovered session straight onto interval two.
         read(onTick: false)
         rebase()
-        follow()
-        phase = recovered.state == .paused ? .paused : .running
+
+        // `recoverActiveWorkoutSession` hands back a session that has **ended** as readily as
+        // one that is running, and reading anything but `.paused` as running is what put a
+        // pause button over a finished recording: tapping it answered "unable to perform
+        // 'pause' from current state 'Ended'". There is nothing to resume in one that is
+        // over; there is only the saving it never got.
+        switch recovered.state {
+        case .paused:
+            follow()
+            phase = .paused
+        case .ended, .stopped:
+            phase = .saving
+        default:
+            follow()
+            phase = .running
+        }
     }
 
     /// The wiring both ways in have to do, and the one place the session's configuration is
@@ -380,14 +397,28 @@ final class WorkoutRunner: NSObject, ObservableObject {
             return
         }
 
-        let at = Date()
-        // Only what this app opened. `session.end()` closes whatever is still open anyway.
-        if cutting { session.endCurrentActivity(on: at) }
-        session.end()
-        await wait(for: .ended)
+        // A session that has already ended is not ended again: "unable to end a workout that
+        // is not currently active" is what that costs, and what is left to do — closing the
+        // builder and saving — is the same either way.
+        if session.state == .running || session.state == .paused {
+            let at = Date()
+            // Only what this app opened. `session.end()` closes whatever is still open anyway.
+            if cutting { session.endCurrentActivity(on: at) }
+            session.end()
+            await wait(for: .ended)
+        }
+
+        // **After** the session has ended, not before it. `session.end()` closes the open
+        // activity at the moment HealthKit ends the session, which is later than any moment
+        // captured before the wait — and a collection ended before an activity it contains is
+        // refused with "workout activity did not occur during this workout", which is a whole
+        // recording lost to a timestamp read a second too early.
+        let closed = Date()
 
         do {
-            try await builder.endCollection(at: at)
+            // Its failure is not reported: a collection already ended refuses a second
+            // ending, and what decides whether the session survives is `finishWorkout`.
+            try? await builder.endCollection(at: closed)
             guard let saved = try await builder.finishWorkout() else {
                 phase = .failed("Health did not save the session.")
                 return
