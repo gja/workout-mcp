@@ -148,6 +148,12 @@ button shows its spinner meanwhile, so the press is neither lost nor refused. Tw
 without a word and it is sent anyway, because a lap that never reports itself open must not
 cost an athlete a pause.
 
+`pauseOrResumeRequest` is answered in **one** place, and it is the drain. Unlike `.pause` and
+`.resume`, which are idempotent because they go through `observed`, it is an *action* — and
+the same request reaches both the session's callback and the builder's array, so acting on it
+in both toggles the workout straight back off. The drain has exactly-once delivery by index,
+so that is where it lives.
+
 **The interval number comes from that callback too**, and so does the step it names and the
 sentence spoken for it. Counting a lap the session has not cut yet is the screen keeping a
 number of its own, which is the thing this whole flow exists not to do. What *is* taken at the
@@ -160,14 +166,18 @@ that window as well.
 than left in an array to be noticed. The builder's `workoutEvents` is still drained on the
 tick, because nothing here has earned being the only way in.
 
-**Sending the same command again is a question, not a repetition**, and given the above it is
-the only question this session reliably answers. Pause a paused session and it is still
-paused; resume a running one and it is still running. So either the command applies, or it is
-refused *for already being in that state* — and both are the answer. Four goes at
-six-tenths of a second, whether the last met silence or a refusal naming a state nobody asked
-for; then the button is freed and the screen keeps what it had. The *same* command goes again,
-held rather than rebuilt, since a second `togglePause` would read `sessionState` afresh and
-could ask for the opposite of what was pressed for.
+**A refusal that names a state nobody asked for gets one more go.** Asking twice is safe in a
+way little else here is — pause a paused session and it is still paused — so the command is
+sent again a third of a second later, once, with the button blocked across the gap. Only
+once: a session refusing something for a real reason should say so on the second try rather
+than be asked forever, and sending it four times over was tried and made things worse, since
+every extra command is another event for HealthKit to deliver late.
+
+The *same* command goes again, held rather than rebuilt, since a second `togglePause` would
+read `sessionState` afresh and could ask for the opposite of what was pressed for. It is
+cleared the moment anything resolves, so a refusal arriving with nothing outstanding sends
+nothing: a command left lying about is one that gets re-sent on the strength of some later,
+unrelated failure, at a session the athlete had already resumed.
 
 A refusal confirming what was asked for is **not shown**: the workout is paused, which is what
 was wanted, and a red line over a button that now reads correctly is noise.

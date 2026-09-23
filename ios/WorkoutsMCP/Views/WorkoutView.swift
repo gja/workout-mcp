@@ -179,7 +179,11 @@ struct WorkoutView: View {
         }
         .preferredColorScheme(.dark)
         // The clock and the location updates outlive this view otherwise — the session does
-        // not, and is not meant to: ending it is the End button's, not the screen's.
+        // not, and is not meant to: ending it is the End button's, not the screen's. Paired
+        // with `onAppear`, because SwiftUI calls `onDisappear` for a rebuild or a
+        // presentation over the top as readily as for a screen that has gone, and a recording
+        // left with no tick is one nothing advances, announces or reconciles.
+        .onAppear { runner.follow() }
         .onDisappear { runner.stop() }
         .sheet(isPresented: $showingNext) {
             NextUp(steps: runner.steps, current: runner.interval)
