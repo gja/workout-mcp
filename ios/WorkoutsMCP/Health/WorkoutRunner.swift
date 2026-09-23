@@ -49,6 +49,12 @@ final class WorkoutRunner: NSObject, ObservableObject {
     var isRecording: Bool { phase == .live }
     var isPaused: Bool { sessionState == .paused }
 
+    /// Whether the pause on the screen is the system's rather than the athlete's, so it can
+    /// say which. There is no API to turn auto-pause off, so the least this can do is not let
+    /// it look like somebody pressed the button.
+    @Published private(set) var autoPaused = false
+    private var automatic = false
+
     /// A paused workout has no laps in it, and neither has one whose lap is still opening.
     var lappable: Bool { !opening && sessionState == .running }
 
@@ -713,8 +719,11 @@ final class WorkoutRunner: NSObject, ObservableObject {
             // `.motionPaused` is the system pausing the workout itself, and a paused workout is a
             // paused workout however it got there. There is no API to turn it off.
             switch type {
-            case .pause, .motionPaused: became(.paused, at: date)
-            case .resume, .motionResumed: became(.running, at: date)
+            case .pause, .motionPaused:
+                automatic = type == .motionPaused
+                became(.paused, at: date)
+            case .resume, .motionResumed:
+                became(.running, at: date)
             // `.pauseOrResumeRequest` is answered nowhere: Apple documents it as the athlete
             // pressing both *watch* buttons, and this screen exists for the athlete with none.
             default: SyncLog.record(.upload, "event \(type.rawValue) ignored")
@@ -735,13 +744,18 @@ final class WorkoutRunner: NSObject, ObservableObject {
 
     /// The one place `sessionState` is written.
     private func became(_ state: HKWorkoutSessionState, at: Date) {
-        guard state != sessionState else { return }
         // Late, and about a moment this screen has already moved past.
         if let stateAt, at < stateAt {
             SyncLog.record(.upload, "stale \(state.rawValue), \(Int(stateAt.timeIntervalSince(at)))s behind")
             return
         }
+        // Moved **before** the no-change guard, not after. A word repeating the state on the
+        // screen still says how far along this app has heard, and leaving the watermark behind
+        // on one is what lets an older word through next: a batch collapsing to a pause this
+        // screen already shows would leave it at the previous state's time, and the resume
+        // that batch swallowed would then be applied by whichever path reported it late.
         stateAt = at
+        guard state != sessionState else { return }
 
         let was = sessionState
         sessionState = state
@@ -761,7 +775,13 @@ final class WorkoutRunner: NSObject, ObservableObject {
             break
         }
 
-        SyncLog.record(.upload, "lap \(interval + 1): \(was.rawValue) -> \(state.rawValue)")
+        autoPaused = state == .paused && automatic
+        if state != .paused { automatic = false }
+
+        SyncLog.record(
+            .upload,
+            "lap \(interval + 1): \(was.rawValue) -> \(state.rawValue)\(autoPaused ? " (auto)" : "")"
+        )
 
         switch state {
         case .running where was == .paused: voice.say("Resumed.")

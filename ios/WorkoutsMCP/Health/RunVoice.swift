@@ -26,9 +26,14 @@ final class RunVoice: NSObject {
 
     private let synthesizer = AVSpeechSynthesizer()
 
-    /// What is still being said. The session is released on the way back to zero and not on
-    /// each utterance, or two announcements in a row would hand the music back in between.
-    private var pending = 0
+    /// What is still being said. The session is released when the last one finishes and not
+    /// on each utterance, or two announcements in a row would hand the music back in between.
+    ///
+    /// Held by identity rather than as a count. A count cannot tell a
+    /// callback for something `stop` cancelled from one for what is being said now: the
+    /// cancellations hop to the main actor after `stop` has already zeroed it, and a `say`
+    /// landing in that gap had its audio session deactivated mid-sentence by the stale one.
+    private var live = Set<ObjectIdentifier>()
 
     override init() {
         super.init()
@@ -39,20 +44,21 @@ final class RunVoice: NSObject {
         guard Self.isOn, !words.isEmpty else { return }
 
         activate()
-        pending += 1
-        synthesizer.speak(AVSpeechUtterance(string: words))
+        let utterance = AVSpeechUtterance(string: words)
+        live.insert(ObjectIdentifier(utterance))
+        synthesizer.speak(utterance)
     }
 
     /// Cut off rather than waited for: whatever was being said is about an interval that has
     /// finished, and the athlete has already stopped.
     func stop() {
         synthesizer.stopSpeaking(at: .immediate)
-        pending = 0
+        live.removeAll()
         release()
     }
 
     private func activate() {
-        guard pending == 0 else { return }
+        guard live.isEmpty else { return }
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(
             .playback,
@@ -68,9 +74,10 @@ final class RunVoice: NSObject {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
-    private func finished() {
-        pending = max(0, pending - 1)
-        if pending == 0 { release() }
+    private func finished(_ utterance: AVSpeechUtterance) {
+        // Not one of ours any more — `stop` wrote it off, and what is speaking now is not it.
+        guard live.remove(ObjectIdentifier(utterance)) != nil else { return }
+        if live.isEmpty { release() }
     }
 }
 
@@ -78,13 +85,13 @@ extension RunVoice: AVSpeechSynthesizerDelegate {
     nonisolated func speechSynthesizer(
         _ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance
     ) {
-        Task { @MainActor in self.finished() }
+        Task { @MainActor in self.finished(utterance) }
     }
 
     nonisolated func speechSynthesizer(
         _ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance
     ) {
-        Task { @MainActor in self.finished() }
+        Task { @MainActor in self.finished(utterance) }
     }
 }
 

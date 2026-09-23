@@ -157,6 +157,10 @@ says where the session is;
 the rest are history, and playing them one at a time flips the screen for each and says every
 one of them out loud.
 
+**An automatic pause says so on the screen.** The system stops the workout by itself when it
+decides the athlete has stopped moving and there is no API to turn that off, so the line reads
+*AUTO PAUSED* rather than letting it look like somebody pressed the button.
+
 **A word older than the state on the screen is not news.** The same pause reaches this app
 down more than one path — the session's state change, the session's event, the builder's
 array — and they do not arrive in step. One path collapses a batch to its last event, another

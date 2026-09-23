@@ -36,7 +36,7 @@ const listWorkouts: AuthedRoute = async ({ url, env, user }) => {
 };
 
 const createWorkout: AuthedRoute = async ({ request, url, env, user }) => {
-  const workout = await plan.createWorkout(env, user, parseWorkout(await request.json()));
+  const workout = await plan.createWorkout(env, user, parseWorkout((await request.json()) ?? {}));
   return json(presentBrief(workout, url.origin), 201);
 };
 
@@ -164,7 +164,10 @@ const recordWorkout: AuthedRoute<RecordingRoute> = async ({ request, url, env, u
 
 const replaceWorkout: AuthedRoute<WorkoutRoute> = async ({ request, url, env, user, params }) => {
   // Taken out before the rest is parsed: it says why this write happened, not what the plan is.
-  const { change_reason: reason, ...body } = (await request.json()) as Record<string, unknown>;
+  // Spread over `null` throws where `parseWorkout` would have answered 400, so it is a body
+  // either way and the parser says what is wrong with it.
+  const sent = ((await request.json()) ?? {}) as Record<string, unknown>;
+  const { change_reason: reason, ...body } = sent;
   const input = parseWorkout(body);
 
   const workout = await plan.replaceWorkout(env, user, params.id, input, parseChangeReason(reason));

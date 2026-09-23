@@ -238,7 +238,10 @@ struct WorkoutView: View {
                 Reading(value: Formats.clock(runner.elapsed), unit: "total")
                 Reading(value: runner.metres.map(Formats.distance), unit: "distance")
                 if !runner.steps.isEmpty {
-                    Reading(value: "\(runner.interval + 1)", unit: "intervals")
+                    // Capped: a plan that advances itself past its last step leaves `interval`
+                    // one beyond the end, which is what makes the title read "Workout
+                    // complete" — and would make a five-interval plan report six.
+                    Reading(value: "\(min(runner.interval + 1, runner.steps.count))", unit: "intervals")
                 }
             }
         }
@@ -248,7 +251,11 @@ struct WorkoutView: View {
     @ViewBuilder
     private var status: some View {
         if runner.isPaused {
-            Text("PAUSED").font(.caption.weight(.bold)).foregroundStyle(.yellow)
+            // Named for whose pause it is. The system stops the workout by itself when it
+            // decides the athlete has stopped moving, and there is no API to turn that off —
+            // so the screen says so rather than letting it look like a button was pressed.
+            Text(runner.autoPaused ? "AUTO PAUSED" : "PAUSED")
+                .font(.caption.weight(.bold)).foregroundStyle(.yellow)
         }
         // A live session that refused something says so and carries on; only a save that
         // failed is a `failed` phase, and only that offers to try again.
