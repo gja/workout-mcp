@@ -197,14 +197,8 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// from one that did, and they find out a minute in, outdoors.
     @discardableResult
     func begin() async -> Bool {
-        if let recovered {
-            resume(recovered)
-            // Over rather than going: saving it is the only thing left, and the caller is
-            // told it is not recording so no screen goes up over a session that has ended.
-            if case .saving = phase { await end() }
-            return isRecording
-        }
-        if await resumeRecovered() { return true }
+        if let recovered { return await took(recovered) }
+        if let found = await Self.active() { return await took(found) }
 
         guard let workout else {
             phase = .failed("There is no workout to start.")
@@ -264,10 +258,15 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// into it then: what this screen says above the clock can be the wrong name, and what is
     /// saved cannot be the wrong workout. The interval count starts again from one — it lived
     /// in the process that went away — and the laps already cut are still in the session.
-    private func resumeRecovered() async -> Bool {
-        guard let found = await Self.active() else { return false }
+    /// Adopting one, however it was come by. Over rather than going is saved rather than
+    /// screened, and the caller is told it is not recording — which the runner handed a
+    /// session by `WorkoutRecovery` was told and the one that went looking was not: that path
+    /// returned `true` regardless, leaving a finished session stuck on "Saving to Health…"
+    /// with every control hidden and nothing on the screen to press.
+    private func took(_ found: HKWorkoutSession) async -> Bool {
         resume(found)
-        return true
+        if case .saving = phase { await end() }
+        return isRecording
     }
 
     /// What the app is still holding, if anything — asked on opening as well as here, because
@@ -418,6 +417,9 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// returns loses the session exactly as completely. A route that will not attach is a
     /// session with no line on the map, which is worth less than the session.
     func end() async {
+        // One at a time. A second `finishWorkout` while the first is in flight ends with the
+        // loser's error overwriting the winner's success.
+        if case .saving = phase { return }
         phase = .saving
         stop()
 
@@ -484,9 +486,15 @@ final class WorkoutRunner: NSObject, ObservableObject {
     private func wait(for state: HKWorkoutSessionState) async {
         guard let session, session.state != state else { return }
 
+        // Anything still waiting is released rather than orphaned: a continuation dropped on
+        // the floor is never resumed, and whatever awaited it hangs for good.
+        stopWaiting()
+
         waitingFor = state
         let limit = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(Self.stateLimit))
+            // Not `try?`: a cancelled sleep must not go on to release a wait that is no
+            // longer the one this task was started for.
+            do { try await Task.sleep(for: .seconds(Self.stateLimit)) } catch { return }
             self?.stopWaiting()
         }
         await withCheckedContinuation { waiting = $0 }
@@ -747,19 +755,35 @@ extension WorkoutRunner: HKWorkoutSessionDelegate {
             self.sessionState = toState
 
             switch toState {
-            case .running where fromState == .paused: self.voice.say("Resumed.")
-            case .paused: self.voice.say("Paused.")
-            default: break
+            case .running where fromState == .paused:
+                self.voice.say("Resumed.")
+            case .paused:
+                self.voice.say("Paused.")
+            case .ended, .stopped:
+                // Ended from somewhere that is not this screen — Siri, the Lock Screen, the
+                // system. Nothing is left but to save it, and `end()` ignores a second ask,
+                // so this does not fight an ending already under way.
+                if case .live = self.phase { Task { await self.end() } }
+            default:
+                break
             }
         }
     }
 
     nonisolated func workoutSession(_ workoutSession: HKWorkoutSession, didFailWithError error: Error) {
         Task { @MainActor in
-            // Released as well as reported: a failure while something is waiting on a state
-            // it will now never reach would otherwise hold it there until the limit.
-            self.phase = .failed(error.localizedDescription)
+            // Released first: something waiting on a state this session will now never reach
+            // would otherwise hold there until its limit.
             self.stopWaiting()
+
+            // A save in flight reports its own outcome. Overwriting it here puts the controls
+            // back over a `finishWorkout` that has not returned, and a tap then runs a second
+            // one whose failure overwrites the first one's success.
+            guard case .saving = self.phase else {
+                self.phase = .failed(error.localizedDescription)
+                return
+            }
+            SyncLog.record(.upload, "session failed while saving: \(SyncLog.describe(error))")
         }
     }
 }

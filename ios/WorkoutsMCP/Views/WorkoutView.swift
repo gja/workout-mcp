@@ -268,9 +268,11 @@ struct WorkoutView: View {
 
     // --- The figures, unchanged ------------------------------------------------------------
 
-    /// Two columns, and every row of them a pair read across: the session's figure on the
-    /// left and this interval's beside it, because what an athlete checks mid-interval is the
-    /// difference. Which pairs there are is the **session's** sport, not the workout's.
+    /// Two columns, and every row of them a pair read across: **this interval on the left and
+    /// the session on the right**, so a glance down one column is the interval and a glance
+    /// down the other is the whole of it. What an athlete checks mid-interval is the
+    /// difference, and it is the same difference every row. Which pairs there are is the
+    /// session's sport, not the workout's; the session's clock is in the bar below.
     private var readings: some View {
         LazyVGrid(
             columns: [
@@ -279,20 +281,19 @@ struct WorkoutView: View {
             ],
             spacing: 26
         ) {
-            Reading(value: Formats.clock(runner.intervalElapsed), unit: "interval")
-
             if runner.isCycling {
-                Reading(value: runner.power.map(Formats.whole), unit: "watts")
                 Reading(value: runner.intervalPower.map(Formats.whole), unit: "interval w")
+                Reading(value: runner.power.map(Formats.whole), unit: "watts")
             } else {
-                Reading(value: runner.speedMS.flatMap { Formats.rate($0, cycling: false) }, unit: "pace")
                 Reading(value: runner.intervalPaceSKm.map(Formats.clock), unit: "interval pace")
-                Reading(value: runner.metres.map(Formats.distance), unit: "distance")
+                Reading(value: runner.speedMS.flatMap { Formats.rate($0, cycling: false) }, unit: "pace")
                 Reading(value: runner.intervalMetres.map(Formats.distance), unit: "interval dist")
+                Reading(value: runner.metres.map(Formats.distance), unit: "distance")
             }
 
             Reading(value: runner.cadence.map(Formats.whole), unit: runner.isCycling ? "rpm" : "spm")
             Reading(value: runner.heartRate.map(Formats.whole), unit: "bpm")
+            Reading(value: Formats.clock(runner.intervalElapsed), unit: "interval")
         }
     }
 
