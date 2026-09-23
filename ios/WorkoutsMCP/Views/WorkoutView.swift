@@ -161,19 +161,18 @@ struct WorkoutView: View {
             Color.black.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 0) {
-                if isSaving {
-                    saving
-                } else if saved {
+                if saved {
                     summary
                 } else {
+                    // Left up while it saves. What the workout came to is the last thing
+                    // anybody was reading, and a screen that replaces it with a spinner takes
+                    // it away to say something the End button can say by itself.
                     heading
                     Spacer(minLength: 12)
                     readings
                 }
                 Spacer(minLength: 12)
-                // Nothing to press while it is being written: the buttons are about a session
-                // that is still going, and this one is not any more.
-                if !isSaving { controls }
+                controls
             }
             .padding(.horizontal, 22)
             .padding(.top, 8)
@@ -209,21 +208,6 @@ struct WorkoutView: View {
     private var title: String {
         if let step = runner.step { return step.title }
         return runner.steps.isEmpty ? (runner.workout?.name ?? "Recording") : "Workout complete"
-    }
-
-    /// Closing a builder and writing a session into Health takes a moment, and a moment with
-    /// nothing on the screen is a moment an athlete spends deciding whether it worked.
-    private var saving: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ProgressView().controlSize(.large).tint(.white)
-            Text("Saving to Health…")
-                .font(.system(size: 24, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white)
-            Text("Keep the app open.")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// What it came to, once it is in Health. Shown rather than dismissed straight past,
@@ -454,7 +438,20 @@ struct WorkoutView: View {
     /// seconds anybody was moving. Nothing ends a running session in one tap.
     @ViewBuilder
     private var ending: some View {
-        if isLive, runner.isPaused {
+        if isSaving {
+            // In the button that was pressed, rather than on a screen of its own. Closing a
+            // builder takes a moment; it does not take the workout off the screen.
+            HStack(spacing: 10) {
+                ProgressView().tint(.red)
+                Text("Saving…").font(.system(size: 19, weight: .semibold))
+            }
+            .foregroundStyle(.red)
+            .frame(maxWidth: .infinity, minHeight: 56)
+            .background(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(Color.red.opacity(0.14))
+            )
+        } else if isLive, runner.isPaused {
             Button { Task { await finish() } } label: {
                 Label("End Workout", systemImage: "xmark")
                     .font(.system(size: 19, weight: .semibold))

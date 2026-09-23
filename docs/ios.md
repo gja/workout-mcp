@@ -148,6 +148,37 @@ reading a stale copy of it, and the first attempt at this fix read the session a
 exactly the same way: a second tap saw `.running`, asked a session already on its way to
 paused to pause, and got *unable to perform 'pause' from current state 'Paused'*.
 
+**And it is worse than late.** Asked to pause, with no callback arriving, the log recorded:
+
+```
+no callback for 4 in 5s: session says 2
+```
+
+Four is `.paused` and two is `.running` — and the next `pause()` was refused for being
+Paused. Five seconds after the call, with nothing in flight, `state` and the state machine
+behind it gave opposite answers, while `elapsedTime` went on counting and the builder
+collected no event. `state` is not a late answer to be waited out. It is a different answer,
+and four fixes that each amounted to reading it more carefully each failed the same way.
+
+So **`HKWorkoutSession.state` is consulted about exactly one thing**: whether the session has
+`.ended` or `.stopped`, which is terminal and has nothing to be late about. Whether a workout
+is *going* is the delegate's to say — and when the delegate does not say, `refused` does.
+
+**The refusal is the only account of this session that has never been wrong.** *Unable to
+perform 'pause' from current state 'Paused'* names the real state, in a sentence, at the one
+moment when every supported way of asking is either silent or contradicting itself — and it
+cannot be stale, because the session declined the call on the strength of it. So it is
+parsed, and the state it names is fed through `observed` like any other account.
+
+Reading an error message is not how this is supposed to work, and it is not a thing to be
+comfortable about. It is here because five attempts at doing it the supported way were each
+the same bug.
+
+A refusal that confirms what was asked for is **not shown**. Being told *unable to pause,
+already paused* means the workout is paused, which is what the athlete wanted: the screen was
+behind, it has caught up, and a red line over a button that now reads the way they wanted it
+to read is noise. Only a refusal naming a state nobody asked for is a line to read.
+
 **Three ways in, one funnel.** `observed(_:)` is where every account of the session's state
 arrives: the session's own delegate, the **pause and resume events the builder collects**,
 and a reconciliation against `HKWorkoutSession.state` once a second. The delegate is the
@@ -156,12 +187,12 @@ missing on the fourth lap of a test walk, so the screen said running over a sess
 had paused, the clock went on, the step advanced itself, and the next tap on pause was
 refused by a session that had been paused for a minute.
 
-The net reads the session, so **the net does not run inside the window where the session
-cannot be read.** `reconcile` is skipped entirely while a transition is outstanding. A tick
-landing between the tap and the callback reads `state` as it was before the tap and hands it
-back as news, which overwrote a pause that had already arrived, put running back on the
-screen over a paused session, and re-armed the exact tap the mechanism exists to stop. Past
-the limit there is no such window left, and reading it is the point.
+The net reads the session, so **the net is only allowed to report the one thing the session
+can be believed about**: `reconcile` adopts `.ended` and `.stopped` and nothing else, and is
+skipped entirely while a transition is outstanding. A tick landing between the tap and the
+callback reads `state` as it was before the tap and hands it back as news, which overwrote a
+pause that had already arrived, put running back on the screen over a paused session, and
+re-armed the exact tap the mechanism exists to stop.
 
 The builder's events are consumed **by index, in order, exactly once each**. The callback
 says that something landed, not what, and reading `workoutEvents.last` to find out worked on
@@ -180,13 +211,12 @@ HealthKit echoing back a pause we requested would toggle it straight off again.
 
 **Only the answer frees the button.** `asked` holds the transition requested and not yet
 reported back, and nothing else clears it: not a timer, not the tick, not an unrelated state
-change. Each of those freed it early, and early is the whole bug — the callback takes about a
+change. Each of those freed it early, and early is half the bug — the callback takes about a
 second, and a mechanism that gives up before the answer arrives is a screen still saying
-running over a session that has been paused the whole time. So the five-second limit does not
-free the button either: it **asks the session**, and takes whichever way `state` reads, which
-that late is no longer the value lagging a call by a runloop turn but the answer. A request
-HealthKit genuinely dropped comes back as still running and the button listens again; one it
-honoured silently comes back as paused and the screen finally catches up.
+running over a session that has been paused the whole time. The five-second limit frees the
+button and **changes nothing else**: there is no state to adopt at that point, only a
+property that has been caught disagreeing with its own session, so the screen keeps what the
+delegate last told it and the next tap's refusal sets it right.
 
 A second of a dimmed pause glyph reads as a button that has broken, so it is a **spinner**
 for that second instead. The glyph itself changes only when the session says so.
@@ -210,9 +240,8 @@ deliberately has no running or paused in it.
 **A live session that refuses something has not ended.** `failed` means the recording is over
 and offers to try the *save* again; a refused pause is not that, and treating it as that
 ended a workout that was going perfectly well. A refusal is `problem`, a red line under the
-step that the next state change clears — and the session is asked what it actually is before
-that line is written, because *unable to perform 'pause' from current state 'Paused'* is the
-screen being told the one thing it had wrong.
+step that the next state change clears — when it is a line worth reading at all, which a
+refusal confirming what was asked for is not.
 
 **The clock only moves while the session says it is running.** Whether `elapsedTime` stops on
 its own is not something to take on trust, and a total that goes on counting under a PAUSED
@@ -233,6 +262,11 @@ activity at the moment HealthKit ends the session, which is later than any momen
 before the wait — and a collection ended before an activity it contains is refused with
 *workout activity did not occur during this workout*. That is a whole recording lost to a
 timestamp read a second too early.
+
+**Saving happens in the End button**, not on a screen of its own. Closing a builder and
+writing the session into Health takes a moment; it does not take the workout off the screen,
+and the figures an athlete was reading stay up with *Saving…* where they pressed. Nothing
+asks them to keep the app open, because nothing needs them to.
 
 **Ending is behind the pause**, as it is on Apple's, and that answers two things at once:
 there is no dialog to write, and the seconds spent deciding are not seconds anybody was

@@ -431,6 +431,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// that does not listen, which is the whole of what it is for.
     private func ask(_ state: HKWorkoutSessionState, _ send: () -> Void) {
         asked = state
+        SyncLog.record(.upload, "lap \(interval + 1): asking \(state.rawValue)")
         send()
 
         clearing?.cancel()
@@ -440,23 +441,54 @@ final class WorkoutRunner: NSObject, ObservableObject {
         }
     }
 
-    /// The limit, and the one thing it is allowed to do.
+    /// The limit, and the one thing it is allowed to do: **free the button, and change
+    /// nothing.**
     ///
-    /// Freeing the button on a timer is what let the refusal back in: past five seconds the
-    /// screen still said running, the session had been paused the whole time, and the button
-    /// came back to ask a paused session to pause. So the limit does not free the button —
-    /// it asks the session. Inside the callback's window `HKWorkoutSession.state` is the
-    /// value that has not moved yet and is worth nothing; five seconds later it is the
-    /// answer, and whichever way it reads is the truth this screen was missing.
+    /// It used to adopt `session.state` here, on the reasoning that five seconds after a call
+    /// the property could no longer be the value lagging it. The log says otherwise. Asked to
+    /// pause, no callback, and:
+    ///
+    ///     no callback for 4 in 5s: session says 2
+    ///
+    /// — four is `.paused`, two is `.running` — while the very next `pause()` was refused
+    /// with *unable to perform 'pause' from current state 'Paused'*. **The property and the
+    /// state machine behind it disagreed.** So there is nothing to adopt: `state` is not a
+    /// late answer, it is a different answer, and the screen keeps what the delegate last
+    /// told it until something trustworthy says otherwise. What is trustworthy is `refused`.
     private func gaveUp() {
         guard let session, let outstanding = asked else { return }
         SyncLog.record(
             .upload,
             "no callback for \(outstanding.rawValue) in \(Int(Self.settleLimit))s:"
-                + " session says \(session.state.rawValue)"
+                + " session says \(session.state.rawValue), keeping \(sessionState.rawValue)"
         )
         answered()
-        observed(session.state)
+    }
+
+    /// **The refusal is the only account of this session that has never been wrong**, so it
+    /// is read as one.
+    ///
+    /// *Unable to perform 'pause' from current state 'Paused'* names the state the session
+    /// is really in, in a sentence, at a moment when the delegate has said nothing, the
+    /// builder has collected no event, `state` reads the opposite and `elapsedTime` is still
+    /// counting. Everything else about the session can be out of date at once; this cannot,
+    /// because the session declined the call on the strength of it.
+    ///
+    /// Reading an error message is not how any of this is supposed to work. It is here
+    /// because five attempts at reading it the supported way have each been the same bug.
+    private func refused(_ error: Error) -> HKWorkoutSessionState? {
+        let said = error.localizedDescription.lowercased()
+        guard said.contains("current state") else { return nil }
+
+        let states: [(String, HKWorkoutSessionState)] = [
+            ("'paused'", .paused),
+            ("'running'", .running),
+            ("'ended'", .ended),
+            ("'stopped'", .stopped),
+            ("'prepared'", .prepared),
+            ("'notstarted'", .notStarted),
+        ]
+        return states.first { said.contains($0.0) }?.1
     }
 
     private func answered() {
@@ -480,11 +512,19 @@ final class WorkoutRunner: NSObject, ObservableObject {
             if state == asked { answered() }
             return
         }
+        let wanted = asked
         answered()
 
         let was = sessionState
         sessionState = state
         problem = nil
+        // Every account, with where it landed and what had been asked for, because the
+        // question this cannot answer from here is why the drift starts where it does — and
+        // the answer is a sequence rather than any one moment in it.
+        SyncLog.record(
+            .upload,
+            "lap \(interval + 1): \(was.rawValue) -> \(state.rawValue), asked \(wanted?.rawValue ?? 0)"
+        )
 
         switch state {
         case .running where was == .paused:
@@ -504,12 +544,16 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// callback that should have come. A lost event heals within the second rather than
     /// lasting the rest of the session.
     private func reconcile() {
-        // Never while something is in flight. Inside that window `HKWorkoutSession.state` is
-        // the value that has not moved yet, so a tick landing between the tap and the
-        // callback reads the *old* state and hands it back as news — which overwrote a pause
-        // that had already arrived, put running back on the screen over a paused session, and
-        // re-armed the very tap this guards. Past the limit `gaveUp` reads it instead.
+        // **Terminal states only.** `state` has been caught reading `.running` over a session
+        // that refused a pause for being paused, so it is no longer consulted about whether a
+        // workout is going — that is the delegate's to say, and `refused` corrects it when
+        // the delegate has not. A session that says it is over is a different matter: there
+        // is nothing for it to be late about, and the one thing left to do with it is save it.
+        //
+        // Never while something is in flight either, since inside that window the property has
+        // not moved yet and a tick handed the pre-tap state back as news.
         guard asked == nil, let session, session.state != sessionState else { return }
+        guard session.state == .ended || session.state == .stopped else { return }
         SyncLog.record(
             .upload,
             "state drifted: heard \(sessionState.rawValue), session says \(session.state.rawValue)"
@@ -540,6 +584,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// session, and a failed session neither advances nor shows its buttons, while HealthKit
     /// went on recording behind it.
     private func openInterval(at: Date) {
+        SyncLog.record(.upload, "lap \(interval + 1): cutting, state \(sessionState.rawValue)")
         // Asked again here rather than trusted to the callers: this is the line HealthKit is
         // on the other side of, and a lap cut into a paused session is the refusal that
         // reaches the delegate as the session failing.
@@ -932,6 +977,9 @@ extension WorkoutRunner: HKWorkoutSessionDelegate {
             // would otherwise hold there until its limit.
             self.stopWaiting()
 
+            // Captured before the block is lifted, because what was asked for is what decides
+            // whether this refusal is news or the answer arriving the hard way.
+            let wanted = self.asked
             self.answered()
 
             // A save in flight reports its own outcome. Overwriting it here puts the controls
@@ -947,12 +995,21 @@ extension WorkoutRunner: HKWorkoutSessionDelegate {
             // pause, ended a workout that was going perfectly well. This is a line to read.
             SyncLog.record(.upload, "session refused something: \(SyncLog.describe(error))")
 
-            // And what the session actually is, now that it has spoken. *Unable to perform
-            // 'pause' from current state 'Paused'* is the screen being told the one thing it
-            // had wrong, and taking it here is what stops the next tap making the same
-            // mistake. Read before the line is set, because a state change clears it.
-            if let live = self.session { self.observed(live.state) }
-            self.problem = error.localizedDescription
+            // What the session says it really is, which is the one thing this screen had
+            // wrong and the one account of it that has never been.
+            guard let truth = self.refused(error) else {
+                self.problem = error.localizedDescription
+                return
+            }
+
+            self.observed(truth)
+
+            // *Unable to perform 'pause' from current state 'Paused'* means the workout is
+            // paused, which is what the athlete asked for. Nothing failed that they need
+            // telling about: the screen was behind, it has caught up, and a red line over a
+            // button that now says what they wanted it to say is just noise. `observed` has
+            // already cleared any line still up from before.
+            if truth != wanted { self.problem = error.localizedDescription }
         }
     }
 }
