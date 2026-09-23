@@ -114,6 +114,37 @@ saves; a stale one is harmless because it is only read for the workout it names.
 why `PlanDuration` and `PlanTarget` are `Codable` rather than `Decodable`: they are never sent
 to the server, and what reads them back is the copy a session keeps of itself.
 
+**The session lifecycle follows Apple's own sample** — *Building a workout app for iPhone and
+iPad*, from WWDC25 session 322 — and the app's own parts sit on top of it rather than beside
+it. `prepare()` before `startActivity`, which warms the sensors so starting is not also the
+moment the hardware wakes. Ending stops the activity, waits for the delegate to report
+`.stopped`, ends the collection **at the date the delegate was handed**, finishes the workout,
+and ends the session last of all. This app had that order inside out and read a `Date()` of
+its own afterwards, which is the guess that cost a recording *workout activity did not occur
+during this workout*.
+
+**State changes are serialised through an `AsyncStream`,** which is not a flourish: Apple's
+sample says why in as many words — *"The Swift actors don't handle tasks in a
+first-in-first-out manner. Use `AsyncStream` to ensure that the app presents the latest
+state."* Every `Task { @MainActor in … }` hop out of a `nonisolated` delegate is a separate
+task and nothing orders them, so a pause and the resume after it can arrive the wrong way
+round. The continuation is yielded to synchronously from the delegate and consumed one at a
+time, `bufferingNewest(1)`, since a state is not a queue of work.
+
+**`.motionPaused` is the system pausing the workout by itself**, and it is not `.pause`. This
+app handled `.pause` and `.resume` and let the rest fall through a `default`, so every
+automatic pause was dropped — a screen saying running over a session HealthKit had paused,
+which is the refusal chased through this whole branch. It explains a walk saved with
+`timer_s: 12` out of 78 seconds elapsed, and the `autopause_active` flag the server put on it.
+Any event type this app does not understand is now written to the log by name.
+
+**`pauseOrResumeRequest` is answered nowhere.** Apple: *"the user can request a pause or resume
+by pressing both watch buttons."* It is a watch gesture, and this screen exists for the athlete
+with no watch, so on an iPhone-only session there is no legitimate source for one — and
+toggling a workout on something that should never arrive is how a walk got *paused, resumed,
+paused, resumed*. Unlike `.pause` and `.resume`, which are idempotent through `observed`, it is
+an action, and acting on it twice undoes it. Apple's sample does not answer it either.
+
 **Tell the session, then wait to be told. That is the only flow there is.** A button calls a
 method on the session; the screen changes when the session reports back, and on nothing else.
 `WorkoutRunner.sessionState` is the one place that state is read from, and `observed(_:)` the

@@ -871,12 +871,19 @@ final class WorkoutRunner: NSObject, ObservableObject {
         // A session that has already ended is not ended again: "unable to end a workout that
         // is not currently active" is what that costs, and what is left to do — closing the
         // builder and saving — is the same either way.
+        //
+        // **Apple's order, which is not the one this app had.** Their sample stops the
+        // activity, waits for the delegate to report `.stopped`, ends the collection at the
+        // date the delegate was handed, finishes the workout — and ends the session last of
+        // all. This called `end()` first and read a `Date()` of its own afterwards, which is
+        // the guess that cost a recording *workout activity did not occur during this
+        // workout*.
         if sessionState == .running || sessionState == .paused {
             let at = Date()
-            // Only what this app opened. `session.end()` closes whatever is still open anyway.
+            // Only what this app opened. Stopping closes whatever is still open anyway.
             if cutting { session.endCurrentActivity(on: at) }
-            session.end()
-            await wait(for: .ended)
+            session.stopActivity(with: at)
+            await wait(for: .stopped)
             SyncLog.record(.upload, "ending: session now \(sessionState.rawValue)")
         }
 
@@ -897,6 +904,9 @@ final class WorkoutRunner: NSObject, ObservableObject {
                 phase = .failed("Health did not save the session.")
                 return
             }
+            // Last, as Apple's sample has it: the session ends once the workout is safely out
+            // of the builder, not before.
+            session.end()
             SyncLog.record(.upload, "ending: saved \(saved.uuid)")
             if let route { _ = try? await route.finishRoute(with: saved, metadata: nil) }
             // Only once it is in Health: a session that could not be saved is one whose plan
