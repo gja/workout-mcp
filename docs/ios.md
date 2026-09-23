@@ -220,16 +220,30 @@ this screen pauses a workout. Answering it is the only thing that makes such a c
 and it is answered only when this app has not just asked for something itself, since
 HealthKit echoing back a pause we requested would toggle it straight off again.
 
-**The first pause after a lap is refused, and asked again.** Hammer the pause button through
-a workout and it is always the first press after a lap that is turned down, on every lap,
-and always fine a moment later. `beginNewActivity` ends the open activity and begins another,
-and for the moment that takes the session will not take a pause. Nothing in the API says when
-that is over and there is no callback for an activity beginning, so the window is not
-predicted: the command is held, and a refusal that leaves the session in a state nobody asked
-for sends it once more a third of a second later. The button stays blocked across the gap, so
-what an athlete sees is a spinner a moment longer rather than a refusal and a pause that did
-not happen. Once only, so that a session refusing something for a real reason says so on the
-second try instead of being asked forever.
+**Sending the same command again is a question, not a repetition** — and it is the only
+question this session reliably answers. The log of a test walk, in order:
+
+```
+lap 2: cutting, state 2
+lap 2: asking 4
+no callback for 4 in 5s: session says 2, keeping 2
+lap 2: asking 4
+session refused something: Unable to perform 'pause' from current state 'Paused'
+lap 2: 2 -> 4, asked 0
+```
+
+A lap is cut, `pause()` is sent, and nothing comes back for five seconds — no delegate call,
+no event on the builder, `state` still reading `.running`. Then the next press is refused for
+being paused already. **The first pause had worked.** HealthKit paused the session and said
+nothing at all about it, and the refusal on the second press was the only notice that the
+first had landed — which existed only because the athlete pressed twice.
+
+So the second press is not left to them. Asking twice is safe in a way almost nothing else
+here is: pause a paused session and it is still paused, resume a running one and it is still
+running. Either the command applies, or it is refused *for already being in that state*, and
+both of those are the answer. Four goes at six-tenths of a second, whether the last one was
+met with silence or with a refusal naming a state nobody asked for; then the button is freed
+and the screen keeps what it had.
 
 It is the *same* command that goes again, held rather than rebuilt, because a second
 `togglePause` would read `sessionState` afresh and could ask for the opposite of what was

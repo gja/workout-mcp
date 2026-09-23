@@ -74,11 +74,11 @@ final class WorkoutRunner: NSObject, ObservableObject {
     private var asked: HKWorkoutSessionState?
     private var clearing: Task<Void, Never>?
 
-    /// The outstanding command and how to send it again. Held rather than rebuilt because a
-    /// retry has to be the same command: a second `togglePause` would read `sessionState`
-    /// afresh and could ask for the opposite of what the athlete pressed for.
+    /// The outstanding command and how to send it again. Held rather than rebuilt because
+    /// asking again has to be the *same* command: a second `togglePause` would read
+    /// `sessionState` afresh and could ask for the opposite of what the athlete pressed for.
     private var pending: (state: HKWorkoutSessionState, send: () -> Void)?
-    private var retried = false
+    private var attempts = 0
 
     /// Whether a transition is in flight, so the button can say it is not listening.
     var settling: Bool { asked != nil }
@@ -218,15 +218,11 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// with no limit loses the recording exactly as completely as not waiting at all.
     private static let stateLimit = 10.0
 
-    /// How long a transition may be outstanding before the session is asked what became of
-    /// it. Generous on purpose: the delegate takes about a second, and nothing is lost by
-    /// waiting longer than that, whereas a limit short enough to trip on a slow callback puts
-    /// the screen back to guessing.
-    private static let settleLimit = 5.0
-
-    /// How long to leave the activity swap alone before asking again. Long enough to be on
-    /// the other side of it, short enough to be a spinner rather than a delay.
-    private static let again = 0.35
+    /// How long to wait for an answer before asking the same thing again, and how many times
+    /// to ask. Four tries at six-tenths is a second and a half of spinner in the worst case,
+    /// against a callback that usually comes inside one.
+    private static let probeEvery = 0.6
+    private static let probeLimit = 4
 
     /// Long enough for the delegate to have reported a lap that could not be cut. It is a
     /// settle, not a proof: nothing acknowledges `beginNewActivity` on the way out.
@@ -442,55 +438,71 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// that does not listen, which is the whole of what it is for.
     private func ask(_ state: HKWorkoutSessionState, _ send: @escaping () -> Void) {
         pending = (state, send)
-        retried = false
+        attempts = 0
         issue()
     }
 
     /// Sending what is pending and starting the clock on it. Separate from `ask` because the
-    /// same command is sent twice: see `retry`.
+    /// same command is sent more than once: see `askAgain`.
     private func issue() {
-        // A retry crossing the end of the workout would pause a session on its way into
-        // Health. The gap is a third of a second, and End is behind the pause.
+        // Asking again across the end of the workout would pause a session on its way into
+        // Health. End is behind the pause, and this is a second at most.
         guard let job = pending, case .live = phase else {
             answered()
             return
         }
 
+        attempts += 1
         asked = job.state
         SyncLog.record(
-            .upload, "lap \(interval + 1): asking \(job.state.rawValue)\(retried ? " again" : "")"
+            .upload, "lap \(interval + 1): asking \(job.state.rawValue), try \(attempts)"
         )
         job.send()
 
         clearing?.cancel()
         clearing = Task { [weak self] in
-            do { try await Task.sleep(for: .seconds(Self.settleLimit)) } catch { return }
-            self?.gaveUp()
+            do { try await Task.sleep(for: .seconds(Self.probeEvery)) } catch { return }
+            self?.askAgain()
         }
     }
 
-    /// **One more go, and only one**, because the first pause after a lap is refused and the
-    /// second one works.
+    /// **Sending the same command again is a question, not a repetition** — and it is the
+    /// only question this session reliably answers.
     ///
-    /// That is not a guess: hammer the pause through a lap and it is always the first press
-    /// after the lap that is turned down, on every lap, and always fine a moment later.
-    /// `beginNewActivity` ends the open activity and starts another, and for the moment that
-    /// takes the session will not take a pause. Nothing in the API says when it is over, and
-    /// there is no callback for an activity beginning to wait on.
+    /// The log of a test walk, in order: the lap is cut, `pause()` is sent, *nothing* comes
+    /// back for five seconds, `state` still reads `.running` — and the next press is refused
+    /// with *unable to perform 'pause' from current state 'Paused'*. **The first pause had
+    /// worked.** HealthKit paused the session and then said nothing at all: no delegate call,
+    /// no event on the builder, no change in the property. The refusal on the second press was
+    /// the only notice that the first had landed, and it only existed because the athlete
+    /// pressed twice.
     ///
-    /// So this does not try to predict the window — it walks into it and goes again. The
-    /// button stays blocked across the gap, so an athlete sees a spinner a third of a second
-    /// longer rather than a refusal and a pause that did not happen. Once, so that a session
-    /// refusing something for a real reason says so on the second try instead of being asked
-    /// forever.
-    private func retry() -> Bool {
-        guard pending != nil, !retried else { return false }
-        retried = true
+    /// So the second press is not left to them. Asking twice is safe in a way almost nothing
+    /// else here is: pause a paused session and it is still paused, resume a running one and
+    /// it is still running. Either the command applies, or it is refused *for already being in
+    /// that state* — and both of those are the answer. Four goes at six-tenths of a second,
+    /// then the button is freed and the screen keeps what it had.
+    private func askAgain() {
+        guard asked != nil, pending != nil else { return }
+        guard attempts < Self.probeLimit else {
+            gaveUp()
+            return
+        }
+        issue()
+    }
+
+    /// The same loop entered from a refusal rather than from silence. It waits the same
+    /// six-tenths rather than going straight round again, because the case it is for — a
+    /// session mid-way through swapping one activity for the next — is a moment to be on the
+    /// other side of, and four refusals in the same millisecond are four of the same answer.
+    /// The button stays blocked across the gap.
+    private func tryAgain() -> Bool {
+        guard pending != nil, attempts < Self.probeLimit else { return false }
 
         asked = pending?.state
         clearing?.cancel()
         clearing = Task { [weak self] in
-            do { try await Task.sleep(for: .seconds(Self.again)) } catch { return }
+            do { try await Task.sleep(for: .seconds(Self.probeEvery)) } catch { return }
             self?.issue()
         }
         return true
@@ -514,7 +526,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
         guard let session, let outstanding = asked else { return }
         SyncLog.record(
             .upload,
-            "no callback for \(outstanding.rawValue) in \(Int(Self.settleLimit))s:"
+            "no answer to \(outstanding.rawValue) after \(attempts):"
                 + " session says \(session.state.rawValue), keeping \(sessionState.rawValue)"
         )
         answered()
@@ -1089,7 +1101,7 @@ extension WorkoutRunner: HKWorkoutSessionDelegate {
             // What the session says it really is, which is the one thing this screen had
             // wrong and the one account of it that has never been.
             guard let truth = self.refused(error) else {
-                if !self.retry() { self.problem = error.localizedDescription }
+                if !self.tryAgain() { self.problem = error.localizedDescription }
                 return
             }
 
@@ -1103,8 +1115,8 @@ extension WorkoutRunner: HKWorkoutSessionDelegate {
             guard truth != wanted else { return }
 
             // Refused, and the session is not in the state that was asked for, so the press
-            // has not happened yet. One more go before it is anybody's problem.
-            if !self.retry() { self.problem = error.localizedDescription }
+            // has not happened yet. Round the loop again before it is anybody's problem.
+            if !self.tryAgain() { self.problem = error.localizedDescription }
         }
     }
 }
