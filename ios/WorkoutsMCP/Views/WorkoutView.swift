@@ -361,26 +361,16 @@ struct WorkoutView: View {
                 // One button either way: which transition it is belongs to the session, and
                 // what it looks like follows the state the session reported.
                 Button { runner.togglePause() } label: {
-                    Group {
-                        // The session has been asked and has not answered yet, which takes
-                        // about a second. A dimmed pause glyph for that second reads as a
-                        // button that has failed; a spinner reads as one that is working,
-                        // and it is the truthful one — the glyph only changes when the
-                        // session says so.
-                        if runner.settling {
-                            ProgressView().controlSize(.large).tint(.white)
-                        } else {
-                            Image(systemName: runner.isPaused ? "play.fill" : "pause.fill")
-                                .font(.system(size: 32, weight: .bold))
-                                .foregroundStyle(runner.isPaused ? Color.yellow : .white)
-                        }
-                    }
-                    .frame(width: 88, height: 88)
-                    .background(Circle().fill(
-                        runner.isPaused ? Color.yellow.opacity(0.22) : Color.white.opacity(0.14)
-                    ))
+                    // The glyph is the session's answer, never this screen's guess.
+                    Image(systemName: runner.isPaused ? "play.fill" : "pause.fill")
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundStyle(runner.isPaused ? Color.yellow : .white)
+                        .frame(width: 88, height: 88)
+                        .background(Circle().fill(
+                            runner.isPaused ? Color.yellow.opacity(0.22) : Color.white.opacity(0.14)
+                        ))
                 }
-                .disabled(!isLive || runner.settling)
+                .disabled(!isLive)
                 Spacer()
 
                 // Where Apple keeps the heart rate mute, and the slot that balances the pause
