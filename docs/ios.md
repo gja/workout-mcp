@@ -220,6 +220,21 @@ this screen pauses a workout. Answering it is the only thing that makes such a c
 and it is answered only when this app has not just asked for something itself, since
 HealthKit echoing back a pause we requested would toggle it straight off again.
 
+**The first pause after a lap is refused, and asked again.** Hammer the pause button through
+a workout and it is always the first press after a lap that is turned down, on every lap,
+and always fine a moment later. `beginNewActivity` ends the open activity and begins another,
+and for the moment that takes the session will not take a pause. Nothing in the API says when
+that is over and there is no callback for an activity beginning, so the window is not
+predicted: the command is held, and a refusal that leaves the session in a state nobody asked
+for sends it once more a third of a second later. The button stays blocked across the gap, so
+what an athlete sees is a spinner a moment longer rather than a refusal and a pause that did
+not happen. Once only, so that a session refusing something for a real reason says so on the
+second try instead of being asked forever.
+
+It is the *same* command that goes again, held rather than rebuilt, because a second
+`togglePause` would read `sessionState` afresh and could ask for the opposite of what was
+pressed for.
+
 **Only the answer frees the button.** `asked` holds the transition requested and not yet
 reported back, and nothing else clears it: not a timer, not the tick, not an unrelated state
 change. Each of those freed it early, and early is half the bug — the callback takes about a

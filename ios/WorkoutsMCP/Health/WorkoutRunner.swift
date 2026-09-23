@@ -74,6 +74,12 @@ final class WorkoutRunner: NSObject, ObservableObject {
     private var asked: HKWorkoutSessionState?
     private var clearing: Task<Void, Never>?
 
+    /// The outstanding command and how to send it again. Held rather than rebuilt because a
+    /// retry has to be the same command: a second `togglePause` would read `sessionState`
+    /// afresh and could ask for the opposite of what the athlete pressed for.
+    private var pending: (state: HKWorkoutSessionState, send: () -> Void)?
+    private var retried = false
+
     /// Whether a transition is in flight, so the button can say it is not listening.
     var settling: Bool { asked != nil }
 
@@ -217,6 +223,10 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// waiting longer than that, whereas a limit short enough to trip on a slow callback puts
     /// the screen back to guessing.
     private static let settleLimit = 5.0
+
+    /// How long to leave the activity swap alone before asking again. Long enough to be on
+    /// the other side of it, short enough to be a spinner rather than a delay.
+    private static let again = 0.35
 
     /// Long enough for the delegate to have reported a lap that could not be cut. It is a
     /// settle, not a proof: nothing acknowledges `beginNewActivity` on the way out.
@@ -430,16 +440,60 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// Asking, and not asking again until the answer comes back. The block is released by the
     /// answer, and by nothing else — a callback that takes a second is a second of a button
     /// that does not listen, which is the whole of what it is for.
-    private func ask(_ state: HKWorkoutSessionState, _ send: () -> Void) {
-        asked = state
-        SyncLog.record(.upload, "lap \(interval + 1): asking \(state.rawValue)")
-        send()
+    private func ask(_ state: HKWorkoutSessionState, _ send: @escaping () -> Void) {
+        pending = (state, send)
+        retried = false
+        issue()
+    }
+
+    /// Sending what is pending and starting the clock on it. Separate from `ask` because the
+    /// same command is sent twice: see `retry`.
+    private func issue() {
+        // A retry crossing the end of the workout would pause a session on its way into
+        // Health. The gap is a third of a second, and End is behind the pause.
+        guard let job = pending, case .live = phase else {
+            answered()
+            return
+        }
+
+        asked = job.state
+        SyncLog.record(
+            .upload, "lap \(interval + 1): asking \(job.state.rawValue)\(retried ? " again" : "")"
+        )
+        job.send()
 
         clearing?.cancel()
         clearing = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(Self.settleLimit)) } catch { return }
             self?.gaveUp()
         }
+    }
+
+    /// **One more go, and only one**, because the first pause after a lap is refused and the
+    /// second one works.
+    ///
+    /// That is not a guess: hammer the pause through a lap and it is always the first press
+    /// after the lap that is turned down, on every lap, and always fine a moment later.
+    /// `beginNewActivity` ends the open activity and starts another, and for the moment that
+    /// takes the session will not take a pause. Nothing in the API says when it is over, and
+    /// there is no callback for an activity beginning to wait on.
+    ///
+    /// So this does not try to predict the window — it walks into it and goes again. The
+    /// button stays blocked across the gap, so an athlete sees a spinner a third of a second
+    /// longer rather than a refusal and a pause that did not happen. Once, so that a session
+    /// refusing something for a real reason says so on the second try instead of being asked
+    /// forever.
+    private func retry() -> Bool {
+        guard pending != nil, !retried else { return false }
+        retried = true
+
+        asked = pending?.state
+        clearing?.cancel()
+        clearing = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(Self.again)) } catch { return }
+            self?.issue()
+        }
+        return true
     }
 
     /// The limit, and the one thing it is allowed to do: **free the button, and change
@@ -1035,7 +1089,7 @@ extension WorkoutRunner: HKWorkoutSessionDelegate {
             // What the session says it really is, which is the one thing this screen had
             // wrong and the one account of it that has never been.
             guard let truth = self.refused(error) else {
-                self.problem = error.localizedDescription
+                if !self.retry() { self.problem = error.localizedDescription }
                 return
             }
 
@@ -1046,7 +1100,11 @@ extension WorkoutRunner: HKWorkoutSessionDelegate {
             // telling about: the screen was behind, it has caught up, and a red line over a
             // button that now says what they wanted it to say is just noise. `observed` has
             // already cleared any line still up from before.
-            if truth != wanted { self.problem = error.localizedDescription }
+            guard truth != wanted else { return }
+
+            // Refused, and the session is not in the state that was asked for, so the press
+            // has not happened yet. One more go before it is anybody's problem.
+            if !self.retry() { self.problem = error.localizedDescription }
         }
     }
 }
