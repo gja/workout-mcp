@@ -438,8 +438,14 @@ struct WorkoutView: View {
                     .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity, minHeight: 56)
-                    .background(RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .fill(Color.red.opacity(0.18)))
+                    .background(
+                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                            .fill(Color.red.opacity(0.24))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                    .strokeBorder(Color.red.opacity(0.45), lineWidth: 1)
+                            )
+                    )
             }
         } else if failed {
             // A save that did not work is worth another go: the session is still there, and

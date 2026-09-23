@@ -71,12 +71,9 @@ private struct Offer: ViewModifier {
     /// The plan is fetched here rather than when the session is found, because opening the
     /// app starts the listing and this at the same moment and the listing usually loses.
     private func carryOn() async {
-        guard let running else { return }
-        await place()
+        guard let made = await adopted() else { return }
 
-        let made = WorkoutRunner(workout: workout, steps: steps, indoors: false, recovered: running)
-        if await made.begin() {
-            runner = made
+        if made.isRecording || await made.begin() {
             continuing = true
             return
         }
@@ -88,14 +85,26 @@ private struct Offer: ViewModifier {
     /// Ended without ever opening the screen, and uploaded on the terms every other session
     /// is: it names its own workout in its metadata, so nothing here has to say which.
     private func finish() async {
-        guard let running else { return }
-        await place()
+        guard let made = await adopted() else { return }
 
-        let made = WorkoutRunner(workout: workout, steps: steps, indoors: false, recovered: running)
         // Only where it is still going: one that had already ended was saved by `begin`, and
         // ending it a second time is a finished builder being asked to finish again.
-        if await made.begin() { await made.end() }
+        if made.isRecording || await made.begin() { await made.end() }
         await settle(made)
+    }
+
+    /// **One** runner for the session, however many times this offer is answered. A second
+    /// one adopting the same session makes itself the delegate, and the first is then waiting
+    /// on a state change it will never be told about — which is a save hanging until its
+    /// limit runs out, on a screen that has already given up.
+    private func adopted() async -> WorkoutRunner? {
+        if let runner { return runner }
+        guard let running else { return nil }
+
+        await place()
+        let made = WorkoutRunner(workout: workout, steps: steps, indoors: false, recovered: running)
+        runner = made
+        return made
     }
 
     /// A save that did not happen must not clear the session: nothing else would offer it

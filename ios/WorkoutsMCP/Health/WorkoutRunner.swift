@@ -60,6 +60,10 @@ final class WorkoutRunner: NSObject, ObservableObject {
 
     var step: RunStep? { steps.indices.contains(interval) ? steps[interval] : nil }
 
+    /// Whether there is a session to act on, which is what every control on the screen is
+    /// enabled by and what decides whether a second `begin` would be starting anything.
+    var isRecording: Bool { phase == .running || phase == .paused }
+
     /// Everything that follows from the session's own configuration, and therefore not `let`:
     /// a recovered session brings its own, and reading a ride with a run's quantity types
     /// would show an empty screen over a recording that is going perfectly well.
@@ -397,9 +401,15 @@ final class WorkoutRunner: NSObject, ObservableObject {
         stop()
 
         guard let session, let builder else {
+            SyncLog.record(.upload, "ending: nothing to end — session \(self.session == nil ? "gone" : "held")")
             phase = .failed("Nothing was recording.")
             return
         }
+
+        // Each step written down, because the end of a session is where one is lost and the
+        // athlete reads the reason once on a screen they then close. One walk's worth of
+        // this says which call refused rather than leaving it to be inferred.
+        SyncLog.record(.upload, "ending: state \(session.state.rawValue), cut \(cutting)")
 
         // Not a guarantee. `wait(for:)` gives up after its limit and lets this go on rather
         // than hanging for ever, so the state is read again rather than assumed — and what
@@ -414,6 +424,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
             if cutting { session.endCurrentActivity(on: at) }
             session.end()
             await wait(for: .ended)
+            SyncLog.record(.upload, "ending: session now \(session.state.rawValue)")
         }
 
         // **After** the session has ended, not before it. `session.end()` closes the open
@@ -428,9 +439,11 @@ final class WorkoutRunner: NSObject, ObservableObject {
             // ending, and what decides whether the session survives is `finishWorkout`.
             try? await builder.endCollection(at: closed)
             guard let saved = try await builder.finishWorkout() else {
+                SyncLog.record(.upload, "ending: Health returned no workout")
                 phase = .failed("Health did not save the session.")
                 return
             }
+            SyncLog.record(.upload, "ending: saved \(saved.uuid)")
             if let route { _ = try? await route.finishRoute(with: saved, metadata: nil) }
             // Only once it is in Health: a session that could not be saved is one whose plan
             // the next attempt still needs.
