@@ -148,6 +148,14 @@ button shows its spinner meanwhile, so the press is neither lost nor refused. Tw
 without a word and it is sent anyway, because a lap that never reports itself open must not
 cost an athlete a pause.
 
+**The interval number comes from that callback too**, and so does the step it names and the
+sentence spoken for it. Counting a lap the session has not cut yet is the screen keeping a
+number of its own, which is the thing this whole flow exists not to do. What *is* taken at the
+press is the interval's baseline, since the activity begins when it was asked for whatever
+time the callback arrives — measuring from the callback would lose HealthKit's answering time
+out of the step's own seconds. A lap cannot be cut while one is opening, so `lappable` covers
+that window as well.
+
 `workoutSession(_:didGenerate:)` is the session's own account of an event, handed over rather
 than left in an array to be noticed. The builder's `workoutEvents` is still drained on the
 tick, because nothing here has earned being the only way in.

@@ -91,6 +91,16 @@ final class WorkoutRunner: NSObject, ObservableObject {
     private var opening = false
     private var openingBy: Task<Void, Never>?
 
+    /// Whether the lap on its way open is a **new interval** or the session's first. The
+    /// first opens the interval the screen already shows; every one after it is a press, and
+    /// the number moves when HealthKit says the activity did.
+    private var advancingTo = false
+
+    /// Where the interval about to open counts from, read when the lap was cut rather than
+    /// when it was reported open — the activity begins at the moment it was asked for,
+    /// whatever time the callback arrives.
+    private var openedFrom: (elapsed: TimeInterval, metres: Double?)?
+
     /// How long to hold a press before sending it anyway. A lap that never reports itself
     /// open must not cost the athlete a pause.
     private static let openingLimit = 2.0
@@ -110,7 +120,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
     ///
     /// `settling` counts as paused. In the second between the tap and the delegate answering
     /// it, the session is on its way somewhere and the screen does not yet know where.
-    var lappable: Bool { asked == nil && sessionState == .running }
+    var lappable: Bool { asked == nil && !opening && sessionState == .running }
 
     /// Moving figures, and every one of them optional. A heart rate of zero, a pace of zero
     /// and a cadence of zero are what an absent strap, a cold GPS fix and a phone on a table
@@ -313,7 +323,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
             // process has its plan without going back to the network for it.
             Underway.remember(key: workout.key, steps: steps)
 
-            openInterval(at: Date())
+            openInterval(at: Date(), advancing: false)
             // `didBeginActivityWith` is what acknowledges it, and `opening` is held until
             // then. The settle here is for the other outcome: a lap HealthKit could not cut
             // arrives as the session failing, on the delegate's own turn rather than this one.
@@ -541,9 +551,29 @@ final class WorkoutRunner: NSObject, ObservableObject {
         openingBy?.cancel()
         openingBy = nil
 
+        // A workout going, or one still starting — the session's first activity reports
+        // itself open before `begin()` has finished, and that one has a step to announce like
+        // any other. Anything past that is a session on its way into Health: no interval to
+        // count and nothing to say over it, so the hold is released and that is all.
+        switch phase {
+        case .starting, .live:
+            break
+        default:
+            advancingTo = false
+            openedFrom = nil
+            if asked != nil { issue() }
+            return
+        }
+
+        if advancingTo { interval += 1 }
+        advancingTo = false
+        rebase()
+
         SyncLog.record(
             .upload, "lap \(interval + 1): open\(reported ? "" : " (no word from HealthKit)")"
         )
+        voice.say(step?.spoken ?? "Workout complete.")
+
         if asked != nil { issue() }
     }
 
@@ -665,9 +695,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// declines to write, and it would be wrong the first time somebody stopped at a junction.
     func nextInterval() {
         guard lappable else { return }
-
-        interval += 1
-        openInterval(at: Date())
+        openInterval(at: Date(), advancing: true)
     }
 
     /// Beginning an activity ends whichever one is open, the session's own primary activity
@@ -675,7 +703,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// session ever recorded: `endCurrentActivity` with nothing of ours open failed the
     /// session, and a failed session neither advances nor shows its buttons, while HealthKit
     /// went on recording behind it.
-    private func openInterval(at: Date) {
+    private func openInterval(at: Date, advancing: Bool) {
         SyncLog.record(.upload, "lap \(interval + 1): cutting, state \(sessionState.rawValue)")
         // Asked again here rather than trusted to the callers: this is the line HealthKit is
         // on the other side of, and a lap cut into a paused session is the refusal that
@@ -685,16 +713,23 @@ final class WorkoutRunner: NSObject, ObservableObject {
         session?.beginNewActivity(configuration: configuration, date: at, metadata: nil)
         cutting = true
 
-        // Open only when HealthKit says so. Until then a pause is held rather than sent.
+        // **Nothing about the interval moves here.** The number, the step it names and what
+        // is said out loud all wait for HealthKit to report the activity open, for the same
+        // reason the pause does: `beginNewActivity` is asynchronous, and counting a lap the
+        // session has not cut is the screen keeping a number of its own.
+        //
+        // What *is* taken here is the baseline, because the activity begins at `at` whatever
+        // time the callback arrives — measuring the interval from the callback instead would
+        // lose however long HealthKit took to answer out of the step's own seconds.
+        advancingTo = advancing
+        openedFrom = (elapsed: builder?.elapsedTime ?? elapsed, metres: metres)
+
         opening = true
         openingBy?.cancel()
         openingBy = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(Self.openingLimit)) } catch { return }
             self?.opened(reported: false)
         }
-
-        rebase()
-        voice.say(step?.spoken ?? "Workout complete.")
     }
 
     /// What this interval counts from. Separate from opening one because a recovered session
@@ -706,8 +741,11 @@ final class WorkoutRunner: NSObject, ObservableObject {
         // any length costs it nothing — whereas the cached copy is deliberately not read
         // while paused, so baselining against it would hand the new step whatever second the
         // screen last happened to see.
-        intervalFromElapsed = builder?.elapsedTime ?? elapsed
-        intervalFromMetres = metres
+        // Taken when the lap was cut where there is one, since that is when the activity
+        // begins; `recovered` and the rest have none and read the builder here instead.
+        intervalFromElapsed = openedFrom?.elapsed ?? builder?.elapsedTime ?? elapsed
+        intervalFromMetres = openedFrom?.metres ?? metres
+        openedFrom = nil
         powerSum = 0
         powerReadings = 0
         intervalElapsed = 0
