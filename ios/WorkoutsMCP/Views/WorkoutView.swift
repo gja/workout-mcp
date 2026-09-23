@@ -362,26 +362,35 @@ struct WorkoutView: View {
                         .foregroundStyle(.white)
                         .frame(width: 68, height: 68)
                         .background(Circle().stroke(Color.white.opacity(0.35), lineWidth: 2))
+                        // Dimmed, not merely deaf. A paused workout has no laps in it, and a
+                        // lap button that looks live over one is a button to tap and wonder
+                        // about — `lappable` is the session's answer, not this screen's.
+                        .opacity(runner.lappable ? 1 : 0.3)
                 }
-                // Running only, like the lap it cuts, and the session's answer rather than
-                // this screen's: `beginNewActivity` on a paused session is refused the way
-                // `endCurrentActivity` on an empty one is.
-                .disabled(runner.sessionState != .running || runner.settling)
+                .disabled(!runner.lappable)
 
                 Spacer()
                 // One button either way: which transition it is belongs to the session, and
                 // what it looks like follows the state the session reported.
                 Button { runner.togglePause() } label: {
-                    Image(systemName: runner.isPaused ? "play.fill" : "pause.fill")
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundStyle(runner.isPaused ? Color.yellow : .white)
-                        .frame(width: 88, height: 88)
-                        .background(Circle().fill(
-                            runner.isPaused ? Color.yellow.opacity(0.22) : Color.white.opacity(0.14)
-                        ))
-                        // Dimmed while the session has been asked and has not answered, so a
-                        // button that is not listening does not look like one that is.
-                        .opacity(runner.settling ? 0.4 : 1)
+                    Group {
+                        // The session has been asked and has not answered yet, which takes
+                        // about a second. A dimmed pause glyph for that second reads as a
+                        // button that has failed; a spinner reads as one that is working,
+                        // and it is the truthful one — the glyph only changes when the
+                        // session says so.
+                        if runner.settling {
+                            ProgressView().controlSize(.large).tint(.white)
+                        } else {
+                            Image(systemName: runner.isPaused ? "play.fill" : "pause.fill")
+                                .font(.system(size: 32, weight: .bold))
+                                .foregroundStyle(runner.isPaused ? Color.yellow : .white)
+                        }
+                    }
+                    .frame(width: 88, height: 88)
+                    .background(Circle().fill(
+                        runner.isPaused ? Color.yellow.opacity(0.22) : Color.white.opacity(0.14)
+                    ))
                 }
                 .disabled(!isLive || runner.settling)
                 Spacer()

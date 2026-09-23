@@ -154,18 +154,55 @@ and a reconciliation against `HKWorkoutSession.state` once a second. The delegat
 flow; the other two are the net under it, and the net is not theoretical — a callback went
 missing on the fourth lap of a test walk, so the screen said running over a session HealthKit
 had paused, the clock went on, the step advanced itself, and the next tap on pause was
-refused by a session that had been paused for a minute. Any of the three arriving is enough
-now, and a lost one heals within the second.
+refused by a session that had been paused for a minute.
+
+The net reads the session, so **the net does not run inside the window where the session
+cannot be read.** `reconcile` is skipped entirely while a transition is outstanding. A tick
+landing between the tap and the callback reads `state` as it was before the tap and hands it
+back as news, which overwrote a pause that had already arrived, put running back on the
+screen over a paused session, and re-armed the exact tap the mechanism exists to stop. Past
+the limit there is no such window left, and reading it is the point.
+
+The builder's events are consumed **by index, in order, exactly once each**. The callback
+says that something landed, not what, and reading `workoutEvents.last` to find out worked on
+the first lap and got less reliable with every lap after it: two events landing close
+together queue two callbacks, both of which hop to the main actor and *then* read the array,
+so both see the newer event and the older one is never seen at all. When the older one is the
+pause, that channel has silently dropped it. A session adopted on recovery starts its count
+at whatever the array already holds — those pauses are history, not news, and replaying them
+would announce each one aloud on the way to a state the session is already in.
 
 `pauseOrResumeRequest` comes through the same door, and is the one that is not an account but
 a **question**: it is the system asking this app to toggle, which is how a control outside
-this screen pauses a workout. Answering it is the only thing that makes such a control work.
+this screen pauses a workout. Answering it is the only thing that makes such a control work —
+and it is answered only when this app has not just asked for something itself, since
+HealthKit echoing back a pause we requested would toggle it straight off again.
 
-So nothing is asked of the session while something is outstanding. `asked` holds the
-transition that has been requested and not yet reported back, the delegate clears it on any
-state it reports, and a limit clears it if HealthKit never answers, because a request dropped
-on the floor must not wedge the button for the rest of the session. The pause dims while it
-is not listening.
+**Only the answer frees the button.** `asked` holds the transition requested and not yet
+reported back, and nothing else clears it: not a timer, not the tick, not an unrelated state
+change. Each of those freed it early, and early is the whole bug — the callback takes about a
+second, and a mechanism that gives up before the answer arrives is a screen still saying
+running over a session that has been paused the whole time. So the five-second limit does not
+free the button either: it **asks the session**, and takes whichever way `state` reads, which
+that late is no longer the value lagging a call by a runloop turn but the answer. A request
+HealthKit genuinely dropped comes back as still running and the button listens again; one it
+honoured silently comes back as paused and the screen finally catches up.
+
+A second of a dimmed pause glyph reads as a button that has broken, so it is a **spinner**
+for that second instead. The glyph itself changes only when the session says so.
+
+**A paused workout has no laps in it.** `lappable` is one question with one answer, asked by
+the button, by the step that runs out of seconds, by the step that reaches its distance, and
+again inside `openInterval` on the line before HealthKit — because that refusal has failed a
+session before now. A pause with twenty seconds left in the step is twenty seconds left in
+the step. Settling counts as paused: in the second before the delegate answers, the session is
+on its way somewhere and the screen does not yet know where. The lap button dims to say so
+rather than merely going deaf.
+
+The interval's clock is baselined off `builder.elapsedTime`, which is the clock with the
+pauses taken out, rather than off the last figure read from it — that copy is deliberately not
+read while paused, and baselining against it would hand a new step whatever second the screen
+last happened to see.
 
 `RunPhase` is the **app's** lifecycle only — starting, live, saving, saved, failed — and
 deliberately has no running or paused in it.
@@ -173,7 +210,9 @@ deliberately has no running or paused in it.
 **A live session that refuses something has not ended.** `failed` means the recording is over
 and offers to try the *save* again; a refused pause is not that, and treating it as that
 ended a workout that was going perfectly well. A refusal is `problem`, a red line under the
-step that the next state change clears.
+step that the next state change clears — and the session is asked what it actually is before
+that line is written, because *unable to perform 'pause' from current state 'Paused'* is the
+screen being told the one thing it had wrong.
 
 **The clock only moves while the session says it is running.** Whether `elapsedTime` stops on
 its own is not something to take on trust, and a total that goes on counting under a PAUSED

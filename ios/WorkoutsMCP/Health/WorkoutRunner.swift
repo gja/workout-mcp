@@ -58,16 +58,38 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// to read and carry on past. Cleared by the next state change that works.
     @Published private(set) var problem: String?
 
-    /// A transition asked for and not yet reported back. `HKWorkoutSession.state` does not
-    /// move when `pause()` returns — the delegate is what moves it — so reading the session
-    /// inside that window is no better than reading a copy of it: a second tap sees a session
-    /// still saying `.running` and asks it to pause again, which is refused. Nothing is asked
-    /// of the session while something is outstanding.
+    /// A transition asked for and not yet reported back, which is the window every refused
+    /// pause has happened inside.
+    ///
+    /// `HKWorkoutSession.state` does not move when `pause()` returns — the delegate is what
+    /// moves it, about a second later — so for that second the session itself still reads
+    /// `.running`, and so does anything that copies it. A second tap in that second asks a
+    /// session on its way to paused to pause, and is refused: *unable to perform 'pause' from
+    /// current state 'Paused'*.
+    ///
+    /// So nothing is asked of the session while something is outstanding, and **only the
+    /// answer clears it**. Not a timer, not the tick, not an unrelated state change: each of
+    /// those freed the button early, and early is the whole bug. What the limit does when no
+    /// answer comes is in `gaveUp`.
     private var asked: HKWorkoutSessionState?
     private var clearing: Task<Void, Never>?
 
     /// Whether a transition is in flight, so the button can say it is not listening.
     var settling: Bool { asked != nil }
+
+    /// **Whether a lap may be cut at all**, which is one question with one answer and not a
+    /// guard written out four times.
+    ///
+    /// A paused workout has no laps in it: not by the button, not by the clock running out,
+    /// not by the distance goal being met on a fix that lands after the pause. A pause with
+    /// twenty seconds left in the step is twenty seconds left in the step, to be run when the
+    /// athlete starts running again — and `beginNewActivity` on a paused session is refused
+    /// the way `endCurrentActivity` on an empty one is, which is a refusal that has failed a
+    /// session before now.
+    ///
+    /// `settling` counts as paused. In the second between the tap and the delegate answering
+    /// it, the session is on its way somewhere and the screen does not yet know where.
+    var lappable: Bool { asked == nil && sessionState == .running }
 
     /// Moving figures, and every one of them optional. A heart rate of zero, a pace of zero
     /// and a cadence of zero are what an absent strap, a cold GPS fix and a phone on a table
@@ -138,6 +160,15 @@ final class WorkoutRunner: NSObject, ObservableObject {
     private var intervalFromMetres: Double?
     /// Whether an activity of this app's has been begun, so there is one to close at the end.
     private var cutting = false
+
+    /// How many of the builder's events have been read. `workoutEvents` is an array that only
+    /// grows, and the callback says that something landed rather than what — so the events
+    /// are consumed by index, in order, exactly once each. Reading `last` instead worked on
+    /// the first lap and got less reliable with every one after it: two events landing close
+    /// together queue two callbacks, both of which hop to the main actor and *then* read the
+    /// array, so both see the newer event and the older one is never seen at all. When the
+    /// older one is the pause, that channel has silently dropped it.
+    private var eventsRead = 0
     private var powerSum = 0.0
     private var powerReadings = 0
 
@@ -180,7 +211,10 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// with no limit loses the recording exactly as completely as not waiting at all.
     private static let stateLimit = 10.0
 
-    /// How long a transition may be outstanding before the button listens again.
+    /// How long a transition may be outstanding before the session is asked what became of
+    /// it. Generous on purpose: the delegate takes about a second, and nothing is lost by
+    /// waiting longer than that, whereas a limit short enough to trip on a slow callback puts
+    /// the screen back to guessing.
     private static let settleLimit = 5.0
 
     /// Long enough for the delegate to have reported a lap that could not be cut. It is a
@@ -347,6 +381,11 @@ final class WorkoutRunner: NSObject, ObservableObject {
 
         self.session = session
         self.builder = builder
+        // Whatever this session did before this app picked it up is history, not news. A
+        // recovered workout brings its old pauses and resumes along in the array, and
+        // replaying them would announce each one aloud on the way to the state the session is
+        // already in. Only what happens from here is an account of anything.
+        eventsRead = builder.workoutEvents.count
         // Seeded here because adopting a session raises no callback: after this the delegate
         // is the only thing that writes it.
         // The one read of `session.state` in the app, and only because adopting one raises no
@@ -388,8 +427,8 @@ final class WorkoutRunner: NSObject, ObservableObject {
     }
 
     /// Asking, and not asking again until the answer comes back. The block is released by the
-    /// delegate, or by a limit — a request HealthKit drops on the floor must not wedge the
-    /// button for the rest of the session.
+    /// answer, and by nothing else — a callback that takes a second is a second of a button
+    /// that does not listen, which is the whole of what it is for.
     private func ask(_ state: HKWorkoutSessionState, _ send: () -> Void) {
         asked = state
         send()
@@ -397,8 +436,27 @@ final class WorkoutRunner: NSObject, ObservableObject {
         clearing?.cancel()
         clearing = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(Self.settleLimit)) } catch { return }
-            self?.answered()
+            self?.gaveUp()
         }
+    }
+
+    /// The limit, and the one thing it is allowed to do.
+    ///
+    /// Freeing the button on a timer is what let the refusal back in: past five seconds the
+    /// screen still said running, the session had been paused the whole time, and the button
+    /// came back to ask a paused session to pause. So the limit does not free the button —
+    /// it asks the session. Inside the callback's window `HKWorkoutSession.state` is the
+    /// value that has not moved yet and is worth nothing; five seconds later it is the
+    /// answer, and whichever way it reads is the truth this screen was missing.
+    private func gaveUp() {
+        guard let session, let outstanding = asked else { return }
+        SyncLog.record(
+            .upload,
+            "no callback for \(outstanding.rawValue) in \(Int(Self.settleLimit))s:"
+                + " session says \(session.state.rawValue)"
+        )
+        answered()
+        observed(session.state)
     }
 
     private func answered() {
@@ -416,9 +474,12 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// the next tap on pause is refused by a session that had been paused for a minute. That
     /// is not hypothetical: it is what the fourth lap of a test walk did.
     private func observed(_ state: HKWorkoutSessionState) {
-        // What was asked for has arrived, so the button listens again.
-        if state == asked { answered() }
-        guard state != sessionState else { return }
+        guard state != sessionState else {
+            // The answer, arriving as a state already on the screen: nothing to change, but
+            // the button has been told and can listen again.
+            if state == asked { answered() }
+            return
+        }
         answered()
 
         let was = sessionState
@@ -443,7 +504,12 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// callback that should have come. A lost event heals within the second rather than
     /// lasting the rest of the session.
     private func reconcile() {
-        guard let session, session.state != sessionState else { return }
+        // Never while something is in flight. Inside that window `HKWorkoutSession.state` is
+        // the value that has not moved yet, so a tick landing between the tap and the
+        // callback reads the *old* state and hands it back as news — which overwrote a pause
+        // that had already arrived, put running back on the screen over a paused session, and
+        // re-armed the very tap this guards. Past the limit `gaveUp` reads it instead.
+        guard asked == nil, let session, session.state != sessionState else { return }
         SyncLog.record(
             .upload,
             "state drifted: heard \(sessionState.rawValue), session says \(session.state.rawValue)"
@@ -462,10 +528,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// on the screen and left there; advancing it on a timer is the workout engine docs/ios.md
     /// declines to write, and it would be wrong the first time somebody stopped at a junction.
     func nextInterval() {
-        // Running only, and not while a pause or resume is still in flight: `beginNewActivity`
-        // on a session that is on its way to paused is the same shape of refusal as
-        // `endCurrentActivity` on one with nothing open, and that one failed a session.
-        guard asked == nil, sessionState == .running else { return }
+        guard lappable else { return }
 
         interval += 1
         openInterval(at: Date())
@@ -477,6 +540,11 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// session, and a failed session neither advances nor shows its buttons, while HealthKit
     /// went on recording behind it.
     private func openInterval(at: Date) {
+        // Asked again here rather than trusted to the callers: this is the line HealthKit is
+        // on the other side of, and a lap cut into a paused session is the refusal that
+        // reaches the delegate as the session failing.
+        guard lappable else { return }
+
         session?.beginNewActivity(configuration: configuration, date: at, metadata: nil)
         cutting = true
 
@@ -488,7 +556,12 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// needs the counting reset without a lap being cut: the laps it already has are in the
     /// session, and one more at the moment somebody reopened the app is not a lap they ran.
     private func rebase() {
-        intervalFromElapsed = elapsed
+        // Off the builder rather than off the last figure read from it. `elapsedTime` is the
+        // clock with the pauses taken out — a step resumes where it was left and a pause of
+        // any length costs it nothing — whereas the cached copy is deliberately not read
+        // while paused, so baselining against it would hand the new step whatever second the
+        // screen last happened to see.
+        intervalFromElapsed = builder?.elapsedTime ?? elapsed
         intervalFromMetres = metres
         powerSum = 0
         powerReadings = 0
@@ -669,7 +742,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
         // Judged only on the tick, and only once every figure above has been read: a drift
         // counted at the rate samples happen to land is a drift counted at no rate at all,
         // and the advance has to see the distance this second's fix brought in.
-        guard onTick, sessionState == .running else { return }
+        guard onTick, lappable else { return }
         advanceIfDue()
         countDown()
         callOutDrift()
@@ -873,6 +946,12 @@ extension WorkoutRunner: HKWorkoutSessionDelegate {
             // the recording is over and offers to try the **save** again — which, on a refused
             // pause, ended a workout that was going perfectly well. This is a line to read.
             SyncLog.record(.upload, "session refused something: \(SyncLog.describe(error))")
+
+            // And what the session actually is, now that it has spoken. *Unable to perform
+            // 'pause' from current state 'Paused'* is the screen being told the one thing it
+            // had wrong, and taking it here is what stops the next tap making the same
+            // mistake. Read before the line is set, because a state change clears it.
+            if let live = self.session { self.observed(live.state) }
             self.problem = error.localizedDescription
         }
     }
@@ -893,14 +972,28 @@ extension WorkoutRunner: HKLiveWorkoutBuilderDelegate {
     /// `pauseOrResumeRequest` is the system **asking** this app to toggle, which is how a
     /// control outside this screen pauses a workout. Answering it is the only way that
     /// control does anything.
+    ///
+    /// Every event since the last call, in the order they happened. The callback carries no
+    /// event with it, so what is new has to be worked out from how much of the array has
+    /// already been read; see `eventsRead` for what reading `last` instead cost.
     nonisolated func workoutBuilderDidCollectEvent(_ workoutBuilder: HKLiveWorkoutBuilder) {
         Task { @MainActor in
-            guard let event = self.builder?.workoutEvents.last else { return }
-            switch event.type {
-            case .pause: self.observed(.paused)
-            case .resume: self.observed(.running)
-            case .pauseOrResumeRequest: self.togglePause()
-            default: break
+            let events = self.builder?.workoutEvents ?? []
+            guard events.count > self.eventsRead else { return }
+
+            let fresh = events[self.eventsRead...]
+            self.eventsRead = events.count
+
+            for event in fresh {
+                switch event.type {
+                case .pause: self.observed(.paused)
+                case .resume: self.observed(.running)
+                // Somebody else's control — the Lock Screen, Siri — and only when this app
+                // has not just asked for something itself. HealthKit echoing our own pause
+                // back as a request would toggle it straight off again.
+                case .pauseOrResumeRequest where self.asked == nil: self.togglePause()
+                default: break
+                }
             }
         }
     }
