@@ -194,14 +194,25 @@ callback reads `state` as it was before the tap and hands it back as news, which
 pause that had already arrived, put running back on the screen over a paused session, and
 re-armed the exact tap the mechanism exists to stop.
 
-The builder's events are consumed **by index, in order, exactly once each**. The callback
-says that something landed, not what, and reading `workoutEvents.last` to find out worked on
-the first lap and got less reliable with every lap after it: two events landing close
-together queue two callbacks, both of which hop to the main actor and *then* read the array,
-so both see the newer event and the older one is never seen at all. When the older one is the
-pause, that channel has silently dropped it. A session adopted on recovery starts its count
-at whatever the array already holds — those pauses are history, not news, and replaying them
-would announce each one aloud on the way to a state the session is already in.
+**The builder's events are drained once a second, not waited for.** A 78-second test walk
+saved with `timer_s: 12`: HealthKit counted twelve seconds of it and paused the other
+sixty-six, which means the pause and resume events were sitting in the builder the whole
+time, because the saved duration is computed from them. No callback came, `state` read
+`.running`, and the screen counted up to 0:33 over a session that had stopped at 0:12.
+
+So `workoutEvents` is the one account of this session that is a **record rather than a
+reading** — every entry is something that happened, not something being reported — and it is
+read on the tick as well as on the callback. A pause nobody mentioned is found within the
+second. This runs whatever is in flight, because an event is not a stale property: a pause
+that landed while a pause was outstanding is the answer to it.
+
+They are consumed **by index, in order, exactly once each**. Reading `workoutEvents.last`
+instead worked on the first lap and got less reliable with every lap after it: two events
+landing close together queue two callbacks that both hop to the main actor and *then* read
+the array, so both see the newer one and the older is never seen at all. When the older one
+is the pause, that channel has silently dropped it. A session adopted on recovery starts its
+count at whatever the array already holds — those pauses are history, not news, and replaying
+them would announce each one aloud on the way to a state the session is already in.
 
 `pauseOrResumeRequest` comes through the same door, and is the one that is not an account but
 a **question**: it is the system asking this app to toggle, which is how a control outside

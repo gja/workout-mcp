@@ -162,12 +162,13 @@ final class WorkoutRunner: NSObject, ObservableObject {
     private var cutting = false
 
     /// How many of the builder's events have been read. `workoutEvents` is an array that only
-    /// grows, and the callback says that something landed rather than what — so the events
-    /// are consumed by index, in order, exactly once each. Reading `last` instead worked on
-    /// the first lap and got less reliable with every one after it: two events landing close
-    /// together queue two callbacks, both of which hop to the main actor and *then* read the
-    /// array, so both see the newer event and the older one is never seen at all. When the
-    /// older one is the pause, that channel has silently dropped it.
+    /// grows, and nothing says which entry is new — so the events are consumed by index, in
+    /// order, exactly once each, by whichever of the callback and the tick reaches `drain`
+    /// first. Reading `last` instead worked on the first lap and got less reliable with every
+    /// one after it: two events landing close together queue two callbacks, both of which hop
+    /// to the main actor and *then* read the array, so both see the newer event and the older
+    /// one is never seen at all. When the older one is the pause, that channel has silently
+    /// dropped it.
     private var eventsRead = 0
     private var powerSum = 0.0
     private var powerReadings = 0
@@ -748,8 +749,44 @@ final class WorkoutRunner: NSObject, ObservableObject {
 
     /// Reconciled whatever the session is doing, and read only while it is running.
     private func tick() {
+        drain()
         reconcile()
         read(onTick: true)
+    }
+
+    /// **The one account of this session that is a record rather than a reading**, and the
+    /// reason it is read on a timer rather than only when the builder says to look.
+    ///
+    /// A 78-second test walk saved with `timer_s: 12`. HealthKit had counted twelve seconds
+    /// of it and paused the other sixty-six — which means the pause and resume events were in
+    /// the builder the whole time, because that is what the saved duration is computed from.
+    /// No delegate callback came, `state` read `.running`, and the screen counted up to 0:33
+    /// over a session that had stopped at 0:12.
+    ///
+    /// So the events are not waited for. `workoutEvents` is an array that only grows, every
+    /// entry of it is something that happened rather than something being reported, and
+    /// draining it once a second finds a pause the callback never mentioned within the
+    /// second. This runs whatever is in flight: an event is not a stale property, and a pause
+    /// that landed while a pause was outstanding is the answer to it.
+    private func drain() {
+        let events = builder?.workoutEvents ?? []
+        guard events.count > eventsRead else { return }
+
+        let fresh = events[eventsRead...]
+        eventsRead = events.count
+
+        for event in fresh {
+            switch event.type {
+            case .pause: observed(.paused)
+            case .resume: observed(.running)
+            // Somebody else's control — the Lock Screen, Siri, the system's own idea that
+            // this walk has stopped — and only when this app has not just asked for something
+            // itself, since HealthKit echoing our own pause back as a request would toggle it
+            // straight off again.
+            case .pauseOrResumeRequest where asked == nil: togglePause()
+            default: break
+            }
+        }
     }
 
     /// `onTick` is what separates the figures that are simply read from the one that is
@@ -1030,29 +1067,10 @@ extension WorkoutRunner: HKLiveWorkoutBuilderDelegate {
     /// control outside this screen pauses a workout. Answering it is the only way that
     /// control does anything.
     ///
-    /// Every event since the last call, in the order they happened. The callback carries no
-    /// event with it, so what is new has to be worked out from how much of the array has
-    /// already been read; see `eventsRead` for what reading `last` instead cost.
+    /// The same drain the tick does, a second earlier when the callback happens to come. It
+    /// is not relied on: a walk's worth of pauses reached the builder without it.
     nonisolated func workoutBuilderDidCollectEvent(_ workoutBuilder: HKLiveWorkoutBuilder) {
-        Task { @MainActor in
-            let events = self.builder?.workoutEvents ?? []
-            guard events.count > self.eventsRead else { return }
-
-            let fresh = events[self.eventsRead...]
-            self.eventsRead = events.count
-
-            for event in fresh {
-                switch event.type {
-                case .pause: self.observed(.paused)
-                case .resume: self.observed(.running)
-                // Somebody else's control — the Lock Screen, Siri — and only when this app
-                // has not just asked for something itself. HealthKit echoing our own pause
-                // back as a request would toggle it straight off again.
-                case .pauseOrResumeRequest where self.asked == nil: self.togglePause()
-                default: break
-                }
-            }
-        }
+        Task { @MainActor in self.drain() }
     }
 }
 
