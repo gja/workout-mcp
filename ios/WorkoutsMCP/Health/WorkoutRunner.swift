@@ -38,15 +38,36 @@ enum RunPhase: Equatable {
 final class WorkoutRunner: NSObject, ObservableObject {
     @Published private(set) var phase: RunPhase = .starting
 
-    /// The session's own state, mirrored from its delegate so SwiftUI can see it — and
-    /// **written nowhere else**. Every control asks what the session may do rather than what
-    /// the screen last heard, and every screen follows from the callback that says it
-    /// happened. A button that changes the screen and then tells the session is a button that
-    /// can be pressed twice before the session has been told once.
+    /// **The one place the session's state is read from, anywhere in this app.**
+    ///
+    /// Written by the delegate and by `adopt`, which seeds it the once, and read by
+    /// everything: the buttons, the guards, the tick, the screen. `HKWorkoutSession.state` is
+    /// deliberately not consulted, because it does not move when `pause()` returns — the
+    /// delegate is what moves it — so reading the session inside that window is no better
+    /// than reading a stale copy, and that is what asked a paused session to pause.
+    ///
+    /// The flow is one flow and this is the half of it that comes back: **tell the session,
+    /// then wait to be told.** Nothing in this file changes what is shown on the strength of
+    /// having asked for it.
     @Published private(set) var sessionState: HKWorkoutSessionState = .notStarted
 
     /// Paused is the session's answer, not a phase of this app's.
     var isPaused: Bool { sessionState == .paused }
+
+    /// Something a **live** session refused, which is not the recording ending: it is a line
+    /// to read and carry on past. Cleared by the next state change that works.
+    @Published private(set) var problem: String?
+
+    /// A transition asked for and not yet reported back. `HKWorkoutSession.state` does not
+    /// move when `pause()` returns — the delegate is what moves it — so reading the session
+    /// inside that window is no better than reading a copy of it: a second tap sees a session
+    /// still saying `.running` and asks it to pause again, which is refused. Nothing is asked
+    /// of the session while something is outstanding.
+    private var asked: HKWorkoutSessionState?
+    private var clearing: Task<Void, Never>?
+
+    /// Whether a transition is in flight, so the button can say it is not listening.
+    var settling: Bool { asked != nil }
 
     /// Moving figures, and every one of them optional. A heart rate of zero, a pace of zero
     /// and a cadence of zero are what an absent strap, a cold GPS fix and a phone on a table
@@ -159,6 +180,9 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// with no limit loses the recording exactly as completely as not waiting at all.
     private static let stateLimit = 10.0
 
+    /// How long a transition may be outstanding before the button listens again.
+    private static let settleLimit = 5.0
+
     /// Long enough for the delegate to have reported a lap that could not be cut. It is a
     /// settle, not a proof: nothing acknowledges `beginNewActivity` on the way out.
     private static let settle = 0.25
@@ -223,7 +247,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
             // A lap cannot be cut in a session that is not running yet, and `startActivity`
             // returning is not the session running — the delegate's word for it is.
             await wait(for: .running)
-            guard session.state == .running else { return abandon("Health did not start the session.") }
+            guard sessionState == .running else { return abandon("Health did not start the session.") }
 
             // Written down before a step is counted, so a session picked up in another
             // process has its plan without going back to the network for it.
@@ -283,6 +307,9 @@ final class WorkoutRunner: NSObject, ObservableObject {
 
     private func resume(_ recovered: HKWorkoutSession) {
         adopt(recovered)
+        // Seeded outside the guard above, because a session adopted while paused would
+        // otherwise start from zero and count the whole of itself into its first interval.
+        elapsed = builder?.elapsedTime ?? 0
         // Read before rebasing, or the interval counts from zero while the session is
         // already minutes in — and the first tick finds a 60-second step long since due and
         // advances it. That is what put a recovered session straight onto interval two.
@@ -294,7 +321,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
         // pause button over a finished recording: tapping it answered "unable to perform
         // 'pause' from current state 'Ended'". There is nothing to resume in one that is
         // over; there is only the saving it never got.
-        switch recovered.state {
+        switch sessionState {
         case .ended, .stopped:
             phase = .saving
         default:
@@ -322,6 +349,8 @@ final class WorkoutRunner: NSObject, ObservableObject {
         self.builder = builder
         // Seeded here because adopting a session raises no callback: after this the delegate
         // is the only thing that writes it.
+        // The one read of `session.state` in the app, and only because adopting one raises no
+        // callback. After this the delegate is the only writer.
         sessionState = session.state
         if !indoors {
             route = HKWorkoutRouteBuilder(healthStore: HealthAccess.store, device: nil)
@@ -349,12 +378,33 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// is exactly what a second tap did while the first was still on its way to the delegate,
     /// because the screen was reading its own copy of the state rather than the session's.
     func togglePause() {
-        guard let session else { return }
-        switch session.state {
-        case .running: session.pause()
-        case .paused: session.resume()
+        guard let session, asked == nil else { return }
+
+        switch sessionState {
+        case .running: ask(.paused) { session.pause() }
+        case .paused: ask(.running) { session.resume() }
         default: break
         }
+    }
+
+    /// Asking, and not asking again until the answer comes back. The block is released by the
+    /// delegate, or by a limit — a request HealthKit drops on the floor must not wedge the
+    /// button for the rest of the session.
+    private func ask(_ state: HKWorkoutSessionState, _ send: () -> Void) {
+        asked = state
+        send()
+
+        clearing?.cancel()
+        clearing = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(Self.settleLimit)) } catch { return }
+            self?.answered()
+        }
+    }
+
+    private func answered() {
+        asked = nil
+        clearing?.cancel()
+        clearing = nil
     }
 
     /// The lap press, and the reason the plan is here at all.
@@ -368,10 +418,10 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// on the screen and left there; advancing it on a timer is the workout engine docs/ios.md
     /// declines to write, and it would be wrong the first time somebody stopped at a junction.
     func nextInterval() {
-        // Running only, and the session is asked rather than the screen. `beginNewActivity`
-        // on a paused session is the same shape of refusal as `endCurrentActivity` on one
-        // with nothing open, and that one failed a session.
-        guard session?.state == .running else { return }
+        // Running only, and not while a pause or resume is still in flight: `beginNewActivity`
+        // on a session that is on its way to paused is the same shape of refusal as
+        // `endCurrentActivity` on one with nothing open, and that one failed a session.
+        guard asked == nil, sessionState == .running else { return }
 
         interval += 1
         openInterval(at: Date())
@@ -432,7 +482,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
         // Each step written down, because the end of a session is where one is lost and the
         // athlete reads the reason once on a screen they then close. One walk's worth of
         // this says which call refused rather than leaving it to be inferred.
-        SyncLog.record(.upload, "ending: state \(session.state.rawValue), cut \(cutting)")
+        SyncLog.record(.upload, "ending: state \(sessionState.rawValue), cut \(cutting)")
 
         // Not a guarantee. `wait(for:)` gives up after its limit and lets this go on rather
         // than hanging for ever, so the state is read again rather than assumed — and what
@@ -441,13 +491,13 @@ final class WorkoutRunner: NSObject, ObservableObject {
         // A session that has already ended is not ended again: "unable to end a workout that
         // is not currently active" is what that costs, and what is left to do — closing the
         // builder and saving — is the same either way.
-        if session.state == .running || session.state == .paused {
+        if sessionState == .running || sessionState == .paused {
             let at = Date()
             // Only what this app opened. `session.end()` closes whatever is still open anyway.
             if cutting { session.endCurrentActivity(on: at) }
             session.end()
             await wait(for: .ended)
-            SyncLog.record(.upload, "ending: session now \(session.state.rawValue)")
+            SyncLog.record(.upload, "ending: session now \(sessionState.rawValue)")
         }
 
         // **After** the session has ended, not before it. `session.end()` closes the open
@@ -484,7 +534,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// in one that has not reached `.running` is refused too, so both are waited for rather
     /// than assumed from the call that asked for them.
     private func wait(for state: HKWorkoutSessionState) async {
-        guard let session, session.state != state else { return }
+        guard session != nil, sessionState != state else { return }
 
         // Anything still waiting is released rather than orphaned: a continuation dropped on
         // the floor is never resumed, and whatever awaited it hangs for good.
@@ -540,7 +590,10 @@ final class WorkoutRunner: NSObject, ObservableObject {
     private func read(onTick: Bool) {
         guard let builder else { return }
 
-        elapsed = builder.elapsedTime
+        // Only while the session says it is running. A total that goes on counting under a
+        // PAUSED line is the screen saying something the session is not doing — and whether
+        // `elapsedTime` stops on its own is not something to take on trust.
+        if sessionState == .running { elapsed = builder.elapsedTime }
         intervalElapsed = max(0, elapsed - intervalFromElapsed)
 
         metres = builder.statistics(for: distanceType)?.sumQuantity()?.doubleValue(for: .meter())
@@ -752,7 +805,11 @@ extension WorkoutRunner: HKWorkoutSessionDelegate {
             // same reason: it is the session's own word for what happened. Resuming is
             // announced only from a pause — every workout reaches `.running` when it starts,
             // and it has just said what it is starting.
+            // The answer to whatever was asked, whatever it was: the block comes off on any
+            // state the session reports, not only the one that was wanted.
+            self.answered()
             self.sessionState = toState
+            self.problem = nil
 
             switch toState {
             case .running where fromState == .paused:
@@ -776,14 +833,21 @@ extension WorkoutRunner: HKWorkoutSessionDelegate {
             // would otherwise hold there until its limit.
             self.stopWaiting()
 
+            self.answered()
+
             // A save in flight reports its own outcome. Overwriting it here puts the controls
             // back over a `finishWorkout` that has not returned, and a tap then runs a second
             // one whose failure overwrites the first one's success.
-            guard case .saving = self.phase else {
-                self.phase = .failed(error.localizedDescription)
+            if case .saving = self.phase {
+                SyncLog.record(.upload, "session failed while saving: \(SyncLog.describe(error))")
                 return
             }
-            SyncLog.record(.upload, "session failed while saving: \(SyncLog.describe(error))")
+
+            // A live session that refused something is still a live session. `failed` means
+            // the recording is over and offers to try the **save** again — which, on a refused
+            // pause, ended a workout that was going perfectly well. This is a line to read.
+            SyncLog.record(.upload, "session refused something: \(SyncLog.describe(error))")
+            self.problem = error.localizedDescription
         }
     }
 }

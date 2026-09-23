@@ -135,17 +135,36 @@ out of the session's metadata, so neither is worth waiting for.
 That is also why `PlanDuration` and `PlanTarget` are `Codable` rather than `Decodable`. They
 are never sent to the server; what reads them back is the copy a session keeps of itself.
 
-**The session is asked; the screen is told.** Every control calls the session and then waits
-to be called back: pause and resume are one button whose transition the session decides, a
-lap is refused unless the session says it is running, and what is drawn follows
-`sessionState`, which is mirrored from the delegate and written nowhere else. `RunPhase` is
-the **app's** lifecycle only — starting, live, saving, saved, failed — and deliberately has
-no running or paused in it.
+**Tell the session, then wait to be told. That is the only flow there is.**
 
-A screen that keeps its own copy of those ends up disagreeing with the session, because the
-copy is set when the button is pressed and the truth arrives a callback later. What that
-produced was a pause over a session already paused, answering *unable to perform 'pause'
-from current state 'Paused'* — one tap too many inside the window where only the screen knew.
+`WorkoutRunner.sessionState` is the one place the session's state is read from anywhere in
+the app. The delegate writes it; `adopt` seeds it once, because adopting a session raises no
+callback; everything else reads it — the buttons, the guards, the tick, the screen.
+`HKWorkoutSession.state` is deliberately never consulted.
+
+That last part is not fussiness. **`state` does not move when `pause()` returns** — the
+delegate is what moves it — so reading the session inside that window is no better than
+reading a stale copy of it, and the first attempt at this fix read the session and failed in
+exactly the same way: a second tap saw `.running`, asked a session already on its way to
+paused to pause, and got *unable to perform 'pause' from current state 'Paused'*.
+
+So nothing is asked of the session while something is outstanding. `asked` holds the
+transition that has been requested and not yet reported back, the delegate clears it on any
+state it reports, and a limit clears it if HealthKit never answers, because a request dropped
+on the floor must not wedge the button for the rest of the session. The pause dims while it
+is not listening.
+
+`RunPhase` is the **app's** lifecycle only — starting, live, saving, saved, failed — and
+deliberately has no running or paused in it.
+
+**A live session that refuses something has not ended.** `failed` means the recording is over
+and offers to try the *save* again; a refused pause is not that, and treating it as that
+ended a workout that was going perfectly well. A refusal is `problem`, a red line under the
+step that the next state change clears.
+
+**The clock only moves while the session says it is running.** Whether `elapsedTime` stops on
+its own is not something to take on trust, and a total that goes on counting under a PAUSED
+line is the screen saying something the session is not doing.
 
 **A recovered session may be over rather than going.** `recoverActiveWorkoutSession` hands
 back one that has **ended** as readily as one that is running, and reading anything but

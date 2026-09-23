@@ -261,6 +261,11 @@ struct WorkoutView: View {
     private var status: some View {
         if runner.isPaused {
             Text("PAUSED").font(.caption.weight(.bold)).foregroundStyle(.yellow)
+        }
+        // A live session that refused something says so and carries on; only a save that
+        // failed is a `failed` phase, and only that offers to try again.
+        if let problem = runner.problem {
+            Text(problem).font(.caption).foregroundStyle(.red)
         } else if case .failed(let why) = runner.phase {
             Text(why).font(.caption).foregroundStyle(.red)
         }
@@ -361,7 +366,7 @@ struct WorkoutView: View {
                 // Running only, like the lap it cuts, and the session's answer rather than
                 // this screen's: `beginNewActivity` on a paused session is refused the way
                 // `endCurrentActivity` on an empty one is.
-                .disabled(runner.sessionState != .running)
+                .disabled(runner.sessionState != .running || runner.settling)
 
                 Spacer()
                 // One button either way: which transition it is belongs to the session, and
@@ -374,8 +379,11 @@ struct WorkoutView: View {
                         .background(Circle().fill(
                             runner.isPaused ? Color.yellow.opacity(0.22) : Color.white.opacity(0.14)
                         ))
+                        // Dimmed while the session has been asked and has not answered, so a
+                        // button that is not listening does not look like one that is.
+                        .opacity(runner.settling ? 0.4 : 1)
                 }
-                .disabled(!isLive)
+                .disabled(!isLive || runner.settling)
                 Spacer()
 
                 // Where Apple keeps the heart rate mute, and the slot that balances the pause
