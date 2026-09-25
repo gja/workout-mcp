@@ -96,7 +96,7 @@ them are separate tools, and the backup archive.
 
 ### [docs/auth.md](docs/auth.md)
 
-Sign-in end to end: setting up Google, Apple and intervals.icu, why accounts are never
+Sign-in end to end: setting up Google and Apple, connecting intervals.icu, why accounts are never
 linked across providers, why the in-flight sign-in is remembered in both D1 and a cookie,
 and how sessions and `wk_` API tokens are stored.
 

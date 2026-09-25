@@ -4,7 +4,6 @@ import { listProviders } from '../api';
 const LABELS: Record<string, string> = {
   google: 'Continue with Google',
   apple: 'Continue with Apple',
-  intervals: 'Continue with intervals.icu',
 };
 
 /** A full-page navigation, so there is no success callback to wire up. */

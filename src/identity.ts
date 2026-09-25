@@ -1,16 +1,20 @@
-// Sign-in with Google, Apple or intervals.icu, and the one OAuth round that
-// connects intervals.icu without a pasted key. See docs/auth.md.
+// Sign-in with Google or Apple, and the one OAuth round that connects intervals.icu
+// without a pasted key. See docs/auth.md.
 
 import { Apple, Google, generateCodeVerifier, generateState } from 'arctic';
 import type { OAuth2Tokens } from 'arctic';
 import type { Env } from './db';
 import { changes, one, qb, run } from './sql';
 
+// `intervals` names a connect round and the accounts its old sign-in made; it no longer
+// signs anyone in.
 export type ProviderName = 'google' | 'apple' | 'intervals';
 
-export const PROVIDERS: readonly ProviderName[] = ['google', 'apple', 'intervals'];
+export type SignInProvider = Exclude<ProviderName, 'intervals'>;
 
-export const isProviderName = (value: string): value is ProviderName =>
+export const PROVIDERS: readonly SignInProvider[] = ['google', 'apple'];
+
+export const isProviderName = (value: string): value is SignInProvider =>
   (PROVIDERS as readonly string[]).includes(value);
 
 /** An intervals.icu access token and whose it is. Their token response carries both. */
@@ -28,8 +32,6 @@ export type Identity = {
   /** Whether the provider vouches for the address. Kept for display; nothing authorizes on it. */
   emailVerified: boolean;
   returnTo: string | null;
-  /** The token the sign-in itself produced, when the provider is also a training platform. */
-  grant?: IntervalsGrant;
 };
 
 const LOGIN_STATE_TTL_MINUTES = 10;
@@ -113,12 +115,10 @@ function intervalsAuthorizationUrl(env: Env, state: string, redirect: string): U
   return url;
 }
 
-export function configuredProviders(env: Env, origin: string): ProviderName[] {
-  return PROVIDERS.filter((provider) => {
-    if (provider === 'google') return googleClient(env, origin) !== null;
-    if (provider === 'apple') return appleClient(env, origin) !== null;
-    return intervalsConfigured(env);
-  });
+export function configuredProviders(env: Env, origin: string): SignInProvider[] {
+  return PROVIDERS.filter((provider) =>
+    provider === 'google' ? googleClient(env, origin) !== null : appleClient(env, origin) !== null,
+  );
 }
 
 // --- Starting a sign-in ----------------------------------------------------
@@ -150,7 +150,7 @@ async function rememberState(
 /** Remembers the state in D1 *and* in a cookie; `completeLogin` insists on both. */
 export async function startLogin(
   env: Env,
-  provider: ProviderName,
+  provider: SignInProvider,
   origin: string,
   returnTo: string | null = null,
 ): Promise<{ url: string; state: string }> {
@@ -163,15 +163,12 @@ export async function startLogin(
     if (!client) throw new LoginError('Google sign-in is not configured on this server');
     codeVerifier = generateCodeVerifier();
     authorizationUrl = client.createAuthorizationURL(state, codeVerifier, ['openid', 'email']);
-  } else if (provider === 'apple') {
+  } else {
     const client = appleClient(env, origin);
     if (!client) throw new LoginError('Apple sign-in is not configured on this server');
     authorizationUrl = client.createAuthorizationURL(state, ['email']);
     // Apple insists on a form POST whenever a scope is requested.
     authorizationUrl.searchParams.set('response_mode', 'form_post');
-  } else {
-    if (!intervalsConfigured(env)) throw new LoginError('intervals.icu sign-in is not configured on this server');
-    authorizationUrl = intervalsAuthorizationUrl(env, state, redirectUri(origin, 'intervals'));
   }
 
   await rememberState(env, state, provider, codeVerifier, returnTo, null);
@@ -351,19 +348,12 @@ async function readCallback(
 
 export async function completeLogin(
   env: Env,
-  provider: ProviderName,
+  provider: SignInProvider,
   params: URLSearchParams,
   origin: string,
   cookieState: string | null,
 ): Promise<Identity> {
   const { code, codeVerifier, returnTo } = await readCallback(env, provider, params, cookieState, 'login');
-
-  // Not OpenID Connect: the identity is the athlete their token response names,
-  // and there is no address to go with it. See "intervals.icu" in docs/auth.md.
-  if (provider === 'intervals') {
-    const grant = await exchangeIntervalsCode(env, code, redirectUri(origin, 'intervals'));
-    return { provider, subject: grant.athlete.id, email: null, emailVerified: false, returnTo, grant };
-  }
 
   let tokens: OAuth2Tokens;
   let issuers: string[];

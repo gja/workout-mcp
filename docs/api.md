@@ -7,7 +7,7 @@ set at login.
 | --- | --- |
 | `GET /api/health` | Liveness, no auth |
 | `GET /auth/providers` | Which sign-in providers are configured |
-| `GET /auth/:provider/start` | Begin a Google, Apple or intervals.icu sign-in |
+| `GET /auth/:provider/start` | Begin a Google or Apple sign-in |
 | `GET`/`POST /auth/:provider/callback` | Finish it, sets the session cookie |
 | `GET /auth/intervals/connect` | Begin connecting intervals.icu to the account you are signed in as |
 | `GET /auth/intervals/connect-callback` | Finish that, storing the token; no session is touched |
