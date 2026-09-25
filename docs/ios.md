@@ -423,8 +423,8 @@ workout is worse than one that cannot be filed at all.
 
 ## The screen before the tabs
 
-Signing in is a button per provider — *Continue with Apple*, *Continue with Google*,
-*Continue with intervals.icu* — rather than one that says *Sign in* onto a page asking
+Signing in is a button per provider — *Continue with Apple*, *Continue with Google* —
+rather than one that says *Sign in* onto a page asking
 which. The list is the deployment's own (`GET /auth/providers`), so a server running
 Google alone shows one button and one this build has never heard of still gets one; a
 deployment that cannot answer leaves the plain button, which asks on the page instead. The

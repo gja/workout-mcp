@@ -1,11 +1,11 @@
 # Signing in
 
-No passwords and no email: identity comes from Google, Apple or intervals.icu. Each
+No passwords and no email: identity comes from Google or Apple. Each
 provider appears only when its variables are set, so **Google alone is a complete
 setup**. Google and Apple are ordinary OIDC authorization-code flows on
 [`arctic`](https://arcticjs.dev), which also builds the ES256 client-secret JWT Apple
-wants. `src/identity.ts` owns all three; `src/auth.ts` turns the result into a session or
-an API token.
+wants. `src/identity.ts` owns both, and the intervals.icu connect round; `src/auth.ts`
+turns the result into a session or an API token.
 
 ## Google
 
@@ -59,28 +59,23 @@ listed under *API tokens* like any other, and revoked there.
 
 ## intervals.icu
 
-One registration serves both the sign-in button and connecting the platform. Not
-self-service — email them for an OAuth app. See [integrations.md](integrations.md).
+Connecting the platform only: **intervals.icu no longer signs anyone in.**
+`/auth/intervals/start` and `/auth/intervals/callback` answer 404, and it is not listed by
+`GET /auth/providers`. Accounts its sign-in made earlier (`users.provider = 'intervals'`)
+keep their data but have no way back in. Not self-service — email them for an OAuth app. See [integrations.md](integrations.md).
 
 ```bash
 npx wrangler secret put INTERVALS_CLIENT_ID
 npx wrangler secret put INTERVALS_CLIENT_SECRET
 ```
 
-Two redirect URIs, because the redirect URI is part of the token exchange and so a code
-issued for a sign-in cannot be spent on a connect: `/auth/intervals/callback` mints a
-session, `/auth/intervals/connect-callback` touches none. The state row carries the
-athlete a connect belongs to, and the callback insists it matches the session.
+The redirect URI is `/auth/intervals/connect-callback`, which mints no session. The state
+row carries the athlete a connect belongs to, and the callback insists it matches the
+session.
 
 **It is not OIDC.** No `id_token` and no email — their token response carries
-`athlete: {id, name}`, and that id is the `subject`. So an intervals.icu account has no
-address at all, which is why nothing here authorizes on one. No `expires_in` and no
-refresh token either, so the access token goes in the encrypted platform-credential
+`athlete: {id, name}`. No `expires_in` and no refresh token either, so the access token goes in the encrypted platform-credential
 column with no refresh machinery; a withdrawn grant simply starts answering 401.
-
-**Signing in leaves you connected**: the sign-in *is* the authorization, and hands us the
-same token a connect would. With `CREDENTIALS_SECRET` unset the sign-in still succeeds,
-just unconnected.
 
 ## One account, however you sign in
 
@@ -94,8 +89,7 @@ through it on the way in.
 **The link is made on a verified address, and on nothing else.** A sign-in whose provider
 vouches for an address another sign-in has already proved attaches to that account, oldest
 first. An address nobody vouched for links nothing, which is why `email_verified` is stored
-rather than read and thrown away, and intervals.icu — which returns no address at all —
-never links to anything.
+rather than read and thrown away.
 
 That trusts each provider to hand back an address it has checked, which Google and Apple
 both do. It is the weakest part of this: an address is an identifier the provider controls,

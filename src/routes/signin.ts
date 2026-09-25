@@ -77,17 +77,6 @@ const finishLogin: Route<'/auth/:provider/callback'> = async ({ request, url, en
   }
 
   const user = await auth.upsertUser(env, who);
-
-  // Signing in with intervals.icu hands us a platform credential as a side effect, so
-  // asking for it twice would be theatre. Nothing is pushed: the account is keyed on that
-  // athlete, so it is either empty or already in step.
-  if (who.grant && platforms.credentialsConfigured(env)) {
-    await platforms
-      .connect(env, user, 'intervals', who.grant.accessToken, who.grant.athlete)
-      // Never fails the sign-in: they are in, and the dashboard offers Connect.
-      .catch((err: unknown) => console.error('storing the intervals.icu token from a sign-in failed', err));
-  }
-
   const session = await auth.createSession(env, user.id);
   // 303, so the browser follows Apple's POST callback with a GET.
   const response = new Response(null, {

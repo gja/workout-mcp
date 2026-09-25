@@ -30,7 +30,7 @@ const post = (path: string, body: unknown, headers: HeadersInit = {}) =>
 describe('providers', () => {
   it('advertises the ones this deployment has configured', async () => {
     const response = await SELF.fetch(`${BASE}/auth/providers`);
-    expect(await response.json()).toEqual({ providers: ['google', 'apple', 'intervals'], native: ['apple'] });
+    expect(await response.json()).toEqual({ providers: ['google', 'apple'], native: ['apple'] });
   });
 
   it('rejects a provider it does not know', async () => {
@@ -363,30 +363,23 @@ describe('finishing a sign-in', () => {
   });
 });
 
-describe('signing in with intervals.icu', () => {
-  /** Drive the round and hand back the callback's response. */
-  const signInWithIntervals = async (code = 'ok') => {
-    const started = await SELF.fetch(`${BASE}/auth/intervals/start`, { redirect: 'manual' });
-    expect(started.status).toBe(302);
-    const authorize = new URL(started.headers.get('Location')!);
-    const state = authorize.searchParams.get('state')!;
-
-    return {
-      authorize,
-      response: await SELF.fetch(`${BASE}/auth/intervals/callback?${new URLSearchParams({ code, state })}`, {
-        headers: { Cookie: cookieFrom(started, 'workout_login') },
-        redirect: 'manual',
-      }),
-    };
-  };
+describe('intervals.icu', () => {
+  it('signs nobody in', async () => {
+    expect((await SELF.fetch(`${BASE}/auth/intervals/start`, { redirect: 'manual' })).status).toBe(404);
+    const callback = await SELF.fetch(`${BASE}/auth/intervals/callback?code=ok&state=x`, { redirect: 'manual' });
+    expect(callback.status).toBe(404);
+    expect(sessionFrom(callback)).toBe('');
+  });
 
   /**
    * `ACTIVITY:WRITE`, not a read beside it: the post-workout comment is a write onto
    * the activity, and their authorize page takes one permission per resource — a second
    * `ACTIVITY:` is refused with "Duplicate scope ACTIVITY". See docs/integrations.md.
    */
-  it('sends the athlete to intervals.icu with the scopes the integration needs', async () => {
-    const { authorize } = await signInWithIntervals();
+  it('asks a connect for the scopes the integration needs', async () => {
+    const cookie = await sessionCookieFor();
+    const started = await SELF.fetch(`${BASE}/auth/intervals/connect`, { headers: { Cookie: cookie }, redirect: 'manual' });
+    const authorize = new URL(started.headers.get('Location')!);
     expect(authorize.origin).toBe('https://intervals.icu');
     expect(authorize.pathname).toBe('/oauth/authorize');
     const scope = authorize.searchParams.get('scope')!;
@@ -394,53 +387,7 @@ describe('signing in with intervals.icu', () => {
     // The rule that shape exists for: one entry per resource, whatever the permissions.
     const resources = scope.split(',').map((entry) => entry.split(':')[0]);
     expect(new Set(resources).size).toBe(resources.length);
-    expect(authorize.searchParams.get('redirect_uri')).toBe(`${BASE}/auth/intervals/callback`);
-  });
-
-  it('makes an account keyed on the athlete, with no address to go with it', async () => {
-    const { response } = await signInWithIntervals();
-    const cookie = cookieFrom(response, 'workout_session');
-    expect(cookie).toBeTruthy();
-
-    const me = await (await SELF.fetch(`${BASE}/api/me`, { headers: { Cookie: cookie } })).json();
-    // Their OAuth hands back an athlete and nothing else: there is no email to store.
-    expect(me).toMatchObject({ email: null });
-
-    const row = await env.DB.prepare('SELECT provider, subject FROM users').first<{
-      provider: string;
-      subject: string;
-    }>();
-    expect(row).toMatchObject({ provider: 'intervals', subject: 'i99999' });
-  });
-
-  // The sign-in *is* an authorization, so asking for a second one would be theatre.
-  it('leaves the athlete already connected to intervals.icu', async () => {
-    const { response } = await signInWithIntervals();
-    const cookie = cookieFrom(response, 'workout_session');
-
-    const config = (await (await SELF.fetch(`${BASE}/api/config`, { headers: { Cookie: cookie } })).json()) as {
-      platforms: Array<{ id: string; connected: boolean; account: string | null }>;
-    };
-    expect(config.platforms.find((platform) => platform.id === 'intervals')).toMatchObject({
-      connected: true,
-      account: 'Test Athlete',
-    });
-  });
-
-  it('makes its own account rather than joining one that signed in another way', async () => {
-    await signIn('google');
-    await signInWithIntervals();
-
-    const { results } = await env.DB.prepare('SELECT provider FROM users ORDER BY provider').all<{
-      provider: string;
-    }>();
-    expect(results.map((row) => row.provider)).toEqual(['google', 'intervals']);
-  });
-
-  it('comes back to the dashboard with a message when the athlete refuses', async () => {
-    const { response } = await signInWithIntervals('denied');
-    expect(response.headers.get('Location')).toContain('error=');
-    expect(cookieFrom(response, 'workout_session')).toBe('');
+    expect(authorize.searchParams.get('redirect_uri')).toBe(`${BASE}/auth/intervals/connect-callback`);
   });
 });
 
