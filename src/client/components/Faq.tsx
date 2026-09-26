@@ -1,7 +1,7 @@
 import { Accordion, Section } from './Accordion';
 import { CopyButton } from './CopyButton';
 
-const REPO_URL = 'https://github.com/gja/workout-mcp';
+export const REPO_URL = 'https://github.com/gja/workout-mcp';
 
 // Octicon `mark-github`, inline rather than fetched: a badge on this page must not call out to anyone.
 const GITHUB_MARK =
