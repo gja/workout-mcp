@@ -8,7 +8,7 @@ import { Calendar } from './components/Calendar';
 import { Contexts } from './components/Contexts';
 import { ConnectedApps } from './components/ConnectedApps';
 import { CONNECT_SECTION_ID, ConnectToClaude } from './components/ConnectToClaude';
-import { Faq, STARTER_SECTION_ID } from './components/Faq';
+import { Faq, REPO_URL, STARTER_SECTION_ID } from './components/Faq';
 import { Platforms } from './components/Platforms';
 import { SignIn } from './components/SignIn';
 import { WorkoutCard } from './components/WorkoutCard';
@@ -137,7 +137,16 @@ function App() {
           <Faq />
         </>
       ) : (
-        <SignIn intro="Sign in to see your planned workouts." returnTo={location.pathname} />
+        <>
+          <p className="sub">
+            WorkoutsMCP is a way to plan, analyse and execute your workouts with AI. It's free and{' '}
+            <a href={REPO_URL} target="_blank" rel="noreferrer">
+              open source
+            </a>
+            .
+          </p>
+          <SignIn intro="Sign in to see your planned workouts." returnTo={location.pathname} />
+        </>
       )}
 
       <footer className="colophon">
