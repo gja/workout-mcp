@@ -166,5 +166,8 @@ one silently would park the batch on it. Errors are per-athlete.
   `external_id` and scoped to this OAuth app's events. The single-event `POST /events`
   offers only `upsertOnUid`, and `uid` is theirs to generate.
 - Their calendar is keyed on the athlete's local day, which is what our `date` is.
+- Their FIT import shows a step's notes as its text and drops its name, and apps reading
+  their calendar label the step with that text. So the pushed file carries step names
+  only; the cues stay in this app and in the FIT export.
 - A call can succeed while the file inside it did not parse, so `push_errors` on the
   response is checked. A 404 on delete counts as removed.

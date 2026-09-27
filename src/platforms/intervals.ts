@@ -2,11 +2,22 @@
 // Their API notes, and why completions are polled, are in docs/integrations.md.
 
 import { base64Encode, encodeWorkoutFit, fitFilename } from '../fit';
-import type { Sport, SubSport, Workout } from '../workout';
+import type { PlanStep, Sport, SubSport, Workout } from '../workout';
 import { PlatformError } from './types';
 import type { Completion, Outbound, Platform, Recorded, RecordedFile } from './types';
 
 const BASE = 'https://intervals.icu/api/v1';
+
+/**
+ * Their FIT import keeps a step's notes as its text and drops the name, and an app reading
+ * their calendar (Watchletic) shows that text as the step's label. The cue stays here.
+ */
+const withoutStepNotes = (steps: PlanStep[]): PlanStep[] =>
+  steps.map((step) => {
+    if ('repeat' in step) return { ...step, steps: withoutStepNotes(step.steps) };
+    const { notes: _notes, ...rest } = step;
+    return rest;
+  });
 
 /** `0` is "the athlete this credential belongs to". */
 const ATHLETE = '0';
@@ -206,7 +217,7 @@ export const intervals: Platform = {
           tags: workout.tags ?? [],
           indoor: isIndoor(workout),
           filename: fitFilename(workout),
-          file_contents_base64: base64Encode(encodeWorkoutFit(workout)),
+          file_contents_base64: base64Encode(encodeWorkoutFit({ ...workout, steps: withoutStepNotes(workout.steps) })),
         },
       ]),
     );

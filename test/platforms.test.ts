@@ -225,6 +225,24 @@ describe('pushing workout changes', () => {
     expect(messages.workoutStepMesgs ?? []).toHaveLength(3);
   });
 
+  // Their import shows a step's notes in place of its name, so only the name is sent.
+  it('names each step and leaves its cue out', async () => {
+    await createWorkout({
+      ...WORKOUT,
+      steps: [
+        { name: 'Hold back', notes: 'Cap 145 bpm.', goal_km: 5 },
+        { repeat: 2, steps: [{ name: 'Hard', notes: 'Stay tall.', goal_s: 60 }] },
+      ],
+    });
+    const [event] = await calendar();
+
+    const bytes = Uint8Array.from(atob(event.file_contents_base64), (character) => character.charCodeAt(0));
+    const { messages } = new Decoder(Stream.fromByteArray(bytes)).read();
+    const steps = messages.workoutStepMesgs ?? [];
+    expect(steps.map((step) => step.wktStepName)).toEqual(['Hold back', 'Hard', undefined]);
+    expect(steps.every((step) => step.notes === undefined)).toBe(true);
+  });
+
   it('updates the same calendar event instead of adding a second one', async () => {
     const planned = await createWorkout();
     const before = (await calendar())[0].id;
