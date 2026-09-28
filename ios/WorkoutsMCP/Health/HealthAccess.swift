@@ -97,6 +97,32 @@ enum HealthAccess {
         try await store.requestAuthorization(toShare: shareTypes, read: readTypes)
     }
 
+    /// The series this session's own summary says Health holds and will not hand over.
+    ///
+    /// HealthKit never says a read was declined — a denied type reads as empty, the same as
+    /// a sensor that was not worn — but the workout carries its totals whatever was granted.
+    /// A total with no samples under it is a permission missing, and a file built then is
+    /// the summary alone. Asked again first, so a type added since the last sheet is offered.
+    static func withheld(from workout: HKWorkout) async -> [String] {
+        try? await request()
+
+        let series: [(String, HKQuantityType)] = [
+            ("Heart rate", HKQuantityType(.heartRate)),
+            ("Distance", HKQuantityType(sport(of: workout) == .cycling ? .distanceCycling : .distanceWalkingRunning)),
+            ("Active energy", HKQuantityType(.activeEnergyBurned)),
+        ]
+        var missing: [String] = []
+        for (name, type) in series where workout.statistics(for: type) != nil {
+            let descriptor = HKSampleQueryDescriptor(
+                predicates: [.quantitySample(type: type, predicate: HKQuery.predicateForObjects(from: workout))],
+                sortDescriptors: [],
+                limit: 1
+            )
+            if ((try? await descriptor.result(for: store)) ?? []).isEmpty { missing.append(name) }
+        }
+        return missing
+    }
+
     /// The runs, rides and walks of the last `days` days, newest first. Swim is out of scope.
     static func recentActivities(days: Int) async throws -> [HKWorkout] {
         let since = Calendar.current.date(byAdding: .day, value: -days, to: Date()) ?? Date()

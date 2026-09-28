@@ -21,12 +21,16 @@ struct SessionView: View {
     /// underneath them. See `BuiltFit`.
     @State private var sharing: BuiltFit?
     @State private var failure: String?
+    /// Series Health holds for this session and has not let the app read. See
+    /// `HealthAccess.withheld`.
+    @State private var withheld: [String] = []
 
     /// The listing's copy of the planned workout, so an upload a moment ago is reflected here.
     private var workout: PlannedWorkout? { done.workout.map { model.current($0) } }
 
     var body: some View {
         List {
+            permissions
             recorded
             planned
             totals
@@ -41,12 +45,32 @@ struct SessionView: View {
         .navigationTitle(done.sport)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: workout?.stats?.computedAt) { await loadStats() }
+        .task(id: done.activity?.uuid) {
+            if let activity = done.activity { withheld = await HealthAccess.withheld(from: activity) }
+        }
         .sheet(item: $sharing) { built in
             ShareSheet(item: built.url, activities: [uploadActivity(for: built.url)].compactMap { $0 })
         }
     }
 
     // --- What the phone has -----------------------------------------------------------
+
+    /// Said before anything else: without these the session never syncs, and what the file
+    /// would carry is the summary above and nothing under it.
+    @ViewBuilder private var permissions: some View {
+        if !withheld.isEmpty {
+            Section {
+                Text("Health has \(withheld.joined(separator: ", ").lowercased()) for this session but has not allowed WorkoutsMCP to read it, so it cannot sync in full. Turn on every category in Settings › Health › Data Access & Devices › WorkoutsMCP.")
+                    .font(.callout)
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                }
+            } header: {
+                Label("Health access is incomplete", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
 
     @ViewBuilder private var recorded: some View {
         if let activity = done.activity {
