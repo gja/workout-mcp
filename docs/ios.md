@@ -466,6 +466,12 @@ straight from [`GET /api/workouts/:date/:id/stats`](stats.md). Nothing there is 
 the phone, although the app has HealthKit's series in hand: two sets of numbers for one
 session, disagreeing at the edges, is worse than one set that is sometimes not there yet.
 
+**Opening a session checks Health access.** HealthKit never reports a declined read — the
+series just comes back empty — but the workout keeps its totals whatever was granted. So
+`HealthAccess.withheld` asks again, then looks for heart rate, distance and active energy
+the summary has and no sample carries; any it finds are named at the top of the screen, with
+a way to Settings. Without them a session never syncs, and the file is the summary alone.
+
 Below it, where Health has the session, one button: **Share .fit**, which writes the file
 and opens the share sheet holding AirDrop, Files, Mail and **Export to WorkoutsMCP**. That
 is `UIActivityViewController` with a `UIActivity` rather than SwiftUI's `ShareLink`, which
