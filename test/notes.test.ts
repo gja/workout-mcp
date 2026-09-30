@@ -94,6 +94,22 @@ describe('notes over REST', () => {
     expect(response.status).toBe(400);
   });
 
+  it('cannot pass the cap by reviving a note that has aged out', async () => {
+    const aged = await addNote({ date: day(1), text: 'old' });
+    await env.DB.prepare('UPDATE notes SET date = ?, end_date = ? WHERE id = ?').bind(day(-60), day(-60), aged.id).run();
+    for (let i = 0; i < MAX_NOTES_PER_USER; i++) await addNote({ date: day(1), text: `note ${i}` });
+
+    const revived = await call(`/api/notes/${aged.id}`, { method: 'PUT', body: JSON.stringify({ date: day(1), text: 'back' }) });
+    expect(revived.status).toBe(400);
+  });
+
+  it('replaces a note at the cap, which adds nothing to it', async () => {
+    const notes: Note[] = [];
+    for (let i = 0; i < MAX_NOTES_PER_USER; i++) notes.push(await addNote({ date: day(1), text: `note ${i}` }));
+    const replaced = await call(`/api/notes/${notes[0].id}`, { method: 'PUT', body: JSON.stringify({ date: day(2), text: 'moved' }) });
+    expect(replaced.status).toBe(200);
+  });
+
   it('is never another athlete\'s', async () => {
     const note = await addNote({ date: day(1), text: 'Mine' });
     ({ token } = await seedUser('other@example.com'));

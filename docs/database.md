@@ -97,7 +97,9 @@ WHERE user_id = ? AND date >= :from - 30 AND date <= :to AND end_date >= :from
 That is a scan with two ends on `notes_by_date (user_id, date, end_date)`, and `end_date`
 is checked from the index itself rather than the row. `test/notes.test.ts` asserts the
 plan. A note is kept while any day of it touches the retention window, and at most 20
-overlap it at once; nothing deletes one the athlete did not.
+overlap it at once, counted on a rewrite as well as an add, so a note that has aged out
+cannot be revived past the cap. Only a note a read could return can be rewritten.
+Nothing deletes one the athlete did not.
 
 ## Ordering rules for writes
 

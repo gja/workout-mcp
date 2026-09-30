@@ -526,30 +526,34 @@ function assertNoteRetainable(input: NoteInput): void {
   }
 }
 
-/** With an `id`, that note is rewritten, or null when there is none to rewrite. */
+/**
+ * With an `id`, that note is rewritten, or null when there is none a read could return. The
+ * cap is counted without it either way, so reviving an aged-out note cannot slip past it.
+ */
 export async function putNote(env: Env, userId: string, input: NoteInput, id?: string): Promise<Note | null> {
   assertNoteRetainable(input);
   const now = new Date().toISOString();
 
+  let others = overlappingNotes(userId, retentionWindow()).clearSelect();
+  if (id !== undefined) others = others.where('id', '!=', id);
+  const counted = await one(env, others.select((eb) => eb.fn.countAll<number>().as('n')));
+  if ((counted?.n ?? 0) >= MAX_NOTES_PER_USER) {
+    fail('date', `only ${MAX_NOTES_PER_USER} notes are kept at a time; delete one first`);
+  }
+
   if (id !== undefined) {
+    const window = readWindow();
     const written = await rowsWritten(
       env,
       qb
         .updateTable('notes')
         .set({ ...input, updated_at: now })
         .where('user_id', '=', userId)
-        .where('id', '=', id),
+        .where('id', '=', id)
+        .where('date', '<=', window.to)
+        .where('end_date', '>=', window.from),
     );
     return written === 0 ? null : { id, ...input, updated_at: now };
-  }
-
-  const retained = retentionWindow();
-  const counted = await one(
-    env,
-    overlappingNotes(userId, retained).clearSelect().select((eb) => eb.fn.countAll<number>().as('n')),
-  );
-  if ((counted?.n ?? 0) >= MAX_NOTES_PER_USER) {
-    fail('date', `only ${MAX_NOTES_PER_USER} notes are kept at a time; delete one first`);
   }
 
   const note: Note = { id: newId(), ...input, updated_at: now };
