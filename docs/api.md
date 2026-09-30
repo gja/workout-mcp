@@ -20,7 +20,7 @@ set at login.
 | `DELETE /api/tokens/:prefix` | Revoke one |
 | `GET /api/connections` | List OAuth grants (connected MCP clients) |
 | `DELETE /api/connections/:id` | Disconnect one |
-| `GET /api/workouts.json?from=&to=` | List within the retention window; a wider range is narrowed to it |
+| `GET /api/workouts.json?from=&to=` | List within the retention window; a wider range is narrowed to it. `notes` beside `workouts` are the notes overlapping it |
 | `GET /api/workout-plans?plan-ids=` | Those plans resolved — one duration and its targets a step, repeats kept — for a client that schedules them |
 | `POST /api/workouts` | Create; returns the id and URLs |
 | `GET /api/workouts/:date/:id.json` | Read one |
@@ -33,6 +33,9 @@ set at login.
 | `DELETE /api/workouts/:date/:id/complete` | Clear that, leaving the plan alone |
 | `PUT /api/workouts/:date/:id/comment` | The athlete's note on how it went; `{comment}`, synced to the platform |
 | `DELETE /api/workouts/:date/:id/comment` | Clear the note, there as well as here |
+| `POST /api/notes` | `{date, end_date?, text}` — pin a note to a day or a span; see [workouts.md](workouts.md#notes-on-the-calendar) |
+| `PUT /api/notes/:id` | Replace one |
+| `DELETE /api/notes/:id` | Delete one |
 | `GET /api/context` | Every context document an assistant reads, where each stands, and the tool that reads it |
 | `GET /api/context.zip` | All of them as `backup-context.zip`, plus a manifest |
 | `GET /api/context/:kind` | One of them |

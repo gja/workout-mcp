@@ -11,5 +11,6 @@ DELETE FROM platform_connections WHERE user_id = ':user_id';
 DELETE FROM drive_copies         WHERE user_id = ':user_id';
 DELETE FROM drive_connections    WHERE user_id = ':user_id';
 DELETE FROM contexts             WHERE user_id = ':user_id';
+DELETE FROM notes                WHERE user_id = ':user_id';
 DELETE FROM users                WHERE alias_of_user_id = ':user_id';
 DELETE FROM users                WHERE id = ':user_id';

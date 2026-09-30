@@ -4,6 +4,7 @@ import * as db from '../db';
 import { encodeWorkoutFit, fitFilename } from '../fit';
 import type { AuthedRoute, Context } from '../http';
 import { CORS_HEADERS, error, json, withUser } from '../http';
+import { parseNote } from '../note';
 import * as plan from '../plan';
 import { resolveSteps } from '../resolve';
 import type { Router } from '../router';
@@ -26,14 +27,31 @@ const WORKOUT: WorkoutRoute = '/api/workouts/:date(\\d{4}-\\d{2}-\\d{2})/:id([0-
 const listWorkouts: AuthedRoute = async ({ url, env, user }) => {
   const from = url.searchParams.get('from');
   const to = url.searchParams.get('to');
-  const workouts = await db.listWorkouts(
-    env,
-    user.id,
-    from ? parseDate(from, 'from') : undefined,
-    to ? parseDate(to, 'to') : undefined,
-  );
-  return json({ workouts: workouts.map((workout) => present(workout, url.origin)) });
+  const range = [from ? parseDate(from, 'from') : undefined, to ? parseDate(to, 'to') : undefined] as const;
+  const [workouts, notes] = await Promise.all([
+    db.listWorkouts(env, user.id, ...range),
+    db.listNotes(env, user.id, ...range),
+  ]);
+  return json({ workouts: workouts.map((workout) => present(workout, url.origin)), notes });
 };
+
+type NoteRoute = '/api/notes/:id([0-9a-z]+)';
+const NOTE: NoteRoute = '/api/notes/:id([0-9a-z]+)';
+
+const createNote: AuthedRoute = async ({ request, env, user }) => {
+  const note = await db.putNote(env, user.id, parseNote((await request.json()) ?? {}));
+  return json(note, 201);
+};
+
+const replaceNote: AuthedRoute<NoteRoute> = async ({ request, env, user, params }) => {
+  const note = await db.putNote(env, user.id, parseNote((await request.json()) ?? {}), params.id);
+  return note ? json(note) : error(`no note ${params.id}`, 404);
+};
+
+const deleteNote: AuthedRoute<NoteRoute> = async ({ env, user, params }) =>
+  (await db.deleteNote(env, user.id, params.id))
+    ? json({ deleted: true, id: params.id })
+    : error(`no note ${params.id}`, 404);
 
 const createWorkout: AuthedRoute = async ({ request, url, env, user }) => {
   const workout = await plan.createWorkout(env, user, parseWorkout((await request.json()) ?? {}));
@@ -265,6 +283,10 @@ export const routes = (app: Router<Context>): void => {
     .delete(`${WORKOUT}/complete`, withUser(uncompleteWorkout))
     .put(`${WORKOUT}/comment`, withUser(commentWorkout))
     .delete(`${WORKOUT}/comment`, withUser(uncommentWorkout))
+
+    .post('/api/notes', withUser(createNote))
+    .put(NOTE, withUser(replaceNote))
+    .delete(NOTE, withUser(deleteNote))
 
     .post('/api/tools/:name([a-z_]+)', withUser(runTool))
 

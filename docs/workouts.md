@@ -224,6 +224,25 @@ Every read carries `planned`, computed from the steps with repeats resolved:
 
 `open_steps` counts steps that run until a lap press; above zero, the totals are a floor.
 
+## Notes on the calendar
+
+A note is pinned to a day or a span of days rather than to a workout: travel, illness, a
+race, anything planning should work around. Just a first day, a last day and some text.
+
+```
+save_note { "date": "2026-08-17", "end_date": "2026-08-25", "text": "Travelling: easy runs only." }
+save_note { "id": "k3m9x2pq", "text": "" }
+```
+
+Without an `id` it adds one; with one it replaces it; empty text deletes it. `end_date`
+defaults to `date`, and a note covers at most 31 days and 500 characters. Over REST it is
+`POST /api/notes`, and `PUT`/`DELETE` on `/api/notes/:id`.
+
+`list_workouts` and `GET /api/workouts` return the notes overlapping the range as `notes`,
+beside `workouts`, and the dashboard shows each on every day it covers. Not the plan's
+`notes` field, which is one session's brief for the watch. Notes are never pushed to a
+platform. How the overlap stays an index read: [database.md](database.md#notes-and-overlaps).
+
 ## What gets stored
 
 Steps are kept in exactly the shape you send them and read back that way — what you POST is

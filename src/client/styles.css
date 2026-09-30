@@ -229,6 +229,9 @@ a.button.primary { background: var(--accent); border-color: var(--accent); color
 /* A done session reads as done at a glance, before any text is. */
 .chip.done { background: var(--done-bg); border-color: var(--done); }
 
+/* Not a button: a note is read, not opened, and the title carries the whole of it. */
+.chip.note { color: var(--muted); font-style: italic; border: 1px dashed var(--muted); }
+
 .chip.on { border-color: var(--accent); color: var(--accent); }
 .chip.on .total { color: var(--accent); }
 
@@ -248,6 +251,8 @@ a.button.primary { background: var(--accent); border-color: var(--accent); color
   .cell .full { display: block; flex: 0 0 92px; font-size: 12px; color: var(--muted); }
   .entries { flex: 1 1 auto; }
   .chip { font-size: 13px; }
+  /* A row has the width to show the whole note, and a phone has no hover for the title. */
+  .chip.note > span { white-space: normal; }
 }
 
 /* --- Cards -------------------------------------------------------------- */

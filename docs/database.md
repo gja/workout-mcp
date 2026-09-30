@@ -80,6 +80,27 @@ be written over: `findByExternalId`, since its unique index is not narrowed eith
 re-sync would otherwise insert a duplicate under the same key; and `storedRecord`, which
 a rewrite carries across.
 
+## Notes and overlaps
+
+A note covers `date` to `end_date` inclusive, and a read wants every note *overlapping*
+its range: `date <= to AND end_date >= from`. Two range conditions on two columns cannot
+both bound one B-tree scan, so on those alone the index on `date` would be read from the
+athlete's first note up to `to`.
+
+The fix is a cap on the span. A note may cover at most `MAX_NOTE_DAYS` (31), so one that
+overlaps `from` cannot start before `from - 30`, and the read states that too:
+
+```sql
+WHERE user_id = ? AND date >= :from - 30 AND date <= :to AND end_date >= :from
+```
+
+That is a scan with two ends on `notes_by_date (user_id, date, end_date)`, and `end_date`
+is checked from the index itself rather than the row. `test/notes.test.ts` asserts the
+plan. A note is kept while any day of it touches the retention window, and at most 20
+overlap it at once, counted on a rewrite as well as an add, so a note that has aged out
+cannot be revived past the cap. Only a note a read could return can be rewritten.
+Nothing deletes one the athlete did not.
+
 ## Ordering rules for writes
 
 - **Check the date before writing it.** `assertRetainable` is asked first, so a day
@@ -95,6 +116,7 @@ a rewrite carries across.
 | Table | Holds |
 | --- | --- |
 | `workouts` | The plan, plus the stats of the session recorded against it and the athlete's note |
+| `notes` | Notes on a day or a span of days, `end_date` equal to `date` for one |
 | `users` | A sign-in per *(provider, subject)*, and the account it is, or is linked to |
 | `contexts` | An athlete's context documents, one row per kind they have written |
 | `sessions` | Session id hashes |

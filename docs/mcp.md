@@ -59,7 +59,7 @@ identity, and both kinds arrive at the handler identically:
 ## Tools
 
 `list_workouts`, `get_workout`, `create_workout`, `update_workout`, `reschedule_workout`,
-`delete_workout`, `complete_workout`, `comment_workout`, `export_workout_fit`, `get_workout_stats`,
+`delete_workout`, `complete_workout`, `comment_workout`, `save_note`, `export_workout_fit`, `get_workout_stats`,
 `get_workout_library`, `get_current_plan`, `get_scheduling_instructions`,
 `get_workout_zones`, `get_onboarding_instructions`, `update_context`,
 `list_recorded_workouts`.
@@ -96,8 +96,9 @@ signed rather than guarded — and a month of recordings is not something to bas
 tool result.
 
 **Annotations.** `readOnlyHint` on the ten readers, so a client can allow them without
-asking each time; `destructiveHint` on `update_workout`, `delete_workout` and
-`update_context`, the last because it replaces a document the athlete wrote in full.
+asking each time; `destructiveHint` on `update_workout`, `delete_workout`, `save_note` and
+`update_context`: `save_note` replaces or deletes by id, and `update_context` replaces a
+document the athlete wrote in full.
 `complete_workout`, `comment_workout` and `reschedule_workout` are writes but cannot lose the
 plan. The hints only
 shape presentation; the server checks everything regardless.

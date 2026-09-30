@@ -1,6 +1,6 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { currentUser, listWorkouts, signOut, type Me, type Workout } from './api';
+import { currentUser, listWorkouts, signOut, type Me, type Note, type Workout } from './api';
 import { relativeDate } from './dates';
 import { Accordion, openSection, Section } from './components/Accordion';
 import { ApiTokens } from './components/ApiTokens';
@@ -20,6 +20,7 @@ const linkedWorkout = (): string | null => /^\/workout\/([^/]+)$/.exec(location.
 
 function Dashboard({ me }: { me: Me }) {
   const [workouts, setWorkouts] = useState<Workout[]>([]);
+  const [notes, setNotes] = useState<Note[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
@@ -29,8 +30,9 @@ function Dashboard({ me }: { me: Me }) {
 
   const reload = useCallback(() => {
     listWorkouts().then(
-      ({ workouts: found }) => {
+      ({ workouts: found, notes: pinned }) => {
         setWorkouts(found);
+        setNotes(pinned ?? []);
         if (!pending.current) return;
         const target = found.find((workout) => workout.id === pending.current);
         pending.current = null;
@@ -58,7 +60,7 @@ function Dashboard({ me }: { me: Me }) {
         <p className="note">That workout is not in the current window — it may have been deleted or moved.</p>
       )}
 
-      <Calendar window={me.window} workouts={workouts} selected={selected} onSelect={setSelected} />
+      <Calendar window={me.window} workouts={workouts} notes={notes} selected={selected} onSelect={setSelected} />
 
       {/* An empty calendar is usually an athlete who has not reached Claude yet, so the two doors are right here. */}
       {workouts.length === 0 && (

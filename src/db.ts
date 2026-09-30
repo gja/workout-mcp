@@ -6,12 +6,15 @@ import { all, changes as rowsWritten, one, qb, run } from './sql';
 import { sessionOnly } from './stats';
 import type { StatsSummary, WorkoutStats } from './stats';
 import { fail, shiftDate, today } from './units';
+import { MAX_NOTE_DAYS } from './note';
+import type { Note, NoteInput } from './note';
 import { MAX_CHANGES } from './workout';
 import type { PlanChange, PlanStep, Sport, SubSport, Workout, WorkoutInput } from './workout';
 
 export const RETENTION_DAYS_PAST = 7;
 export const RETENTION_DAYS_FUTURE = 14;
 export const MAX_WORKOUTS_PER_USER = 50;
+export const MAX_NOTES_PER_USER = 20;
 
 /** Reads only: dates are the athlete's local day, the window is UTC, so the edges disagree. */
 export const READ_SLACK_DAYS = 1;
@@ -491,4 +494,73 @@ export async function countInWindow(env: Env, userId: string, now: Date = new Da
       .where('date', '<=', to),
   );
   return row?.n ?? 0;
+}
+
+// --- Notes -----------------------------------------------------------------
+
+const NOTE_COLUMNS = ['id', 'date', 'end_date', 'text', 'updated_at'] as const;
+
+/**
+ * Every note overlapping the range. The lower bound on `date` is implied by the other two
+ * and the longest span, and is stated so the index scan has two ends. See docs/database.md.
+ */
+function overlappingNotes(userId: string, range: { from: string; to: string }) {
+  return qb
+    .selectFrom('notes')
+    .select([...NOTE_COLUMNS])
+    .where('user_id', '=', userId)
+    .where('date', '>=', shiftDate(range.from, -(MAX_NOTE_DAYS - 1)))
+    .where('date', '<=', range.to)
+    .where('end_date', '>=', range.from);
+}
+
+export async function listNotes(env: Env, userId: string, from?: string, to?: string): Promise<Note[]> {
+  return all(env, overlappingNotes(userId, readRange(from, to)).orderBy('date').orderBy('created_at'));
+}
+
+/** A note must touch the retention window somewhere, or nothing could read it back. */
+function assertNoteRetainable(input: NoteInput): void {
+  const window = retentionWindow();
+  if (input.end_date < window.from || input.date > window.to) {
+    fail('date', `only ${window.from} to ${window.to} is kept, so a note on ${input.date}–${input.end_date} could not be read back`);
+  }
+}
+
+/**
+ * With an `id`, that note is rewritten, or null when there is none a read could return. The
+ * cap is counted without it either way, so reviving an aged-out note cannot slip past it.
+ */
+export async function putNote(env: Env, userId: string, input: NoteInput, id?: string): Promise<Note | null> {
+  assertNoteRetainable(input);
+  const now = new Date().toISOString();
+
+  let others = overlappingNotes(userId, retentionWindow()).clearSelect();
+  if (id !== undefined) others = others.where('id', '!=', id);
+  const counted = await one(env, others.select((eb) => eb.fn.countAll<number>().as('n')));
+  if ((counted?.n ?? 0) >= MAX_NOTES_PER_USER) {
+    fail('date', `only ${MAX_NOTES_PER_USER} notes are kept at a time; delete one first`);
+  }
+
+  if (id !== undefined) {
+    const window = readWindow();
+    const written = await rowsWritten(
+      env,
+      qb
+        .updateTable('notes')
+        .set({ ...input, updated_at: now })
+        .where('user_id', '=', userId)
+        .where('id', '=', id)
+        .where('date', '<=', window.to)
+        .where('end_date', '>=', window.from),
+    );
+    return written === 0 ? null : { id, ...input, updated_at: now };
+  }
+
+  const note: Note = { id: newId(), ...input, updated_at: now };
+  await run(env, qb.insertInto('notes').values({ user_id: userId, ...note, created_at: now }));
+  return note;
+}
+
+export async function deleteNote(env: Env, userId: string, id: string): Promise<boolean> {
+  return (await rowsWritten(env, qb.deleteFrom('notes').where('user_id', '=', userId).where('id', '=', id))) > 0;
 }

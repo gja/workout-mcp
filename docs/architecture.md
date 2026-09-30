@@ -3,6 +3,7 @@
 ```
 src/units.ts            parsing primitives: durations, paces, open-ended ranges
 src/workout.ts          the plan: what a caller writes, what gets stored
+src/note.ts             a note pinned to a day or a span of days
 src/resolve.ts          plan -> the model FIT needs, and the validator that proves it
 src/fit.ts              FIT encoding, including flattening nested repeats
 src/describe.ts         human-readable rendering, shared by MCP and the dashboard

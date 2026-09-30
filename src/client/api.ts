@@ -26,6 +26,9 @@ export type Workout = {
   json_url: string;
 };
 
+/** A note on a day or a span of days; `end_date` equals `date` for one day. */
+export type Note = { id: string; date: string; end_date: string; text: string; updated_at: string };
+
 /** What a metric is measured in. Pace is seconds per kilometre, so lower is faster. */
 export type Metric = 'hr' | 'pace_s_km' | 'power_w' | 'cadence';
 
@@ -114,7 +117,7 @@ export const currentUser = (): Promise<Me | null> => getMe().then((me) => me, ()
 
 export const listProviders = (): Promise<{ providers: string[] }> => request('/auth/providers');
 
-export const listWorkouts = (): Promise<{ workouts: Workout[] }> => request('/api/workouts.json');
+export const listWorkouts = (): Promise<{ workouts: Workout[]; notes: Note[] }> => request('/api/workouts.json');
 export const deleteWorkout = (workout: Workout): Promise<unknown> => request(workout.json_url, { method: 'DELETE' });
 
 export const getWorkoutStats = (workout: Workout): Promise<WorkoutStats> =>
