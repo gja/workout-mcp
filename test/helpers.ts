@@ -75,6 +75,7 @@ export async function resetDatabase(): Promise<void> {
     'platform_links',
     'platform_connections',
     'contexts',
+    'notes',
     'workouts',
     'workouts_rebuilt',
     'tokens',

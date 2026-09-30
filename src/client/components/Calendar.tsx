@@ -1,4 +1,4 @@
-import type { Workout, Window } from '../api';
+import type { Note, Workout, Window } from '../api';
 import { calendarDays, longDate, shortDate, fromKey, toKey } from '../dates';
 import { plannedSummary, sportIcon } from '../format';
 
@@ -19,11 +19,12 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 type Props = {
   window: Window;
   workouts: Workout[];
+  notes: Note[];
   selected: string | null;
   onSelect: (key: string | null) => void;
 };
 
-export function Calendar({ window, workouts, selected, onSelect }: Props) {
+export function Calendar({ window, workouts, notes, selected, onSelect }: Props) {
   const span = windowCovering(window, workouts);
   const days = calendarDays(span.from, span.to);
   const today = toKey(new Date());
@@ -57,6 +58,14 @@ export function Calendar({ window, workouts, selected, onSelect }: Props) {
               <span className="full">{longDate(day)}</span>
 
               <div className="entries">
+                {!outside &&
+                  notes
+                    .filter((note) => note.date <= key && key <= note.end_date)
+                    .map((note) => (
+                      <span key={note.id} className="chip note" title={note.text}>
+                        <span>📝 {note.text}</span>
+                      </span>
+                    ))}
                 {!outside &&
                   (byDate.get(key) ?? []).map((workout) => {
                     const id = `${workout.date}/${workout.id}`;

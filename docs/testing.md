@@ -33,6 +33,7 @@ old shape.
 | `workout.test.ts` | Parsing loose JSON: durations, targets, ranges, repeats, intensity, errors |
 | `fit.test.ts` | FIT encoding, decoded back: scaling, offsets, zones, repeat flattening |
 | `api.test.ts` | REST and `/api/tools`, downloads, cross-athlete isolation, the window and cap |
+| `notes.test.ts` | Notes: overlap reads, replace and delete, limits, and the index plan |
 | `auth.test.ts` | Google and Apple sign-in, state, ID-token checks, sessions, API tokens |
 | `oauth.test.ts` | Discovery, registration, consent, the PKCE exchange, refresh, connected apps |
 | `mcp.test.ts` | The JSON-RPC protocol and every tool |

@@ -147,7 +147,7 @@ describe('protocol', () => {
       'list_recorded_workouts',
       'list_workouts',
     ]);
-    expect(destructive.sort()).toEqual(['delete_workout', 'update_context', 'update_workout']);
+    expect(destructive.sort()).toEqual(['delete_workout', 'save_note', 'update_context', 'update_workout']);
     // Completing, commenting and moving are writes, but none can lose the plan they are against.
     for (const name of ['complete_workout', 'comment_workout', 'reschedule_workout']) {
       expect(tools.find((tool) => tool.name === name)?.annotations).toMatchObject({

@@ -14,6 +14,7 @@ import { leanLaps } from './stats';
 import { WorkoutError, parseChangeReason, parseComment, parseWorkout } from './workout';
 import type { Workout } from './workout';
 import { parseDate, parseTimestamp } from './units';
+import { MAX_NOTE_DAYS, MAX_NOTE_LENGTH, parseNote } from './note';
 import { MAX_CHANGE_REASON_LENGTH, MAX_COMMENT_LENGTH, MAX_TAGS, MAX_TAG_LENGTH, SPORTS } from './workout';
 
 const RANGE_DOC =
@@ -223,7 +224,8 @@ export const TOOLS = [
     description:
       'List planned workouts in the retention window: 7 days back, 14 ahead. A wider from/to is ' +
       'narrowed to it rather than refused. A recorded session carries `stats`, and `comment` is ' +
-      "the athlete's own note on it.",
+      "the athlete's own note on it. `notes` beside them are the dated notes overlapping the range: " +
+      'travel, illness — plan around them.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -348,6 +350,27 @@ export const TOOLS = [
         },
       },
       required: ['id', 'comment'],
+    },
+  },
+  {
+    name: 'save_note',
+    annotations: { title: 'Pin a note to the calendar', readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    description:
+      'Pin a note to a day or span of days that planning should respect, e.g. "Travelling, easy ' +
+      'runs only". Without an id it adds one; with an id it replaces that note, and empty text ' +
+      'deletes it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'The note to replace or delete. Omit to add one.' },
+        date: { type: 'string', description: 'The first day it covers, YYYY-MM-DD.' },
+        end_date: {
+          type: 'string',
+          description: `The last day it covers, inclusive. Defaults to date; at most ${MAX_NOTE_DAYS} days in all.`,
+        },
+        text: { type: 'string', description: `At most ${MAX_NOTE_LENGTH} characters. Empty deletes the note named by id.` },
+      },
+      required: ['text'],
     },
   },
   {
@@ -514,8 +537,11 @@ export async function callTool(
     case 'list_workouts': {
       const from = args.from === undefined ? undefined : parseDate(args.from, 'from');
       const to = args.to === undefined ? undefined : parseDate(args.to, 'to');
-      const workouts = await db.listWorkouts(env, user.id, from, to);
-      return { workouts: workouts.map((w) => present(w)) };
+      const [workouts, notes] = await Promise.all([
+        db.listWorkouts(env, user.id, from, to),
+        db.listNotes(env, user.id, from, to),
+      ]);
+      return { workouts: workouts.map((w) => present(w)), notes };
     }
 
     case 'get_workout': {
@@ -600,6 +626,18 @@ export async function callTool(
       return presentBrief(workout);
     }
 
+    case 'save_note': {
+      const id = typeof args.id === 'string' && args.id !== '' ? args.id : undefined;
+      if (typeof args.text === 'string' && args.text.trim() === '') {
+        if (!id) throw new ToolError('empty text deletes a note, so it needs the id of one');
+        if (!(await db.deleteNote(env, user.id, id))) throw new ToolError(`no note ${id}`);
+        return { deleted: true, id };
+      }
+      const { id: _id, ...fields } = args;
+      const note = await db.putNote(env, user.id, parseNote(fields), id);
+      if (!note) throw new ToolError(`no note ${id}`);
+      return note;
+    }
     case 'export_workout_fit': {
       const id = requireString(args, 'id');
       const workout = await db.getWorkout(env, user.id, id);

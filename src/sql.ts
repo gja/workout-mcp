@@ -38,6 +38,17 @@ type Workouts = {
   updated_at: string;
 };
 
+type Notes = {
+  user_id: string;
+  id: string;
+  date: string;
+  /** Equal to `date` for a single day. */
+  end_date: string;
+  text: string;
+  created_at: string;
+  updated_at: string;
+};
+
 type Users = {
   id: string;
   provider: string;
@@ -119,6 +130,7 @@ type DriveCopies = {
 
 export type Schema = {
   workouts: Workouts;
+  notes: Notes;
   users: Users;
   login_states: LoginStates;
   sessions: Sessions;
