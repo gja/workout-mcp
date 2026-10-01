@@ -198,6 +198,11 @@ highest, because a wrist sensor spikes — and a **Sync log** sheet: whether Hea
 what came of it, how many sessions have gone up without anybody tapping *Export*, and the
 events behind all three.
 
+A **Debug** build also has **Bluetooth sensors**: connect a heart rate strap or a cycling
+power meter straight to the phone and watch heart rate, power and cadence. It is behind
+`SENSOR_LAB`, which Release does not set, so TestFlight never sees it. See
+[docs/ios.md](../docs/ios.md#bluetooth-sensors-in-a-debug-build).
+
 What goes to the watch is **two days back to seven days ahead**, done or not — a session
 already done goes out ticked, so the days behind read as finished rather than absent. Back
 as well as forward because a day missed is a session still worth doing, and each one goes

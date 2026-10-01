@@ -12,6 +12,9 @@ struct SettingsView: View {
     @EnvironmentObject private var session: AppSession
     @State private var showingLog = false
     @State private var showingHeartRate = false
+    #if SENSOR_LAB
+    @State private var showingSensors = false
+    #endif
     #if ON_PHONE_RECORDING
     @AppStorage(RunVoice.defaultsKey) private var speaking = true
     #endif
@@ -45,6 +48,14 @@ struct SettingsView: View {
                     )
                 }
 
+                #if SENSOR_LAB
+                Section {
+                    Button("Bluetooth sensors") { showingSensors = true }
+                } footer: {
+                    Text("Debug builds only. Connect a heart rate strap or a power meter and see its readings.")
+                }
+                #endif
+
                 #if ON_PHONE_RECORDING
                 Section {
                     Toggle("Speak the intervals", isOn: $speaking)
@@ -68,6 +79,9 @@ struct SettingsView: View {
             .task { await session.loadAccount() }
             .sheet(isPresented: $showingLog) { SyncLogView() }
             .sheet(isPresented: $showingHeartRate) { HeartRateView() }
+            #if SENSOR_LAB
+            .sheet(isPresented: $showingSensors) { SensorLabView() }
+            #endif
         }
     }
 }
