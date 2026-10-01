@@ -57,7 +57,8 @@ touch it — see [workouts.md](workouts.md#saying-how-it-went).
 
 Only a rolling window is readable: **7 days back, 28 ahead**, capped at 50 workouts per
 athlete. Both are enforced on the way in, so a write outside them is refused rather than
-accepted and thrown away.
+accepted and thrown away. The dashboard shows only the nearer 14 days ahead: the rest is
+room for an assistant to plan into, not a calendar anyone needs to look at yet.
 
 Reads take the same window plus a day of slack each side, because dates are the
 athlete's local day while the window is computed in UTC. Every read goes through that

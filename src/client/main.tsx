@@ -1,7 +1,7 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { currentUser, listWorkouts, signOut, type Me, type Note, type Workout } from './api';
-import { relativeDate } from './dates';
+import { relativeDate, shiftKey } from './dates';
 import { Accordion, openSection, Section } from './components/Accordion';
 import { ApiTokens } from './components/ApiTokens';
 import { Calendar } from './components/Calendar';
@@ -15,10 +15,16 @@ import { WorkoutCard } from './components/WorkoutCard';
 
 import './styles.css';
 
+/** The server keeps 28 days ahead for planning; the dashboard shows the nearer 14 of them. */
+const DAYS_SHOWN_AHEAD = 14;
+
 /** `/workout/<id>` opens that session. The Worker serves the dashboard there; the path is read back here. */
 const linkedWorkout = (): string | null => /^\/workout\/([^/]+)$/.exec(location.pathname)?.[1] ?? null;
 
 function Dashboard({ me }: { me: Me }) {
+  // From the server's UTC day, as the window is; a day further is fetched, as the read window allows.
+  const ahead = shiftKey(new Date().toISOString().slice(0, 10), DAYS_SHOWN_AHEAD);
+  const shown = { from: me.window.from, to: ahead < me.window.to ? ahead : me.window.to };
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -29,7 +35,7 @@ function Dashboard({ me }: { me: Me }) {
   const pending = useRef(linkedWorkout());
 
   const reload = useCallback(() => {
-    listWorkouts().then(
+    listWorkouts(shiftKey(shown.to, 1)).then(
       ({ workouts: found, notes: pinned }) => {
         setWorkouts(found);
         setNotes(pinned ?? []);
@@ -41,7 +47,7 @@ function Dashboard({ me }: { me: Me }) {
       },
       (failure: Error) => setError(failure.message),
     );
-  }, []);
+  }, [shown.to]);
 
   useEffect(reload, [reload]);
 
@@ -60,7 +66,7 @@ function Dashboard({ me }: { me: Me }) {
         <p className="note">That workout is not in the current window — it may have been deleted or moved.</p>
       )}
 
-      <Calendar window={me.window} workouts={workouts} notes={notes} selected={selected} onSelect={setSelected} />
+      <Calendar window={shown} workouts={workouts} notes={notes} selected={selected} onSelect={setSelected} />
 
       {/* An empty calendar is usually an athlete who has not reached Claude yet, so the two doors are right here. */}
       {workouts.length === 0 && (

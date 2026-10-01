@@ -117,7 +117,8 @@ export const currentUser = (): Promise<Me | null> => getMe().then((me) => me, ()
 
 export const listProviders = (): Promise<{ providers: string[] }> => request('/auth/providers');
 
-export const listWorkouts = (): Promise<{ workouts: Workout[]; notes: Note[] }> => request('/api/workouts.json');
+export const listWorkouts = (to: string): Promise<{ workouts: Workout[]; notes: Note[] }> =>
+  request(`/api/workouts.json?to=${to}`);
 export const deleteWorkout = (workout: Workout): Promise<unknown> => request(workout.json_url, { method: 'DELETE' });
 
 export const getWorkoutStats = (workout: Workout): Promise<WorkoutStats> =>
