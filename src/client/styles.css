@@ -229,10 +229,6 @@ a.button.primary { background: var(--accent); border-color: var(--accent); color
 /* A done session reads as done at a glance, before any text is. */
 .chip.done { background: var(--done-bg); border-color: var(--done); }
 
-.later { list-style: none; margin: 12px 0 0; padding: 0; color: var(--muted); font-size: 14px; }
-.later li { margin: 4px 0; }
-.later .when { display: inline-block; min-width: 110px; font-weight: 600; }
-
 /* Not a button: a note is read, not opened, and the title carries the whole of it. */
 .chip.note { color: var(--muted); font-style: italic; border: 1px dashed var(--muted); }
 

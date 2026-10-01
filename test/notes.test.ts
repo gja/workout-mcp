@@ -1,6 +1,6 @@
 import { SELF, env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { MAX_NOTES_PER_USER, NOTE_DAYS_FUTURE } from '../src/db';
+import { MAX_NOTES_PER_USER } from '../src/db';
 import { MAX_NOTE_DAYS } from '../src/note';
 import { shiftDate, today } from '../src/units';
 import { resetDatabase, seedUser } from './helpers';
@@ -55,17 +55,6 @@ describe('notes over REST', () => {
     expect(await listed(`?from=${day(9)}&to=${day(12)}`)).toEqual([]);
   });
 
-  it('reaches further ahead than a workout may', async () => {
-    const trip = await addNote({ date: day(NOTE_DAYS_FUTURE - 5), end_date: day(NOTE_DAYS_FUTURE + 5), text: 'Holiday' });
-    expect((await listed()).map((n) => n.id)).toEqual([trip.id]);
-
-    const replaced = await call(`/api/notes/${trip.id}`, {
-      method: 'PUT',
-      body: JSON.stringify({ date: day(NOTE_DAYS_FUTURE), text: 'Holiday, one day' }),
-    });
-    expect(replaced.status).toBe(200);
-  });
-
   it('finds a note begun before the window that runs into it', async () => {
     const injury = await addNote({ date: day(-20), end_date: day(1), text: 'Calf: no speed work' });
     expect((await listed()).map((n) => n.id)).toEqual([injury.id]);
@@ -95,7 +84,7 @@ describe('notes over REST', () => {
     await refused({ date: day(2), end_date: day(1), text: 'x' }, 'end_date');
     await refused({ date: day(0), end_date: day(MAX_NOTE_DAYS), text: 'x' }, `at most ${MAX_NOTE_DAYS} days`);
     await refused({ date: day(2), text: '   ' }, 'text');
-    await refused({ date: day(NOTE_DAYS_FUTURE + 1), text: 'x' }, 'date');
+    await refused({ date: day(40), text: 'x' }, 'date');
     await refused({ date: day(2), text: 'x', sport: 'running' }, 'unknown field sport');
   });
 

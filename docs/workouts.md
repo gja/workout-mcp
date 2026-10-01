@@ -235,9 +235,7 @@ save_note { "id": "k3m9x2pq", "text": "" }
 ```
 
 Without an `id` it adds one; with one it replaces it; empty text deletes it. `end_date`
-defaults to `date`, and a note covers at most 31 days and 500 characters. A note may sit
-up to 90 days ahead, well past the 14 a workout may: a trip is known about long before the
-sessions around it are planned. Over REST it is
+defaults to `date`, and a note covers at most 31 days and 500 characters. Over REST it is
 `POST /api/notes`, and `PUT`/`DELETE` on `/api/notes/:id`.
 
 `list_workouts` and `GET /api/workouts` return the notes overlapping the range as `notes`,
