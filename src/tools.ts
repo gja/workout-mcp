@@ -224,8 +224,8 @@ export const TOOLS = [
     description:
       'List planned workouts in the retention window: 7 days back, 14 ahead. A wider from/to is ' +
       'narrowed to it rather than refused. A recorded session carries `stats`, and `comment` is ' +
-      "the athlete's own note on it. `notes` beside them are the dated notes overlapping the range: " +
-      'travel, illness — plan around them.',
+      "the athlete's own note on it. `notes` beside them are the dated notes overlapping the range, " +
+      `up to ${db.NOTE_DAYS_FUTURE} days ahead: travel, illness — plan around them.`,
     inputSchema: {
       type: 'object',
       properties: {

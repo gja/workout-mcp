@@ -34,6 +34,9 @@ export function Calendar({ window, workouts, notes, selected, onSelect }: Props)
     byDate.set(workout.date, [...(byDate.get(workout.date) ?? []), workout]);
   }
 
+  // Notes reach further ahead than workouts, so those past the grid are listed under it.
+  const later = notes.filter((note) => note.date > span.to);
+
   return (
     <section>
       <h2>
@@ -100,6 +103,20 @@ export function Calendar({ window, workouts, notes, selected, onSelect }: Props)
           );
         })}
       </div>
+
+      {later.length > 0 && (
+        <ul className="later">
+          {later.map((note) => (
+            <li key={note.id}>
+              <span className="when">
+                {shortDate(fromKey(note.date))}
+                {note.end_date !== note.date && ` – ${shortDate(fromKey(note.end_date))}`}
+              </span>
+              📝 {note.text}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

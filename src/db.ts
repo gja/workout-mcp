@@ -15,6 +15,8 @@ export const RETENTION_DAYS_PAST = 7;
 export const RETENTION_DAYS_FUTURE = 14;
 export const MAX_WORKOUTS_PER_USER = 50;
 export const MAX_NOTES_PER_USER = 20;
+/** Further ahead than a workout: a trip is known about long before the sessions around it are planned. */
+export const NOTE_DAYS_FUTURE = 90;
 
 /** Reads only: dates are the athlete's local day, the window is UTC, so the edges disagree. */
 export const READ_SLACK_DAYS = 1;
@@ -514,13 +516,24 @@ function overlappingNotes(userId: string, range: { from: string; to: string }) {
     .where('end_date', '>=', range.from);
 }
 
-export async function listNotes(env: Env, userId: string, from?: string, to?: string): Promise<Note[]> {
-  return all(env, overlappingNotes(userId, readRange(from, to)).orderBy('date').orderBy('created_at'));
+/** The workouts' window reaching `NOTE_DAYS_FUTURE` ahead instead; `slack` as `readWindow` has it. */
+export function noteWindow(slack = 0, now: Date = new Date()): { from: string; to: string } {
+  const day = today(now);
+  return { from: shiftDate(day, -(RETENTION_DAYS_PAST + slack)), to: shiftDate(day, NOTE_DAYS_FUTURE + slack) };
 }
 
-/** A note must touch the retention window somewhere, or nothing could read it back. */
+export async function listNotes(env: Env, userId: string, from?: string, to?: string): Promise<Note[]> {
+  const window = noteWindow(READ_SLACK_DAYS);
+  const range = {
+    from: from && from > window.from ? from : window.from,
+    to: to && to < window.to ? to : window.to,
+  };
+  return all(env, overlappingNotes(userId, range).orderBy('date').orderBy('created_at'));
+}
+
+/** A note must touch the note window somewhere, or nothing could read it back. */
 function assertNoteRetainable(input: NoteInput): void {
-  const window = retentionWindow();
+  const window = noteWindow();
   if (input.end_date < window.from || input.date > window.to) {
     fail('date', `only ${window.from} to ${window.to} is kept, so a note on ${input.date}–${input.end_date} could not be read back`);
   }
@@ -534,7 +547,7 @@ export async function putNote(env: Env, userId: string, input: NoteInput, id?: s
   assertNoteRetainable(input);
   const now = new Date().toISOString();
 
-  let others = overlappingNotes(userId, retentionWindow()).clearSelect();
+  let others = overlappingNotes(userId, noteWindow()).clearSelect();
   if (id !== undefined) others = others.where('id', '!=', id);
   const counted = await one(env, others.select((eb) => eb.fn.countAll<number>().as('n')));
   if ((counted?.n ?? 0) >= MAX_NOTES_PER_USER) {
@@ -542,7 +555,7 @@ export async function putNote(env: Env, userId: string, input: NoteInput, id?: s
   }
 
   if (id !== undefined) {
-    const window = readWindow();
+    const window = noteWindow(READ_SLACK_DAYS);
     const written = await rowsWritten(
       env,
       qb
