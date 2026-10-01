@@ -354,9 +354,8 @@ describe('the date in the path', () => {
     expect((await call(`/api/workouts/${date}/${id}.json`)).status).toBe(404);
   });
 
-  // The window is applied to the day the row is stored with, so a lenient path cannot
-  // reach past it by naming one inside the window. The 404 names no day either.
-  it('cannot reach a workout that has aged out by naming a day inside the window', async () => {
+  // An id opens whatever day it sits on, but a write by it is still held to the window.
+  it('opens a workout that has aged out by its id, and refuses to change it', async () => {
     await env.DB.prepare(
       `INSERT INTO workouts (user_id, date, id, name, sport, steps, created_at, updated_at)
        VALUES (?1, ?2, 'aged0000', 'Old', 'running', '[]', '', '')`,
@@ -365,8 +364,13 @@ describe('the date in the path', () => {
       .run();
 
     const response = await call(`/api/workouts/${today()}/aged0000.json`);
-    expect(response.status).toBe(404);
-    expect(((await response.json()) as { error: string }).error).toBe('no workout aged0000');
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { name: string }).name).toBe('Old');
+
+    const completed = await call(`/api/workouts/${today()}/aged0000/complete`, { method: 'POST' });
+    expect(completed.status).toBe(404);
+    expect(((await completed.json()) as { error: string }).error).toBe('no workout aged0000');
+    expect((await call(`/api/workouts/${today()}/aged0000.json`, { method: 'DELETE' })).status).toBe(404);
   });
 
   it('finds a plan whose slug names the day it has left', async () => {
@@ -1018,7 +1022,7 @@ describe('retention', () => {
    * being visible and stays in the table — deleting an athlete's training
    * history to reclaim a few hundred bytes is the wrong trade.
    */
-  it('leaves a workout that has aged out in the table, unreadable', async () => {
+  it('leaves a workout that has aged out in the table, out of every list', async () => {
     await env.DB.prepare(
       `INSERT INTO workouts (user_id, date, id, name, sport, steps, created_at, updated_at)
        VALUES (?, '2020-08-01', 'old00000', 'Old', 'running', '[]', '', '')`,
@@ -1031,7 +1035,7 @@ describe('retention', () => {
 
     expect(await rowCount()).toBe(2);
     expect(await listWorkouts(env, userId)).toHaveLength(1);
-    expect(await getWorkout(env, userId, 'old00000')).toBeNull();
+    expect(await getWorkout(env, userId, 'old00000')).not.toBeNull();
   });
 
   it('refuses a new workout past the cap rather than deleting an older one', async () => {
@@ -1132,27 +1136,30 @@ describe('the read window', () => {
 
   it('allows a day of slack on each side of what is kept', () => {
     const day = today();
-    expect(readWindow()).toEqual({ from: shiftDate(day, -8), to: shiftDate(day, 15) });
+    expect(readWindow()).toEqual({ from: shiftDate(day, -8), to: shiftDate(day, 29) });
   });
 
-  it('will not read a workout outside the window, however it is asked for', async () => {
+  it('opens a workout outside the window by its id, however far out', async () => {
     const before = shiftDate(today(), -9);
-    const after = shiftDate(today(), 16);
+    const after = shiftDate(today(), 30);
     await stow(before, 'oldone00');
     await stow(after, 'newone00');
 
     // Directly, by id.
-    expect(await getWorkout(env, userId, 'oldone00')).toBeNull();
-    expect(await getWorkout(env, userId, 'newone00')).toBeNull();
+    expect(await getWorkout(env, userId, 'oldone00')).toMatchObject({ date: before });
+    expect(await getWorkout(env, userId, 'newone00')).toMatchObject({ date: after });
 
     // Through the API, and as a FIT download.
-    expect((await call(`/api/workouts/${before}/oldone00.json`)).status).toBe(404);
-    expect((await call(`/export/${after}-newone00.fit`)).status).toBe(404);
+    expect((await call(`/api/workouts/${before}/oldone00.json`)).status).toBe(200);
+    expect((await call(`/export/${after}-newone00.fit`)).status).toBe(200);
+
+    // But never in a list.
+    expect(await listWorkouts(env, userId)).toEqual([]);
   });
 
   it('narrows a from/to that reaches past the window rather than obeying it', async () => {
     await stow(shiftDate(today(), -9), 'oldone00');
-    await stow(shiftDate(today(), 16), 'newone00');
+    await stow(shiftDate(today(), 30), 'newone00');
     await putWorkout(env, userId, parseWorkout({ date: today(), steps: [{ goal_s: 600 }] }));
 
     const listed = await listWorkouts(env, userId, '2000-01-01', '2100-01-01');

@@ -19,6 +19,8 @@ export const toKey = (date: Date): string =>
 
 export const fromKey = (key: string): Date => new Date(`${key}T00:00:00`);
 
+export const shiftKey = (key: string, days: number): string => toKey(addDays(fromKey(key), days));
+
 /** A training week runs Monday to Sunday; `getDay()` is 0 for Sunday, so shift it to 6. */
 const weekdayIndex = (date: Date): number => (date.getDay() + 6) % 7;
 

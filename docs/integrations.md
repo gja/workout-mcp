@@ -65,7 +65,7 @@ for every workout from then on to fail.
   would push the unchanged plan back over the platform's own report.
 - **A delete that missed is owed, not forgotten.** The link row stays until the removal
   lands, because it is the only record of the event left to remove.
-- **Our window is ours.** A workout ageing out of the 7/14-day window is not taken off
+- **Our window is ours.** A workout ageing out of the 7/28-day window is not taken off
   your calendar.
 
 Targets arrive absolute and are shown against the thresholds on your athlete profile, so

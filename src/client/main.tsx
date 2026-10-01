@@ -1,7 +1,7 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { currentUser, listWorkouts, signOut, type Me, type Note, type Workout } from './api';
-import { relativeDate } from './dates';
+import { currentUser, getWorkout, listWorkouts, signOut, type Me, type Note, type Workout } from './api';
+import { relativeDate, shiftKey } from './dates';
 import { Accordion, openSection, Section } from './components/Accordion';
 import { ApiTokens } from './components/ApiTokens';
 import { Calendar } from './components/Calendar';
@@ -15,10 +15,16 @@ import { WorkoutCard } from './components/WorkoutCard';
 
 import './styles.css';
 
+/** The server keeps 28 days ahead for planning; the dashboard shows the nearer 14 of them. */
+const DAYS_SHOWN_AHEAD = 14;
+
 /** `/workout/<id>` opens that session. The Worker serves the dashboard there; the path is read back here. */
 const linkedWorkout = (): string | null => /^\/workout\/([^/]+)$/.exec(location.pathname)?.[1] ?? null;
 
 function Dashboard({ me }: { me: Me }) {
+  // From the server's UTC day, as the window is; a day further is fetched, as the read window allows.
+  const ahead = shiftKey(new Date().toISOString().slice(0, 10), DAYS_SHOWN_AHEAD);
+  const shown = { from: me.window.from, to: ahead < me.window.to ? ahead : me.window.to };
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -27,26 +33,50 @@ function Dashboard({ me }: { me: Me }) {
   const panel = useRef<HTMLDivElement>(null);
   // Resolved against the first list that arrives, which is where the day it is on comes from.
   const pending = useRef(linkedWorkout());
+  // Kept for the page's life: a linked workout off the calendar is read on its own, every reload.
+  const linkedId = useRef(pending.current);
+  const [linked, setLinked] = useState<Workout | null>(null);
 
   const reload = useCallback(() => {
-    listWorkouts().then(
+    listWorkouts(shiftKey(shown.to, 1)).then(
       ({ workouts: found, notes: pinned }) => {
         setWorkouts(found);
         setNotes(pinned ?? []);
-        if (!pending.current) return;
-        const target = found.find((workout) => workout.id === pending.current);
-        pending.current = null;
-        if (target) setSelected(`${target.date}/${target.id}`);
-        else setMissing(true);
+        const id = linkedId.current;
+        if (!id) return;
+        const select = (workout: Workout) => {
+          if (pending.current) setSelected(`${workout.date}/${workout.id}`);
+          pending.current = null;
+        };
+        const listed = found.find((workout) => workout.id === id);
+        if (listed) {
+          setLinked(null);
+          select(listed);
+          return;
+        }
+        // An id always opens, however far it is from the days the calendar shows.
+        getWorkout(id, shown.from).then(
+          (workout) => {
+            setLinked(workout);
+            select(workout);
+          },
+          () => {
+            setLinked(null);
+            if (pending.current) setMissing(true);
+            pending.current = null;
+          },
+        );
       },
       (failure: Error) => setError(failure.message),
     );
-  }, []);
+  }, [shown.from, shown.to]);
 
   useEffect(reload, [reload]);
 
   // A workout deleted while selected falls out of the list, and the panel with it.
-  const open = workouts.find((workout) => `${workout.date}/${workout.id}` === selected);
+  const open = [...workouts, ...(linked ? [linked] : [])].find(
+    (workout) => `${workout.date}/${workout.id}` === selected,
+  );
 
   // Keyed on the selection, not on `open`, so reloading the same workout does not re-scroll.
   useEffect(() => {
@@ -57,10 +87,10 @@ function Dashboard({ me }: { me: Me }) {
     <>
       {error && <p className="error">{error}</p>}
       {missing && (
-        <p className="note">That workout is not in the current window — it may have been deleted or moved.</p>
+        <p className="note">That workout could not be found — it may have been deleted.</p>
       )}
 
-      <Calendar window={me.window} workouts={workouts} notes={notes} selected={selected} onSelect={setSelected} />
+      <Calendar window={shown} workouts={workouts} notes={notes} selected={selected} onSelect={setSelected} />
 
       {/* An empty calendar is usually an athlete who has not reached Claude yet, so the two doors are right here. */}
       {workouts.length === 0 && (
