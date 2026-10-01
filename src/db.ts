@@ -12,7 +12,7 @@ import { MAX_CHANGES } from './workout';
 import type { PlanChange, PlanStep, Sport, SubSport, Workout, WorkoutInput } from './workout';
 
 export const RETENTION_DAYS_PAST = 7;
-export const RETENTION_DAYS_FUTURE = 14;
+export const RETENTION_DAYS_FUTURE = 28;
 export const MAX_WORKOUTS_PER_USER = 50;
 export const MAX_NOTES_PER_USER = 20;
 

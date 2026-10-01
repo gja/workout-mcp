@@ -121,7 +121,7 @@ keep it honest: withheld mappings, nulls that are never zero.
 ### [docs/database.md](docs/database.md)
 
 D1 and the schema: how migrations are written and tested, why the steps are TEXT with a
-`json_valid` check, the 7/14-day retention window and how it is enforced, and the
+`json_valid` check, the 7/28-day retention window and how it is enforced, and the
 write-ordering rules a change here must keep.
 
 ### [docs/architecture.md](docs/architecture.md)

@@ -55,7 +55,7 @@ touch it — see [workouts.md](workouts.md#saying-how-it-went).
 
 ## The retention window
 
-Only a rolling window is readable: **7 days back, 14 ahead**, capped at 50 workouts per
+Only a rolling window is readable: **7 days back, 28 ahead**, capped at 50 workouts per
 athlete. Both are enforced on the way in, so a write outside them is refused rather than
 accepted and thrown away.
 

@@ -1132,12 +1132,12 @@ describe('the read window', () => {
 
   it('allows a day of slack on each side of what is kept', () => {
     const day = today();
-    expect(readWindow()).toEqual({ from: shiftDate(day, -8), to: shiftDate(day, 15) });
+    expect(readWindow()).toEqual({ from: shiftDate(day, -8), to: shiftDate(day, 29) });
   });
 
   it('will not read a workout outside the window, however it is asked for', async () => {
     const before = shiftDate(today(), -9);
-    const after = shiftDate(today(), 16);
+    const after = shiftDate(today(), 30);
     await stow(before, 'oldone00');
     await stow(after, 'newone00');
 
@@ -1152,7 +1152,7 @@ describe('the read window', () => {
 
   it('narrows a from/to that reaches past the window rather than obeying it', async () => {
     await stow(shiftDate(today(), -9), 'oldone00');
-    await stow(shiftDate(today(), 16), 'newone00');
+    await stow(shiftDate(today(), 30), 'newone00');
     await putWorkout(env, userId, parseWorkout({ date: today(), steps: [{ goal_s: 600 }] }));
 
     const listed = await listWorkouts(env, userId, '2000-01-01', '2100-01-01');
