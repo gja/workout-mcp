@@ -61,16 +61,22 @@ accepted and thrown away. The dashboard shows only the nearer 14 days ahead: the
 room for an assistant to plan into, not a calendar anyone needs to look at yet.
 
 Reads take the same window plus a day of slack each side, because dates are the
-athlete's local day while the window is computed in UTC. Every read goes through that
-bound, which is the whole of how the window is enforced.
+athlete's local day while the window is computed in UTC. Every list and every write goes
+through that bound, which is the whole of how the window is enforced.
 
-**Nothing deletes a workout the athlete did not delete.** A session that ages out stops
-being visible and stays in the table: storage is not the binding constraint (5 GB against
+**A read by id is the exception: an id always opens.** `getWorkout`, `getWorkouts` (behind
+`plan-ids`), `getStats` and the FIT export start from `workoutsOf`, which has no date bound,
+so a link to a session from last month or one planned far ahead still works. Writes by id
+start from `getWritableWorkout` instead, which is window-narrowed: an aged-out workout can be
+read but not changed, so nothing revives one past the cap.
+
+**Nothing deletes a workout the athlete did not delete.** A session that ages out drops out
+of every list and stays in the table: storage is not the binding constraint (5 GB against
 a few hundred bytes a workout). The cap counts only what is inside the window, so it is a
 rolling limit rather than a wall after a year of training.
 
-Every single-workout read and write narrows on the row's *stored* date, never on one the
-caller gave, which is how the window survives the caller's date being ignored. Rather
+Every single-workout write narrows on the row's *stored* date, never on one the caller
+gave, which is how the window survives the caller's date being ignored. Rather
 than each query repeating that bound, `scopedWorkouts` and `scopedUpdate` in `src/db.ts`
 start from it and callers narrow further. Kysely builders are immutable, so an added
 `.where(...)` is an `and` on a fresh builder: a caller can ask for less than the window

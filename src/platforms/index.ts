@@ -443,7 +443,7 @@ async function applyCompletions(
   for (const completion of completions) {
     const link = await store.findLinkByRemoteId(env, userId, platformId, completion.remote_id);
     if (!link) continue;
-    const workout = await db.getWorkout(env, userId, link.workout_id);
+    const workout = await db.getWritableWorkout(env, userId, link.workout_id);
     if (!workout) continue;
 
     if (link.applied_completion !== completion.completed_at) {

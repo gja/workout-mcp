@@ -75,8 +75,9 @@ The segment stays because every link and client already carries it; the same goe
 `plan-ids` and for a tool's `date` argument. `get_workout` is the exception — a date with
 no id is a question about the day.
 
-The retention window is applied to the date the row is *stored* with, so a workout that
-has aged out is invisible whichever address asks for it.
+A read by id is never held to the retention window: a workout that has aged out, or that
+sits further ahead than a list reaches, still opens by its id — as JSON, as stats, as a FIT
+file. Lists are windowed, and so is every write: changing an aged-out workout is a 404.
 
 ## The routes outside `/api/`
 

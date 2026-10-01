@@ -119,6 +119,8 @@ export const listProviders = (): Promise<{ providers: string[] }> => request('/a
 
 export const listWorkouts = (to: string): Promise<{ workouts: Workout[]; notes: Note[] }> =>
   request(`/api/workouts.json?to=${to}`);
+/** By id alone: the server ignores the day in the path, so today stands in for it. */
+export const getWorkout = (id: string, day: string): Promise<Workout> => request(`/api/workouts/${day}/${id}.json`);
 export const deleteWorkout = (workout: Workout): Promise<unknown> => request(workout.json_url, { method: 'DELETE' });
 
 export const getWorkoutStats = (workout: Workout): Promise<WorkoutStats> =>

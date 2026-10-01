@@ -29,7 +29,7 @@ export async function replaceWorkout(
   input: WorkoutInput,
   changeReason?: string | null,
 ): Promise<Workout | null> {
-  const existing = await db.getWorkout(env, user.id, id);
+  const existing = await db.getWritableWorkout(env, user.id, id);
   if (!existing) return null;
 
   if (existing.completed_at) input.completed_at = existing.completed_at;
@@ -51,7 +51,7 @@ export async function moveWorkout(
   date: string,
   changeReason?: string | null,
 ): Promise<Workout | null> {
-  const existing = await db.getWorkout(env, user.id, id);
+  const existing = await db.getWritableWorkout(env, user.id, id);
   if (!existing) return null;
   // A move to the day it is already on explains nothing, because nothing changed.
   if (date === existing.date) return existing;
@@ -64,7 +64,7 @@ export async function moveWorkout(
 export async function deleteWorkout(env: Env, user: User, id: string): Promise<Workout | null> {
   // Read first for the day it was on: the platform link is keyed by that, and the delete
   // leaves nobody to ask. Told afterwards, so a failure there retries off the link.
-  const existing = await db.getWorkout(env, user.id, id);
+  const existing = await db.getWritableWorkout(env, user.id, id);
   if (!existing) return null;
 
   if (!(await db.deleteWorkout(env, user.id, id))) return null;
@@ -108,7 +108,7 @@ export async function recordSession(
   bytes: Uint8Array,
   source: Source,
 ): Promise<{ workout: Workout; stats: WorkoutStats } | null> {
-  const existing = await db.getWorkout(env, user.id, id);
+  const existing = await db.getWritableWorkout(env, user.id, id);
   if (!existing) return null;
 
   const stats = statsFrom(bytes, existing, source);

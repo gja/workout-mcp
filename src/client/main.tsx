@@ -1,6 +1,6 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { currentUser, listWorkouts, signOut, type Me, type Note, type Workout } from './api';
+import { currentUser, getWorkout, listWorkouts, signOut, type Me, type Note, type Workout } from './api';
 import { relativeDate, shiftKey } from './dates';
 import { Accordion, openSection, Section } from './components/Accordion';
 import { ApiTokens } from './components/ApiTokens';
@@ -33,26 +33,50 @@ function Dashboard({ me }: { me: Me }) {
   const panel = useRef<HTMLDivElement>(null);
   // Resolved against the first list that arrives, which is where the day it is on comes from.
   const pending = useRef(linkedWorkout());
+  // Kept for the page's life: a linked workout off the calendar is read on its own, every reload.
+  const linkedId = useRef(pending.current);
+  const [linked, setLinked] = useState<Workout | null>(null);
 
   const reload = useCallback(() => {
     listWorkouts(shiftKey(shown.to, 1)).then(
       ({ workouts: found, notes: pinned }) => {
         setWorkouts(found);
         setNotes(pinned ?? []);
-        if (!pending.current) return;
-        const target = found.find((workout) => workout.id === pending.current);
-        pending.current = null;
-        if (target) setSelected(`${target.date}/${target.id}`);
-        else setMissing(true);
+        const id = linkedId.current;
+        if (!id) return;
+        const select = (workout: Workout) => {
+          if (pending.current) setSelected(`${workout.date}/${workout.id}`);
+          pending.current = null;
+        };
+        const listed = found.find((workout) => workout.id === id);
+        if (listed) {
+          setLinked(null);
+          select(listed);
+          return;
+        }
+        // An id always opens, however far it is from the days the calendar shows.
+        getWorkout(id, shown.from).then(
+          (workout) => {
+            setLinked(workout);
+            select(workout);
+          },
+          () => {
+            setLinked(null);
+            if (pending.current) setMissing(true);
+            pending.current = null;
+          },
+        );
       },
       (failure: Error) => setError(failure.message),
     );
-  }, [shown.to]);
+  }, [shown.from, shown.to]);
 
   useEffect(reload, [reload]);
 
   // A workout deleted while selected falls out of the list, and the panel with it.
-  const open = workouts.find((workout) => `${workout.date}/${workout.id}` === selected);
+  const open = [...workouts, ...(linked ? [linked] : [])].find(
+    (workout) => `${workout.date}/${workout.id}` === selected,
+  );
 
   // Keyed on the selection, not on `open`, so reloading the same workout does not re-scroll.
   useEffect(() => {
@@ -63,7 +87,7 @@ function Dashboard({ me }: { me: Me }) {
     <>
       {error && <p className="error">{error}</p>}
       {missing && (
-        <p className="note">That workout is not in the current window — it may have been deleted or moved.</p>
+        <p className="note">That workout could not be found — it may have been deleted.</p>
       )}
 
       <Calendar window={shown} workouts={workouts} notes={notes} selected={selected} onSelect={setSelected} />

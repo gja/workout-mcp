@@ -99,20 +99,23 @@ const WORKOUT_COLUMNS = [
   'updated_at',
 ] as const;
 
+/** One athlete's workouts, any day. Only a read naming a workout by its id starts here. */
+function workoutsOf(userId: string) {
+  return qb
+    .selectFrom('workouts')
+    .select([...WORKOUT_COLUMNS])
+    .select(sql<string | null>`json_remove(stats, '$.laps')`.as('stats'))
+    .where('user_id', '=', userId);
+}
+
 /**
- * Every workout read starts here: the athlete and the read window are already applied,
+ * Every other workout read starts here: the athlete and the read window are already applied,
  * and a caller adds what it wants on top. Kysely builders are immutable, so narrowing
  * one leaves this untouched, and an `and` is the only thing a caller can add — no read
  * reaches outside the window by forgetting to say so.
  */
 function scopedWorkouts(userId: string, range: { from: string; to: string }) {
-  return qb
-    .selectFrom('workouts')
-    .select([...WORKOUT_COLUMNS])
-    .select(sql<string | null>`json_remove(stats, '$.laps')`.as('stats'))
-    .where('user_id', '=', userId)
-    .where('date', '>=', range.from)
-    .where('date', '<=', range.to);
+  return workoutsOf(userId).where('date', '>=', range.from).where('date', '<=', range.to);
 }
 
 /** Short, URL-safe, unambiguous — no vowels, so no accidental words. */
@@ -194,8 +197,14 @@ export async function listWorkouts(env: Env, userId: string, from?: string, to?:
   return rows.map(parseRow);
 }
 
-/** By id alone: the day a workout sits on is not part of what it is. See docs/database.md. */
+/** By id alone, whatever day it sits on and however long ago: an id always opens. See docs/database.md. */
 export async function getWorkout(env: Env, userId: string, id: string): Promise<Workout | null> {
+  const row = await one(env, workoutsOf(userId).where('id', '=', id));
+  return row ? parseRow(row) : null;
+}
+
+/** By id, but only inside the read window: what every write by id starts from. */
+export async function getWritableWorkout(env: Env, userId: string, id: string): Promise<Workout | null> {
   const row = await one(env, scopedWorkouts(userId, readWindow()).where('id', '=', id));
   return row ? parseRow(row) : null;
 }
@@ -211,7 +220,7 @@ export async function getWorkouts(env: Env, userId: string, ids: readonly string
 
   const rows = await all(
     env,
-    scopedWorkouts(userId, readWindow()).where('id', 'in', wanted).orderBy('date').orderBy('created_at'),
+    workoutsOf(userId).where('id', 'in', wanted).orderBy('date').orderBy('created_at'),
   );
   return rows.map(parseRow);
 }
@@ -405,7 +414,7 @@ export async function setCompleted(
     scopedUpdate(userId, id).set({ completed_at: completedAt, updated_at: new Date().toISOString() }),
   );
   if (written === 0) return null;
-  return getWorkout(env, userId, id);
+  return getWritableWorkout(env, userId, id);
 }
 
 /**
@@ -427,7 +436,7 @@ export async function setDate(
     scopedUpdate(userId, id).set({ date, changes, updated_at: new Date().toISOString() }),
   );
   if (written === 0) return null;
-  return getWorkout(env, userId, id);
+  return getWritableWorkout(env, userId, id);
 }
 
 /**
@@ -443,21 +452,14 @@ export async function setComment(
 ): Promise<Workout | null> {
   const written = await rowsWritten(env, scopedUpdate(userId, id).set({ comment }));
   if (written === 0) return null;
-  return getWorkout(env, userId, id);
+  return getWritableWorkout(env, userId, id);
 }
 
 /** The whole document, laps and all. Read on its own, for the reason `WORKOUT_COLUMNS` gives. */
 export async function getStats(env: Env, userId: string, id: string): Promise<WorkoutStats | null> {
-  const window = readWindow();
   const row = await one(
     env,
-    qb
-      .selectFrom('workouts')
-      .select('stats')
-      .where('user_id', '=', userId)
-      .where('id', '=', id)
-      .where('date', '>=', window.from)
-      .where('date', '<=', window.to),
+    qb.selectFrom('workouts').select('stats').where('user_id', '=', userId).where('id', '=', id),
   );
   return row?.stats ? (JSON.parse(row.stats) as WorkoutStats) : null;
 }
