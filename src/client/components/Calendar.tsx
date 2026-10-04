@@ -1,5 +1,6 @@
 import type { Note, Workout, Window } from '../api';
 import { calendarDays, longDate, shortDate, fromKey, toKey } from '../dates';
+import { useFitDrop } from '../fitDrop';
 import { plannedSummary, sportIcon } from '../format';
 
 // Whole Monday-to-Sunday weeks, widened to cover every workout returned: the server's
@@ -22,9 +23,50 @@ type Props = {
   notes: Note[];
   selected: string | null;
   onSelect: (key: string | null) => void;
+  onRecorded: () => void;
 };
 
-export function Calendar({ window, workouts, notes, selected, onSelect }: Props) {
+/** A workout on its day. A .fit dropped on it is recorded against it. */
+function WorkoutChip({ workout, on, onSelect, onRecorded }: {
+  workout: Workout;
+  on: boolean;
+  onSelect: () => void;
+  onRecorded: () => void;
+}) {
+  const drop = useFitDrop(workout, onRecorded);
+  const total = plannedSummary(workout.planned);
+  const done = Boolean(workout.completed_at);
+  const classes = ['chip', on && 'on', done && 'done', drop.over && 'drop', drop.busy && 'busy']
+    .filter(Boolean)
+    .join(' ');
+  return (
+    <>
+      <button
+        className={classes}
+        title={done ? `${workout.name} — done` : `${workout.name} — drop a .fit here to record it`}
+        onClick={onSelect}
+        {...drop.handlers}
+      >
+        <span>
+          {/* The emoji carries the sport, so it needs the label a word would have. */}
+          <span className="icon" role="img" aria-label={workout.sport}>
+            {sportIcon(workout.sport)}
+          </span>
+          {done && (
+            <span className="tick" role="img" aria-label="done">
+              ✓
+            </span>
+          )}
+          {workout.name}
+        </span>
+        {drop.busy ? <span className="total">Reading .fit…</span> : total && <span className="total">{total}</span>}
+      </button>
+      {drop.error && <span className="chip-error">{drop.error}</span>}
+    </>
+  );
+}
+
+export function Calendar({ window, workouts, notes, selected, onSelect, onRecorded }: Props) {
   const span = windowCovering(window, workouts);
   const days = calendarDays(span.from, span.to);
   const today = toKey(new Date());
@@ -69,30 +111,17 @@ export function Calendar({ window, workouts, notes, selected, onSelect }: Props)
                 {!outside &&
                   (byDate.get(key) ?? []).map((workout) => {
                     const id = `${workout.date}/${workout.id}`;
-                    const total = plannedSummary(workout.planned);
-                    const done = Boolean(workout.completed_at);
-                    const classes = ['chip', selected === id && 'on', done && 'done'].filter(Boolean).join(' ');
                     return (
-                      <button
+                      <WorkoutChip
                         key={workout.id}
-                        className={classes}
-                        title={done ? `${workout.name} — done` : workout.name}
-                        onClick={() => onSelect(selected === id ? null : id)}
-                      >
-                        <span>
-                          {/* The emoji carries the sport, so it needs the label a word would have. */}
-                          <span className="icon" role="img" aria-label={workout.sport}>
-                            {sportIcon(workout.sport)}
-                          </span>
-                          {done && (
-                            <span className="tick" role="img" aria-label="done">
-                              ✓
-                            </span>
-                          )}
-                          {workout.name}
-                        </span>
-                        {total && <span className="total">{total}</span>}
-                      </button>
+                        workout={workout}
+                        on={selected === id}
+                        onSelect={() => onSelect(selected === id ? null : id)}
+                        onRecorded={() => {
+                          onRecorded();
+                          onSelect(id);
+                        }}
+                      />
                     );
                   })}
               </div>

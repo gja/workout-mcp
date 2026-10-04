@@ -235,6 +235,12 @@ a.button.primary { background: var(--accent); border-color: var(--accent); color
 .chip.on { border-color: var(--accent); color: var(--accent); }
 .chip.on .total { color: var(--accent); }
 
+/* A .fit held over a workout: the target it will land on. */
+.chip.drop, .card.drop { border-color: var(--accent); outline: 2px dashed var(--accent); outline-offset: 1px; }
+.chip.busy { opacity: 0.6; }
+.chip-error { font-size: 11px; color: var(--danger); }
+.drop-hint { font-size: 12px; }
+
 @media (max-width: 640px) {
   /* Seven narrow columns stop being readable; become one row per day. */
   .calendar { display: block; }

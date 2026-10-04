@@ -184,7 +184,7 @@ across every athlete it visits, and a body over **8 MiB** is refused.
 
 The other way in is `POST /api/workouts/:date/:id/recording`, for an athlete whose watch
 never reaches a platform this server can read — the [iOS app](ios.md) posts one built out of
-Apple Health. Same `statsFrom`, same column, bytes dropped; it also carries the completion,
+Apple Health, and the dashboard posts a `.fit` dropped onto a workout, named by its filename. Same `statsFrom`, same column, bytes dropped; it also carries the completion,
 answers an unreadable file with a 400 rather than storing `source_unreadable`, and records
 the source as `upload`. Where a platform is also connected its copy of the same session
 overwrites these numbers on the next pass, which is the right way round: the platform holds
