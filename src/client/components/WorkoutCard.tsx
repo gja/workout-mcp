@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { deleteWorkout, downloadFit, type Workout } from '../api';
 import { formatCompleted, formatSport, plannedSummary, sportIcon, stepLines } from '../format';
+import { useFitDrop } from '../fitDrop';
 import { RecordedSession } from './RecordedSession';
 
 /** One workout in full, as shown in the calendar's detail panel. */
@@ -21,11 +22,13 @@ export function WorkoutCard({ workout, onChanged }: { workout: Workout; onChange
     }
   };
 
+  const drop = useFitDrop(workout, onChanged);
   const planned = plannedSummary(workout.planned);
   const done = Boolean(workout.completed_at);
+  const classes = ['card', done && 'done', drop.over && 'drop'].filter(Boolean).join(' ');
 
   return (
-    <article className={`card${done ? ' done' : ''}`}>
+    <article className={classes} {...drop.handlers}>
       <header>
         <h3>
           <span className="icon" role="img" aria-label={workout.sport}>
@@ -68,7 +71,10 @@ export function WorkoutCard({ workout, onChanged }: { workout: Workout; onChange
         </button>
       </div>
 
-      {error && <p className="error">{error}</p>}
+      <p className="note drop-hint">
+        {drop.busy ? 'Reading the .fit file…' : 'Drop the recorded .fit file here to mark it done and read its stats.'}
+      </p>
+      {(error ?? drop.error) && <p className="error">{error ?? drop.error}</p>}
     </article>
   );
 }

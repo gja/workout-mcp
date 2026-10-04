@@ -126,6 +126,19 @@ export const deleteWorkout = (workout: Workout): Promise<unknown> => request(wor
 export const getWorkoutStats = (workout: Workout): Promise<WorkoutStats> =>
   request(`/api/workouts/${workout.date}/${workout.id}/stats`);
 
+/** The file itself as the body; its name stands as the activity id, so a re-upload is the same session. */
+export async function uploadRecording(workout: Workout, file: File): Promise<Workout> {
+  const name = encodeURIComponent(file.name.slice(0, 100));
+  const response = await fetch(`/api/workouts/${workout.date}/${workout.id}/recording?activity_id=${name}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: file,
+  });
+  const data = (await response.json().catch(() => ({}))) as Workout & { error?: string };
+  if (!response.ok) throw new Error(data.error ?? `could not upload the recording (${response.status})`);
+  return data;
+}
+
 export type Platform = {
   id: string;
   label: string;

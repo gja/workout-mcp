@@ -12,6 +12,7 @@ import { Faq, REPO_URL, STARTER_SECTION_ID } from './components/Faq';
 import { Platforms } from './components/Platforms';
 import { SignIn } from './components/SignIn';
 import { WorkoutCard } from './components/WorkoutCard';
+import { guardPageDrops } from './fitDrop';
 
 import './styles.css';
 
@@ -90,7 +91,14 @@ function Dashboard({ me }: { me: Me }) {
         <p className="note">That workout could not be found — it may have been deleted.</p>
       )}
 
-      <Calendar window={shown} workouts={workouts} notes={notes} selected={selected} onSelect={setSelected} />
+      <Calendar
+        window={shown}
+        workouts={workouts}
+        notes={notes}
+        selected={selected}
+        onSelect={setSelected}
+        onRecorded={reload}
+      />
 
       {/* An empty calendar is usually an athlete who has not reached Claude yet, so the two doors are right here. */}
       {workouts.length === 0 && (
@@ -187,6 +195,8 @@ function App() {
     </main>
   );
 }
+
+guardPageDrops();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

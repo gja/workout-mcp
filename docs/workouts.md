@@ -146,7 +146,9 @@ complete_workout { "date": "2026-09-12", "id": "a1b2c3d4", "completed": false }
 Without a `completed_at` it is now. A bare `YYYY-MM-DD` is read as the start of that day.
 `completed: false` clears the record; naming a time alongside it is refused rather than
 guessed at. Over REST that is `POST` and `DELETE` on `/api/workouts/:date/:id/complete`.
-The dashboard has no control for it.
+The dashboard has no button for it; dropping the recorded `.fit` onto a workout, on the
+calendar or its card, posts it as a [recording](api.md#posting-a-recording), which marks it
+done and stores its [stats](stats.md).
 
 Because it is its own verb, rewriting the plan does not un-do the session: `update_workout`,
 a `PUT`, and a re-sync under the same `external_id` all carry the record across, including
