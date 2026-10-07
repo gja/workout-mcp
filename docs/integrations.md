@@ -169,5 +169,8 @@ one silently would park the batch on it. Errors are per-athlete.
 - Their FIT import shows a step's notes as its text and drops its name, and apps reading
   their calendar label the step with that text. So the pushed file carries step names
   only; the cues stay in this app and in the FIT export.
+- Their workout text reads a number and unit anywhere on a step's line as its length, so
+  "800m goal pace" became 800 minutes. Pushed step names carry a word joiner (U+2060)
+  between a digit and a following letter.
 - A call can succeed while the file inside it did not parse, so `push_errors` on the
   response is checked. A 404 on delete counts as removed.

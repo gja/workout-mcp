@@ -9,6 +9,13 @@ import type { Completion, Outbound, Platform, Recorded, RecordedFile } from './t
 const BASE = 'https://intervals.icu/api/v1';
 
 /**
+ * Their workout text reads `800m` anywhere on a step's line as a length, so a step named
+ * "800m goal pace" became 800 minutes. A word joiner between the number and its unit keeps
+ * the name as written and stops it parsing.
+ */
+const unparsed = (name: string): string => name.replace(/(\d)(?=\p{L})/gu, '$1\u2060');
+
+/**
  * Their FIT import keeps a step's notes as its text and drops the name, and an app reading
  * their calendar (Watchletic) shows that text as the step's label. The cue stays here.
  */
@@ -16,7 +23,7 @@ const withoutStepNotes = (steps: PlanStep[]): PlanStep[] =>
   steps.map((step) => {
     if ('repeat' in step) return { ...step, steps: withoutStepNotes(step.steps) };
     const { notes: _notes, ...rest } = step;
-    return rest;
+    return rest.name === undefined ? rest : { ...rest, name: unparsed(rest.name) };
   });
 
 /** `0` is "the athlete this credential belongs to". */

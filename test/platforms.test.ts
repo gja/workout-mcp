@@ -243,6 +243,16 @@ describe('pushing workout changes', () => {
     expect(steps.every((step) => step.notes === undefined)).toBe(true);
   });
 
+  // Their text parser read "800m" in a step's name as 800 minutes.
+  it('keeps a length in a step name from reading as the step length', async () => {
+    await createWorkout({ ...WORKOUT, steps: [{ name: '800m goal pace', goal_meters: 800 }] });
+    const [event] = await calendar();
+
+    const bytes = Uint8Array.from(atob(event.file_contents_base64), (character) => character.charCodeAt(0));
+    const { messages } = new Decoder(Stream.fromByteArray(bytes)).read();
+    expect(messages.workoutStepMesgs?.[0]?.wktStepName).toBe('800\u2060m goal pace');
+  });
+
   it('updates the same calendar event instead of adding a second one', async () => {
     const planned = await createWorkout();
     const before = (await calendar())[0].id;
