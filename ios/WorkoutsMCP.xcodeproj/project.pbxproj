@@ -191,7 +191,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG ON_PHONE_RECORDING $(inherited)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG ON_PHONE_RECORDING SENSOR_LAB $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = Debug;
@@ -257,6 +257,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "WorkoutsMCP connects to your heart rate strap or cycling power meter to show its readings.";
 				INFOPLIST_KEY_CFBundleDisplayName = WorkoutsMCP;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "WorkoutsMCP reads your recorded runs and rides so it can build a FIT file from them and upload it to your own server, and your heart rate so it can show you what you rest at and the highest you have been recorded working.";

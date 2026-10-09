@@ -524,6 +524,26 @@ Resting heart rate is the one `readTypes` entry no FIT file carries, and it is t
 this screen alone. An athlete who declines it, or a watch that never wrote one, gets a
 section saying so rather than an average of nothing.
 
+## Bluetooth sensors, in a Debug build
+
+*Settings › Bluetooth sensors* is an experiment toward fixing the limitation under
+[Recording it on the phone](#recording-it-on-the-phone): a power meter does not pair itself
+to a phone session, so the app would have to talk to it. `SensorLab` does that with
+CoreBluetooth and nothing else — it scans for the Bluetooth SIG heart rate (`180D`), cycling
+power (`1818`) and speed and cadence (`1816`) services, connects to whichever you tap, and
+shows heart rate, power and cadence. Nothing is recorded or written to Health.
+
+**Cadence is worked out, not sent.** Both cycling profiles send a cumulative crank count and
+the time of the last revolution in 1/1024 s; cadence is the difference of two, with both
+counters wrapping at 16 bits. With no new revolution for three seconds it reads zero.
+
+**Any strap on the standard profile works**, including a WHOOP with Heart Rate Broadcast on.
+One that iOS or another app already holds does not advertise, so the screen also lists what
+`retrieveConnectedPeripherals` returns.
+
+**It is behind `SENSOR_LAB`, set for Debug only**, with the Bluetooth usage string in the
+target's Debug configuration alone, so a TestFlight archive neither has the screen nor asks.
+
 ## What a sync sends
 
 **Two days back to seven days ahead**, done or not, and then it **prunes**: whatever this
