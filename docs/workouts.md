@@ -65,12 +65,14 @@ Every target takes `[floor, ceiling]`, and either end may be `"-"` to leave it o
 ```jsonc
 "target_heart_rate": [140, 155]     // between 140 and 155 bpm
 "target_heart_rate": [140, "-"]     // above 140
-"target_pace_km": ["6:30", "-"]     // faster than 6:30/km — the floor is on effort
-"target_pace_km": ["-", "8:00"]     // slower than 8:00/km
+"target_pace_km": ["6:30", "-"]     // faster than 6:30/km — a minimum, for reps
+"target_pace_km": ["-", "8:00"]     // slower than 8:00/km — a cap, for easy, recovery, walks
 ```
 
 Pace reads the same way — first entry is the floor on effort — but because a *lower* pace
 number is *faster*, a two-sided pace band is unambiguous whichever way round you write it.
+A one-sided one is not: writing a walk-back as `["7:10", "-"]`, fastest-first as a band
+would be, asks for *faster* than 7:10/km. A cap on an easy step is `["-", "7:10"]`.
 
 Both ends must use the same unit: FIT stores a percentage and an absolute in the same
 field, telling them apart by magnitude, so mixing them would read as two unrelated numbers.

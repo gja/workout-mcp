@@ -23,10 +23,10 @@ const RANGE_DOC =
   'A single value sets both ends.';
 
 const PACE_RANGE_DOC =
-  'A pace range as "mm:ss". The first entry is the floor on effort and the second the ceiling, ' +
-  'and since a lower pace number is faster that reads as ["6:30", "-"] = faster than 6:30 and ' +
-  '["-", "8:00"] = slower than 8:00. A two-sided band such as ["4:00", "4:15"] means the same ' +
-  'either way round. A single value sets both ends.';
+  'A pace range as "mm:ss", [floor, ceiling] on effort. One-sided, the order decides the ' +
+  'meaning: ["6:30", "-"] = faster than 6:30, a minimum for reps; ["-", "8:00"] = slower ' +
+  'than 8:00, a cap for easy running, recoveries and walks. A two-sided band such as ' +
+  '["4:00", "4:15"] reads either way round. A single value sets both ends.';
 
 const ZONE_DOC =
   'Either a single zone, which the watch resolves against its own configuration, ' +
