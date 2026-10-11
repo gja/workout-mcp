@@ -86,10 +86,8 @@ type TargetFields = { type: string; value: number; low?: number; high?: number }
 /** FIT target type per zone metric. Pace zones are speed zones. */
 const ZONE_TARGET_TYPE = { heart_rate: 'heartRate', pace: 'speed', power: 'power' } as const;
 
-function encodeTarget(target: Target): TargetFields {
+function encodeTarget(target: Exclude<Target, { type: 'open' }>): TargetFields {
   switch (target.type) {
-    case 'open':
-      return { type: 'open', value: 0 };
     case 'zone':
       return { type: ZONE_TARGET_TYPE[target.metric], value: target.zone };
     case 'heart_rate': {
@@ -131,12 +129,14 @@ function encodeTarget(target: Target): TargetFields {
 }
 
 function targetMesgFields(target: Target, secondary: boolean): Record<string, unknown> {
+  // No target is no target field: intervals.icu reads an explicit `open` as zone 1.
+  if (target.type === 'open') return {};
   const { type, value, low, high } = encodeTarget(target);
   const fields: Record<string, unknown> = secondary
     ? { secondaryTargetType: type, secondaryTargetValue: value }
     : { targetType: type, targetValue: value };
 
-  // A zone or an open target has no range at all; a custom range always has both ends.
+  // A zone has no range at all; a custom range always has both ends.
   if (low !== undefined) fields[secondary ? 'secondaryCustomTargetValueLow' : 'customTargetValueLow'] = low;
   if (high !== undefined) fields[secondary ? 'secondaryCustomTargetValueHigh' : 'customTargetValueHigh'] = high;
   return fields;
