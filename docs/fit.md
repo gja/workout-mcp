@@ -32,6 +32,11 @@ carry it and an importer reading `targetType` on every step chokes on the one re
 missing it. With `durationType: 'repeatUntilStepsCmplt'`, `targetValue` holds the repeat
 count, which resolves off `durationType` and is unaffected.
 
+An ordinary step with no target is the opposite: it carries **no target field at all**.
+intervals.icu reads an explicit `targetType: 'open'` as zone 1, so a 5 km "all out" step
+came through as Z1 pace — and Watchletic, reading their calendar, put that band on the
+watch.
+
 ## 3. An open range end is filled, not left out
 
 FIT has no shape for half a band, and an importer given one end may reject the step —

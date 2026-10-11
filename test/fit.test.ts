@@ -264,9 +264,9 @@ describe('targets', () => {
     expect(step).toMatchObject({ targetType: 'cadence', customTargetCadenceLow: 85, customTargetCadenceHigh: 95 });
   });
 
-  it('leaves an untargeted step open', () => {
+  it('writes no target on an untargeted step', () => {
     const step = roundTrip(build([{ goal_s: 600 }])).workoutStepMesgs[0];
-    expect(step).toMatchObject({ targetType: 'open' });
+    expect(step.targetType).toBeUndefined();
     expect(step.customTargetValueLow).toBeUndefined();
   });
 });
