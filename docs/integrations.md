@@ -73,6 +73,11 @@ Targets arrive absolute and are shown against the thresholds on your athlete pro
 file. The conversion is also lossy — they store a whole percentage, so the bpm shown can
 sit a beat off what you planned.
 
+**A step with no target gets their zone 1** — Z1 pace on a run — and that band reaches any
+app reading their calendar. It happens whether the FIT step says `open` or carries no
+target at all (tried both, 2026-10-11), so it cannot be fixed from the file. A step meant
+to be free needs a bound nobody reaches, such as `["9:00", "-"]` for a hard effort.
+
 ## Completion arrives twice: a webhook, and an hourly backstop
 
 Registered on their app page against `https://workouts-mcp.com/webhooks/intervals` with two
