@@ -516,6 +516,7 @@ async function intervals(request, url) {
 export class WorkersAi extends WorkerEntrypoint {
   async run(model, inputs) {
     state.ai.calls.push({ model, inputs });
+    if (state.ai.reply === 'THROW') throw new Error('stand-in model failure');
     return { response: state.ai.reply };
   }
 }

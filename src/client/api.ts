@@ -90,8 +90,7 @@ export type WorkoutStats = StatsSummary & { laps: Lap[] };
 /** The server's own reckoning of it — it is computed in UTC. */
 export type Window = { from: string; to: string };
 
-/** `quick_add` is false where the server has it switched off. */
-export type Me = { id: string; email: string | null; window: Window; quick_add: boolean };
+export type Me = { id: string; email: string | null; window: Window };
 
 export type ApiToken = { prefix: string; name: string | null; created_at: string; last_used_at: string | null };
 export type IssuedToken = { token: string; prefix: string; note: string };

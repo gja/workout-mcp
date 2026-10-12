@@ -92,11 +92,9 @@ function Dashboard({ me }: { me: Me }) {
         <p className="note">That workout could not be found — it may have been deleted.</p>
       )}
 
-      {me.quick_add && (
-        <div className="row toolbar">
-          <QuickAdd onCreated={reload} />
-        </div>
-      )}
+      <div className="row toolbar">
+        <QuickAdd onCreated={reload} />
+      </div>
 
       <Calendar
         window={shown}

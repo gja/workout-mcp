@@ -57,11 +57,17 @@ const replyText = (result: unknown): string => {
   return response && typeof response === 'object' ? JSON.stringify(response) : '';
 };
 
-/** `summary` is the same prose a saved workout reads back with, so the athlete can judge it before saving. */
-export type Draft = { workout: WorkoutInput; summary: string } | { error: string; reply: string };
+/** Every failure on the model's side reads the same: quick add is a shortcut, Claude is the way. */
+export const QUICK_ADD_FAILED = 'Something went wrong with quick add. Please use Claude to plan this workout.';
 
-/** Validated by the same parser a create goes through, so a draft that comes back will save. */
-export async function draftWorkout(env: Env, userId: string, body: unknown): Promise<Draft> {
+/** `summary` is the same prose a saved workout reads back with, so the athlete can judge it before saving. */
+export type Draft = { workout: WorkoutInput; summary: string };
+
+/**
+ * Null when the model failed or drafted something that does not validate; the reason is
+ * logged, not returned. Validated by the parser a create uses, so a draft that comes back will save.
+ */
+export async function draftWorkout(env: Env, userId: string, body: unknown): Promise<Draft | null> {
   const raw = (body ?? {}) as { date?: unknown; description?: unknown };
   const date = parseDate(raw.date, 'date');
   if (typeof raw.description !== 'string' || raw.description.trim() === '') {
@@ -73,22 +79,23 @@ export async function draftWorkout(env: Env, userId: string, body: unknown): Pro
   }
 
   const zones = (await readContext(env, userId, 'workout-zones')).markdown?.slice(0, MAX_ZONES_CHARS);
-  const result = await env.AI!.run(DRAFT_MODEL, {
-    messages: [
-      { role: 'system', content: `${SYSTEM_PROMPT}\n\nAthlete's zones:\n${zones ?? '(none given; prefer zone targets)'}` },
-      { role: 'user', content: description },
-    ],
-    max_tokens: MAX_OUTPUT_TOKENS,
-    temperature: 0,
-  });
-
-  const reply = replyText(result);
+  let reply = '';
   try {
+    const result = await env.AI!.run(DRAFT_MODEL, {
+      messages: [
+        { role: 'system', content: `${SYSTEM_PROMPT}\n\nAthlete's zones:\n${zones ?? '(none given; prefer zone targets)'}` },
+        { role: 'user', content: description },
+      ],
+      max_tokens: MAX_OUTPUT_TOKENS,
+      temperature: 0,
+    });
+    reply = replyText(result);
     const drafted = extractJson(reply) as Record<string, unknown>;
     // The day is the athlete's, never the model's.
     const workout = parseWorkout({ ...drafted, date });
     return { workout, summary: describeWorkout(workout) };
   } catch (err) {
-    return { error: (err as Error).message, reply };
+    console.error('quick add failed', (err as Error).message, reply);
+    return null;
   }
 }

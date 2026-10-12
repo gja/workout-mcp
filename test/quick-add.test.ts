@@ -1,7 +1,7 @@
 import { SELF, env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Env } from '../src/db';
-import { DRAFT_MODEL, quickAddEnabled } from '../src/quick-add';
+import { DRAFT_MODEL, QUICK_ADD_FAILED, quickAddEnabled } from '../src/quick-add';
 import { resetDatabase, seedUser } from './helpers';
 
 const BASE = 'https://workouts.example';
@@ -70,21 +70,25 @@ describe('POST /api/quick-add', () => {
     expect(made.inputs.messages[1]).toEqual({ role: 'user', content: 'easy 25 min' });
   });
 
-  it('answers 422 naming the field when the draft does not validate, with what the model said', async () => {
-    const reply = JSON.stringify({ ...STRIDES, steps: [{ name: 'Easy', goal_s: 'soon' }] });
-    await modelReplies(reply);
-
+  const answersGenerically = async () => {
     const response = await quickAdd({ date: '2026-10-14', description: 'easy run' });
-    expect(response.status).toBe(422);
-    const body = await response.json<{ error: string; reply: string }>();
-    expect(body.error).toMatch(/^steps\[0\]\.goal_s/);
-    expect(body.reply).toBe(reply);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: QUICK_ADD_FAILED });
+  };
+
+  it('answers the generic failure when the draft does not validate, without the model reply', async () => {
+    await modelReplies(JSON.stringify({ ...STRIDES, steps: [{ name: 'Easy', goal_s: 'soon' }] }));
+    await answersGenerically();
   });
 
-  it('answers 422 when the model gives no JSON at all', async () => {
+  it('answers the generic failure when the model gives no JSON', async () => {
     await modelReplies('Sorry, I cannot help with that.');
-    const response = await quickAdd({ date: '2026-10-14', description: 'easy run' });
-    expect(response.status).toBe(422);
+    await answersGenerically();
+  });
+
+  it('answers the generic failure when the model call throws', async () => {
+    await modelReplies('THROW');
+    await answersGenerically();
   });
 
   it('refuses a missing description or a bad date before calling the model', async () => {
@@ -93,9 +97,8 @@ describe('POST /api/quick-add', () => {
     expect(await modelCalls()).toHaveLength(0);
   });
 
-  it('is advertised on /api/me', async () => {
-    const me = await (await call('/api/me')).json<{ quick_add: boolean }>();
-    expect(me.quick_add).toBe(true);
+  it('is not advertised on /api/me', async () => {
+    expect(await (await call('/api/me')).json()).not.toHaveProperty('quick_add');
   });
 });
 

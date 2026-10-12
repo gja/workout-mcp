@@ -1,7 +1,7 @@
 // The REST API, the tools over plain REST, and the FIT download a watch follows.
 
 import * as db from '../db';
-import { draftWorkout, quickAddEnabled } from '../quick-add';
+import { QUICK_ADD_FAILED, draftWorkout, quickAddEnabled } from '../quick-add';
 import { encodeWorkoutFit, fitFilename } from '../fit';
 import type { AuthedRoute, Context } from '../http';
 import { CORS_HEADERS, error, json, withUser } from '../http';
@@ -56,9 +56,10 @@ const deleteNote: AuthedRoute<NoteRoute> = async ({ env, user, params }) =>
 
 /** Drafts and returns the JSON; the client saves it with `POST /api/workouts`. See docs/quick-add.md. */
 const quickAdd: AuthedRoute = async ({ request, env, user }) => {
-  if (!quickAddEnabled(env)) return error('quick add is switched off on this server', 503);
+  // Switched off reads as any other failure, so nothing tells a caller it is off.
+  if (!quickAddEnabled(env)) return error(QUICK_ADD_FAILED, 503);
   const draft = await draftWorkout(env, user.id, await request.json());
-  return 'workout' in draft ? json(draft) : json(draft, 422);
+  return draft ? json(draft) : error(QUICK_ADD_FAILED, 503);
 };
 
 const createWorkout: AuthedRoute = async ({ request, url, env, user }) => {

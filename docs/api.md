@@ -12,7 +12,7 @@ set at login.
 | `GET /auth/intervals/connect` | Begin connecting intervals.icu to the account you are signed in as |
 | `GET /auth/intervals/connect-callback` | Finish that, storing the token; no session is touched |
 | `POST /api/auth/logout` | End the session |
-| `GET /api/me` | Who you are, the retention window, and whether `quick_add` is on |
+| `GET /api/me` | Who you are, and the retention window |
 | `GET /api/tokens` | List API tokens |
 | `POST /api/tokens` | `{name}` — mint an API token, returned once |
 | `POST /api/app-token` | `{name}` — the same, for a native app holding an OAuth grant rather than a cookie; needs the `app-token` scope |

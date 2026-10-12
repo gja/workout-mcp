@@ -13,9 +13,14 @@ JSON one click away for editing, and saves it with the ordinary create, so every
 still goes through `src/plan.ts`.
 
 The draft is run through `parseWorkout` before it is returned, the same parser a create
-uses, so a draft that comes back will save. One that does not validate is a `422` carrying
-the field-naming `error` and the model's raw `reply`. The date is always the one asked for;
-the model's own is overwritten.
+uses, so a draft that comes back will save. The date is always the one asked for; the
+model's own is overwritten.
+
+A bad date or an empty description is a `400` naming the field, as anywhere else. Anything
+that goes wrong on the model's side (the call failing, a reply that is not JSON, a draft
+that does not validate, or quick add being switched off) is one `503` reading *Something
+went wrong with quick add. Please use Claude to plan this workout.* The real reason and the
+model's reply go to the Worker's logs, not to the caller.
 
 ## What the model sees
 
@@ -51,8 +56,8 @@ npx wrangler secret delete QUICK_ADD  # back on
 ```
 
 It is a secret rather than a `vars` entry because a deploy overwrites dashboard vars. Off,
-the route answers `503`, `/api/me` reports `quick_add: false` and the dashboard hides the
-button. Removing the `ai` binding from `wrangler.jsonc` does the same at the next deploy.
+the route answers the same generic `503` as any other failure, so nothing advertises that
+it is off; the button stays. Removing the `ai` binding from `wrangler.jsonc` does the same at the next deploy.
 
 ## Testing
 
