@@ -139,10 +139,12 @@ twenty seconds ago are the same fact. Opening the app syncs on its own when the 
 over four hours ago, or when the plan it just read is not the one that reached the watch, so
 the line is true rather than merely reassuring.
 
-Under it, what is coming, in the order it will be run, and a tap gets the steps — the plan
-as the server resolves it, repeats kept, each step with its duration and the band it is
-aimed at. A **Missed** section lists anything planned, past and still not done, because
-those are exactly the sessions that are still on the watch.
+Under it, a calendar like the dashboard's, Monday to Sunday, with the picked day listed
+below it; a tap on a workout gets the steps — the plan as the server resolves it, repeats
+kept, each step with its duration and the band it is aimed at. A day behind with something
+undone is tinted, because those sessions are still on the watch. An empty day, today or
+later, offers **Add a sample workout**, and **Plan with Claude** walks through adding the
+connector.
 
 **Executed.** Every session there is evidence of, newest first: what Health recorded on
 this phone, and what the server has already read a file for. A tick means the server has
