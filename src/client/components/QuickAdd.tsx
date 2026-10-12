@@ -57,8 +57,9 @@ export function QuickAdd({ onCreated }: { onCreated: () => void }) {
 
   return (
     <>
-      <button onClick={open}>Quick add</button>
-      <dialog className="quick-add" ref={dialog}>
+      <button onClick={open}>+ Quick add</button>
+      {/* Escape is held off mid-request too: a save landing after a cancel would add a workout nobody kept. */}
+      <dialog className="quick-add" ref={dialog} onCancel={(event) => busy && event.preventDefault()}>
         <h3>Quick add</h3>
         <p className="note">
           Quick add cannot see your planned or completed workouts: it only turns a sentence into a
@@ -80,6 +81,12 @@ export function QuickAdd({ onCreated }: { onCreated: () => void }) {
           onChange={(event) => setDescription(event.target.value)}
         />
 
+        <div className="row end">
+          <button disabled={busy || !description.trim()} onClick={makeDraft}>
+            {draft === null ? 'Draft' : 'Draft again'}
+          </button>
+        </div>
+
         {draft !== null && (
           <>
             <p className="note">Nothing is saved yet. Not right? Reword it and draft again.</p>
@@ -92,19 +99,14 @@ export function QuickAdd({ onCreated }: { onCreated: () => void }) {
         )}
         {error && <p className="error">{error}</p>}
 
-        <div className="row">
-          <button className={draft === null ? 'primary' : undefined} disabled={busy || !description.trim()} onClick={makeDraft}>
-            {draft === null ? 'Draft' : 'Draft again'}
-          </button>
-          {draft !== null && (
-            <button className="primary" disabled={busy} onClick={save}>
-              Save workout
-            </button>
-          )}
-          <button className="link" onClick={() => dialog.current?.close()}>
+        <footer className="row end">
+          <button disabled={busy} onClick={() => dialog.current?.close()}>
             Cancel
           </button>
-        </div>
+          <button className="primary" disabled={busy || draft === null} onClick={save}>
+            Save workout
+          </button>
+        </footer>
       </dialog>
     </>
   );

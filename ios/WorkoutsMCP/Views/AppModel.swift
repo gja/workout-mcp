@@ -64,6 +64,14 @@ final class AppModel: ObservableObject {
     private let recentDays = 7
     private let plannedDays = 14
 
+    /// The days a refresh reads: a workout added outside them would be saved and never shown.
+    var loadedDays: ClosedRange<Date> {
+        let today = Calendar.current.startOfDay(for: Date())
+        let from = Calendar.current.date(byAdding: .day, value: -recentDays, to: today) ?? today
+        let to = Calendar.current.date(byAdding: .day, value: plannedDays, to: today) ?? today
+        return from ... to
+    }
+
     /// Bumped each time a background transfer lands, so a screen that is open reads the plan
     /// again. A recording is sent by a `URLSession` that finishes on its own schedule, long
     /// after whichever call handed it over returned.

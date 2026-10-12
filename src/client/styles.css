@@ -433,8 +433,25 @@ dialog.quick-add {
   color: var(--ink);
   padding: 16px;
 }
+/* One gap between everything, rather than each child's own margins. Only while open: a closed dialog must stay hidden. */
+dialog.quick-add[open] { display: flex; flex-direction: column; gap: 12px; }
+dialog.quick-add > * { margin: 0; }
 dialog.quick-add::backdrop { background: rgb(0 0 0 / 0.4); }
-dialog.quick-add h3 { margin-top: 0; }
-dialog.quick-add textarea { width: 100%; box-sizing: border-box; font: inherit; margin: 8px 0; }
-dialog.quick-add textarea.json { font-family: ui-monospace, monospace; font-size: 12px; min-height: 220px; }
-.toolbar { justify-content: flex-end; margin-bottom: 8px; }
+dialog.quick-add textarea {
+  width: 100%;
+  font: inherit;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  padding: 9px 12px;
+  background: var(--card);
+  color: var(--ink);
+}
+/* Inline in a sentence: the button's own padding would push the line apart. */
+dialog.quick-add p button.link { padding: 0; font: inherit; }
+dialog.quick-add textarea.json { font-family: ui-monospace, monospace; font-size: 12px; min-height: 220px; margin-top: 8px; }
+dialog.quick-add details > summary { cursor: pointer; }
+dialog.quick-add .end { justify-content: flex-end; }
+dialog.quick-add > footer { border-top: 1px solid var(--line); padding-top: 12px; }
+
+.calendar-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 32px 0 10px; }
+.calendar-head h2 { margin: 0; }
