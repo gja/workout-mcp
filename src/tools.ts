@@ -424,7 +424,8 @@ export const TOOLS = [
     description:
       "Replace one context document in full — the athlete's standing brief, which outlives this " +
       'conversation. Read it first, show them what you mean to put there, and call this only once ' +
-      `they have agreed. There is no partial edit; empty clears it, over ${context.MAX_CONTEXT_BYTES / 1024} KB is refused. ` +
+      `they have agreed. There is no partial edit; empty clears it, over ${context.MAX_CONTEXT_BYTES / 1024} KB ` +
+      `(${context.maxContextBytes('workout-zones') / 1024} KB for zones) is refused. ` +
       `Only ${WRITABLE_CONTEXTS} — the workout library is written on the dashboard instead.`,
     inputSchema: {
       type: 'object',

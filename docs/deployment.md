@@ -79,8 +79,8 @@ Workers, D1, KV, static assets and cron triggers all fit the free plan; encoding
 30-step workout is well under the 10 ms CPU limit. You pay for the domain, and for an
 Apple Developer membership if you want the Apple button.
 
-Quick add calls Workers AI, whose free 10,000 neurons a day cover roughly 800 drafts; past
-that, Workers Paid bills about $0.00013 a draft and Workers Free refuses. The numbers and
+Quick add calls Workers AI, whose free 10,000 neurons a day cover roughly 350 drafts; past
+that, Workers Paid bills about $0.0003 a draft and Workers Free refuses. The numbers and
 the switch are in [quick-add.md](quick-add.md).
 
 There is no auth vendor in the stack. Auth0, Clerk, WorkOS and Stytch all have workable

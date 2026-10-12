@@ -69,7 +69,7 @@ move with the training. `create_workout` and `update_workout` name all four read
 because a session written without reading any of them is the failure this exists to
 prevent.
 
-## 100 KB each, in bytes
+## 100 KB each, in bytes, and 32 KB for zones
 
 Refused on the way in rather than truncated, and measured in UTF-8 bytes rather than
 characters — the limit is on what is stored and sent. The binding constraint is the
@@ -77,6 +77,11 @@ reader's context window, and silently keeping the first half of a document would
 than saying no. The message names both numbers in bytes, so an athlete one byte over is
 not told their 100 KB document may be at most 100 KB. A `Content-Length` far above the
 limit is refused with a 413 before the body is parsed.
+
+**Workout zones are held to 32 KB**, because [quick add](quick-add.md) sends the whole
+document to a small model on every draft: that keeps it inside the model's context window
+and bounds what a draft costs. A zones document saved before the limit still reads; the
+next save of it has to fit.
 
 ## The backup
 

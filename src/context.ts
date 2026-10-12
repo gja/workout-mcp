@@ -18,6 +18,8 @@ type Definition = {
   builtIn: string | null;
   /** False for the library: an assistant reads that one, the athlete writes it. */
   writableOverMcp: boolean;
+  /** Below the general limit where something reads the whole document on every call. */
+  maxBytes?: number;
 };
 
 export const CONTEXTS: Record<ContextKind, Definition> = {
@@ -52,6 +54,8 @@ export const CONTEXTS: Record<ContextKind, Definition> = {
       'writing a target: without it a zone name means nothing precise.',
     builtIn: null,
     writableOverMcp: true,
+    // Quick add sends it whole to a small model on every draft. See docs/quick-add.md.
+    maxBytes: 32 * 1024,
   },
 };
 
@@ -67,6 +71,8 @@ export const WRITABLE_KINDS = CONTEXT_KINDS.filter((kind) => CONTEXTS[kind].writ
 
 /** Generous for prose, small enough that one read stays one cheap D1 row. */
 export const MAX_CONTEXT_BYTES = 100 * 1024;
+
+export const maxContextBytes = (kind: ContextKind): number => CONTEXTS[kind].maxBytes ?? MAX_CONTEXT_BYTES;
 
 /** Bytes rather than characters: the limit is on what is stored and sent, not on how it is spelled. */
 const byteLength = (text: string): number => new TextEncoder().encode(text).length;
@@ -153,10 +159,11 @@ export async function saveContext(
   // Both in bytes: rounding the limit to KB and the size with it says "at most
   // 100 KB, and that one is 100 KB" for the document one byte over.
   const size = byteLength(markdown);
-  if (size > MAX_CONTEXT_BYTES) {
+  const limit = maxContextBytes(kind);
+  if (size > limit) {
     fail(
       'markdown',
-      `a context document may be at most ${MAX_CONTEXT_BYTES} bytes (${MAX_CONTEXT_BYTES / 1024} KB), ` +
+      `the ${CONTEXTS[kind].label.toLowerCase()} document may be at most ${limit} bytes (${limit / 1024} KB), ` +
         `and that one is ${size}`,
     );
   }

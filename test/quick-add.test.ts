@@ -70,6 +70,17 @@ describe('POST /api/quick-add', () => {
     expect(made.inputs.messages[1]).toEqual({ role: 'user', content: 'easy 25 min' });
   });
 
+  it('sends the whole zones document, not just its opening', async () => {
+    const markdown = `## Ride\n\n${'Why the ride bands moved. '.repeat(400)}\n\n## Run pace\n\n| Easy | 7:15–7:45 |`;
+    await call('/api/context/workout-zones', { method: 'PUT', body: JSON.stringify({ markdown }) });
+    await modelReplies(JSON.stringify(STRIDES));
+
+    await quickAdd({ date: '2026-10-14', description: 'easy 40 min' });
+
+    const [made] = await modelCalls();
+    expect(made.inputs.messages[0].content).toContain(markdown);
+  });
+
   const answersGenerically = async () => {
     const response = await quickAdd({ date: '2026-10-14', description: 'easy run' });
     expect(response.status).toBe(503);
@@ -109,3 +120,4 @@ describe('switching quick add off', () => {
     expect(quickAddEnabled(env as Env)).toBe(true);
   });
 });
+

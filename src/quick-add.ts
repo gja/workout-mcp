@@ -13,9 +13,6 @@ export const DRAFT_MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8-fast';
 
 export const MAX_DESCRIPTION_LENGTH = 500;
 
-/** Bounds what one draft costs, whatever the athlete has written into their zones. */
-const MAX_ZONES_CHARS = 4000;
-
 const MAX_OUTPUT_TOKENS = 1024;
 
 /** Present when the binding is and nobody has set `QUICK_ADD` to `off`. */
@@ -31,7 +28,7 @@ A step is either {"repeat": number, "steps": [step]} or
 
 Durations: "goal_s" (seconds, or "mm:ss"), "goal_meters", "goal_km". Leave the duration out to run until a lap press.
 Targets: "target_pace_km": ["m:ss","m:ss"], "target_heart_rate": [low, high] in bpm, "target_watts": [low, high], "target_hr_zone": 1-5, "target_power_zone": 1-7. Use "-" for an open end, e.g. ["-","6:30"] for an easy cap.
-Use the athlete's zones below to choose numbers. Omit a target the description does not imply.
+Take every number from the athlete's zones below: match words like easy, tempo, threshold, race pace or strides to the row with that name, and copy its range. Paces there are min/km. Omit a target the description does not imply.
 
 Example: "easy 20 min then 6x 1 min hard 1 min easy"
 {"name":"Easy run with 6x1min","sport":"running","notes":"","steps":[{"name":"Easy","intensity":"active","goal_s":1200},{"repeat":6,"steps":[{"name":"Hard","intensity":"interval","goal_s":60},{"name":"Easy","intensity":"recovery","goal_s":60}]}]}`;
@@ -78,7 +75,8 @@ export async function draftWorkout(env: Env, userId: string, body: unknown): Pro
     fail('description', `at most ${MAX_DESCRIPTION_LENGTH} characters, got ${description.length}`);
   }
 
-  const zones = (await readContext(env, userId, 'workout-zones')).markdown?.slice(0, MAX_ZONES_CHARS);
+  // Whole: the bands for a sport can sit thousands of characters in, and the document is already capped.
+  const zones = (await readContext(env, userId, 'workout-zones')).markdown;
   let reply = '';
   try {
     const result = await env.AI!.run(DRAFT_MODEL, {
