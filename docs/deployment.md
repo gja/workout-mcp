@@ -56,6 +56,7 @@ Google's and Apple's redirect URIs are on the same origin, set in their own cons
 | `INTERVALS_WEBHOOK_AUTHORIZATION` | The header they send with one, when you set one |
 | `CREDENTIALS_SECRET` | Connecting a training platform |
 | `GOOGLE_DRIVE_CLIENT_EMAIL`, `GOOGLE_DRIVE_PRIVATE_KEY` | The copier in `src/drive/`; unset and it does nothing |
+| `QUICK_ADD` | Set to `off` to switch quick add off; see [quick-add.md](quick-add.md) |
 
 `APP_NAME` is an optional plain variable, shown on the dashboard and consent page.
 
@@ -77,6 +78,10 @@ Workouts are never swept. See [database.md](database.md).
 Workers, D1, KV, static assets and cron triggers all fit the free plan; encoding a
 30-step workout is well under the 10 ms CPU limit. You pay for the domain, and for an
 Apple Developer membership if you want the Apple button.
+
+Quick add calls Workers AI, whose free 10,000 neurons a day cover roughly 800 drafts; past
+that, Workers Paid bills about $0.00013 a draft and Workers Free refuses. The numbers and
+the switch are in [quick-add.md](quick-add.md).
 
 There is no auth vendor in the stack. Auth0, Clerk, WorkOS and Stytch all have workable
 free tiers, but each adds an account every self-hoster would have to create on top of

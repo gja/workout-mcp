@@ -2,12 +2,14 @@
 
 import * as auth from '../auth';
 import * as db from '../db';
+import { quickAddEnabled } from '../quick-add';
 import type { AuthedRoute, Context } from '../http';
 import { error, json, withUser } from '../http';
 import type { Router } from '../router';
 
 // The window is UTC, so a client computing it from local midnight would disagree at the edges.
-const whoAmI: AuthedRoute = ({ user }) => json({ ...user, window: db.retentionWindow() });
+const whoAmI: AuthedRoute = ({ env, user }) =>
+  json({ ...user, window: db.retentionWindow(), quick_add: quickAddEnabled(env) });
 
 const listTokens: AuthedRoute = async ({ env, user }) => json({ tokens: await auth.listTokens(env, user.id) });
 

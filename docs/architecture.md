@@ -15,6 +15,7 @@ src/recordings/         those same sessions as one signed, streaming ZIP downloa
 src/identity.ts         signing in with Google or Apple
 src/auth.ts             sessions, accounts and API tokens
 src/context.ts          what an assistant reads before planning
+src/quick-add.ts        a sentence drafted into a workout by Workers AI, never saved
 src/tools.ts            the tool surface shared by MCP and REST
 src/mcp.ts              the MCP surface, on the official SDK's handler
 src/router.ts           a small path router: `:params`, and 405 apart from 404

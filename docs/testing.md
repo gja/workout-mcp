@@ -42,5 +42,6 @@ old shape.
 | `format.test.ts` | The dashboard's formatting, under the client's tsconfig |
 | `drive.test.ts` | The copier: the write check, the path, the ledger claim, the per-run cap |
 | `router.test.ts` | Pattern matching, constraints, 405 apart from 404, HEAD on a GET route |
+| `quick-add.test.ts` | Drafting through the stand-in model: the zones it is shown, validation, the switch |
 
 CI runs `npm run typecheck` and `npm test` on every push to `main` and every pull request.

@@ -12,7 +12,7 @@ set at login.
 | `GET /auth/intervals/connect` | Begin connecting intervals.icu to the account you are signed in as |
 | `GET /auth/intervals/connect-callback` | Finish that, storing the token; no session is touched |
 | `POST /api/auth/logout` | End the session |
-| `GET /api/me` | Who you are, and the retention window |
+| `GET /api/me` | Who you are, the retention window, and whether `quick_add` is on |
 | `GET /api/tokens` | List API tokens |
 | `POST /api/tokens` | `{name}` — mint an API token, returned once |
 | `POST /api/app-token` | `{name}` — the same, for a native app holding an OAuth grant rather than a cookie; needs the `app-token` scope |
@@ -23,6 +23,7 @@ set at login.
 | `GET /api/workouts.json?from=&to=` | List within the retention window; a wider range is narrowed to it. `notes` beside `workouts` are the notes overlapping it |
 | `GET /api/workout-plans?plan-ids=` | Those plans resolved — one duration and its targets a step, repeats kept — for a client that schedules them |
 | `POST /api/workouts` | Create; returns the id and URLs |
+| `POST /api/quick-add` | `{date, description}` drafted into a workout by a small model; returns `{workout}` and saves nothing. See [quick-add.md](quick-add.md) |
 | `GET /api/workouts/:date/:id.json` | Read one |
 | `GET /api/workouts/:date/:id/stats` | What was actually recorded against it, laps and all; 404 until a session comes back |
 | `POST /api/workouts/:date/:id/recording` | The recorded FIT file itself as the body; read for its stats, marks the session done, keeps nothing |

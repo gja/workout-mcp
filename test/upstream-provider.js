@@ -16,6 +16,8 @@
  *     exchange is the `jwt-bearer` grant on the same Google host as sign-in.
  */
 
+import { WorkerEntrypoint } from 'cloudflare:workers';
+
 const base64url = (value) => btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 const idToken = (claims) =>
@@ -262,6 +264,8 @@ const INTERVALS_TOKEN = 'intervals-access-token';
 const INTERVALS_SCOPE = 'CALENDAR:WRITE,ACTIVITY:WRITE';
 
 const freshState = () => ({
+  /** Workers AI: what the next `run` answers with, and every call it was given. */
+  ai: { reply: '', calls: [] },
   athlete: { id: 'i99999', name: 'Test Athlete' },
   /** What the grant behind the bearer covers. A test narrows it to stand for an older one. */
   scope: INTERVALS_SCOPE,
@@ -353,6 +357,7 @@ function control(request, path) {
       revoked: state.revoked,
     });
   }
+  if (path === '/__control/ai') return Response.json({ calls: state.ai.calls });
   if (path === '/__control/drive') {
     return Response.json({
       files: [...state.drive.files.entries()]
@@ -371,6 +376,7 @@ function control(request, path) {
       if (body.driveFailing) state.drive.failing = body.driveFailing;
       if (body.athlete) state.athlete = body.athlete;
       if (body.scope !== undefined) state.scope = body.scope;
+      if (body.aiReply !== undefined) state.ai.reply = body.aiReply;
       return Response.json({ ok: true });
     });
   }
@@ -504,6 +510,14 @@ async function intervals(request, url) {
   }
 
   return new Response(`unexpected intervals.icu request: ${request.method} ${path}`, { status: 404 });
+}
+
+/** The Workers AI binding, as RPC: `env.AI.run(model, inputs)` lands here, never on the network. */
+export class WorkersAi extends WorkerEntrypoint {
+  async run(model, inputs) {
+    state.ai.calls.push({ model, inputs });
+    return { response: state.ai.reply };
+  }
 }
 
 export default {

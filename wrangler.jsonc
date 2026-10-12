@@ -56,6 +56,11 @@
 		// docs/drive.md:
 		//   GOOGLE_DRIVE_CLIENT_EMAIL, GOOGLE_DRIVE_PRIVATE_KEY
 	},
+	// Quick add's model. Set the QUICK_ADD secret to "off" to switch it off
+	// without a deploy; see docs/quick-add.md.
+	"ai": {
+		"binding": "AI"
+	},
 	// The OAuth provider stores clients, grants and tokens here.
 	"kv_namespaces": [
 		{

@@ -17,8 +17,13 @@ export default defineConfig({
 
       return {
         singleWorker: true,
+        // Workers AI has no local simulator, so no remote session: its binding is renamed
+        // out of the way below and the stand-in answers as `AI`.
+        remoteBindings: false,
         wrangler: { configPath: './wrangler.jsonc' },
         miniflare: {
+          // Merged over wrangler's `{ binding: 'AI' }`; it cannot be deleted from there.
+          ai: { binding: 'UNUSED_REMOTE_AI' },
           d1Databases: ['DB'],
           kvNamespaces: ['OAUTH_KV'],
           bindings: {
@@ -43,7 +48,10 @@ export default defineConfig({
           outboundService: { name: 'upstream-provider' },
           // The same Worker, reachable from a test: the intervals.icu stand-in
           // keeps state, and a test has to be able to arrange and read it.
-          serviceBindings: { INTERVALS: 'upstream-provider' },
+          serviceBindings: {
+            INTERVALS: 'upstream-provider',
+            AI: { name: 'upstream-provider', entrypoint: 'WorkersAi' },
+          },
           workers: [
             {
               name: 'upstream-provider',
