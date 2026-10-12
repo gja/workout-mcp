@@ -34,8 +34,8 @@ reasoning and the bands for one sport can sit far in: sending only its opening o
 the model guessing at run paces it was never shown. The zones document is capped at 32 KB,
 roughly 8,000 tokens, which keeps it well inside the model's context window.
 
-Nothing else: not the plan, not past sessions, not the other context documents. That keeps every call small, and it is why the dialog says quick add cannot see
-their training.
+Nothing else: not the plan, not past sessions, not the other context documents. That keeps every call small, and it is why the dialog says quick add has no access to
+planned or executed workouts, goals or other context, and points at Claude or ChatGPT.
 
 ## The model
 
