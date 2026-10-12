@@ -10,7 +10,6 @@ struct PlannedView: View {
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var model: AppModel
     @State private var selected = Calendar.current.startOfDay(for: Date())
-    @State private var showingConnect = false
     @State private var showingQuickAdd = false
 
     var body: some View {
@@ -36,14 +35,6 @@ struct PlannedView: View {
                         NavigationLink(value: workout) { PlannedRow(workout: workout) }
                     }
                 }
-
-                Section {
-                    Button { showingConnect = true } label: {
-                        Label("Plan with Claude", systemImage: "sparkles")
-                    }
-                } footer: {
-                    Text("Claude writes the plan; this app puts it on your watch.")
-                }
             }
             .listStyle(.insetGrouped)
             .navigationTitle("Planned")
@@ -56,7 +47,6 @@ struct PlannedView: View {
             .navigationDestination(for: PlannedWorkout.self) { workout in
                 PlannedWorkoutView(workout: workout)
             }
-            .sheet(isPresented: $showingConnect) { ConnectClaudeView() }
             .sheet(isPresented: $showingQuickAdd) {
                 let days = model.loadedDays
                 // The calendar draws whole weeks, so the day picked can sit just outside what is loaded.

@@ -460,7 +460,7 @@ something undone tinted, because a session missed is a decision to make. A week 
 the long run is on a Sunday — the week `src/client/dates.ts` draws. Tapping a day lists it
 underneath; the tab opens on today.
 
-**Plan with Claude**, under the day and again in Settings, is the steps for connecting
+**Plan with Claude**, in Settings, is the steps for connecting
 one: copy `https://workouts-mcp.com/mcp`, add it on claude.ai as a custom connector and
 sign in with the same account, after which it is there in Claude's iPhone app. claude.ai
 is opened for that step because a connector is added there once, not per device.
