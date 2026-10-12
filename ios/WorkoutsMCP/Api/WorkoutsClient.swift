@@ -85,6 +85,18 @@ struct WorkoutsClient: Sendable {
         return request
     }
 
+    /// `POST /api/workouts`. Only the sample on an empty day writes one; the plan is the
+    /// assistant's to write.
+    func create(_ workout: NewWorkout) async throws {
+        var request = try await signed("/api/workouts")
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        request.httpBody = try encoder.encode(workout)
+        let _: Created = try await send(request)
+    }
+
     // --- The plumbing ------------------------------------------------------------
 
     private func get<T: Decodable>(_ path: String) async throws -> T {
@@ -131,6 +143,10 @@ struct Account: Decodable {
         let from: String
         let to: String
     }
+}
+
+private struct Created: Decodable {
+    let id: String
 }
 
 private struct WorkoutListing: Decodable {

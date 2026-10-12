@@ -43,15 +43,6 @@ struct ExecutedSession: Identifiable, Hashable {
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
-/// One heading on the Planned tab and the workouts under it. A group with nothing in it is
-/// never built, so a title here is always a promise that there is something to show.
-struct PlannedWeek: Identifiable {
-    let title: String
-    let workouts: [PlannedWorkout]
-
-    var id: String { title }
-}
-
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var workouts: [PlannedWorkout] = []
@@ -92,42 +83,31 @@ final class AppModel: ObservableObject {
 
     // --- What the tabs show ------------------------------------------------------------
 
-    /// Today onwards, in the order they will be run.
-    var upcoming: [PlannedWorkout] {
-        let today = WorkoutDate.string(Date())
-        return workouts.filter { !$0.isDone && $0.date >= today }
-    }
-
-    /// The same workouts under the headings the Planned tab reads them in.
-    ///
-    /// A week runs **Monday to Sunday** whatever the phone's locale says, because it is a
-    /// training week: the long run is on a Sunday, and a Sunday filed under *Next week* on a
-    /// Saturday evening is the very next session shown as the one after that. It is also the
-    /// week `src/client/dates.ts` groups the dashboard by. An empty group is left out.
-    var plannedWeeks: [PlannedWeek] {
+    /// The Planned tab's calendar: whole Monday-to-Sunday weeks over the days this model
+    /// loads. Monday whatever the locale says, because it is a training week and the long run
+    /// is on a Sunday — the week `calendarDays` in src/client/dates.ts draws.
+    var calendarDays: [Date] {
         var calendar = Calendar.current
-        calendar.firstWeekday = 2 // Monday, whatever the locale's own answer would be.
-        let now = Date()
-        let weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? now
-        let boundary = { (weeks: Int) -> String in
-            WorkoutDate.string(calendar.date(byAdding: .weekOfYear, value: weeks, to: weekStart) ?? now)
-        }
-        let nextWeek = boundary(1)
-        let after = boundary(2)
+        calendar.firstWeekday = 2
+        let today = calendar.startOfDay(for: Date())
+        guard
+            let from = calendar.date(byAdding: .day, value: -recentDays, to: today),
+            let to = calendar.date(byAdding: .day, value: plannedDays, to: today),
+            let start = calendar.dateInterval(of: .weekOfYear, for: from)?.start,
+            let end = calendar.dateInterval(of: .weekOfYear, for: to)?.end
+        else { return [] }
 
-        let groups: [(String, [PlannedWorkout])] = [
-            ("This week", upcoming.filter { $0.date < nextWeek }),
-            ("Next week", upcoming.filter { $0.date >= nextWeek && $0.date < after }),
-            ("Later", upcoming.filter { $0.date >= after }),
-        ]
-        return groups.filter { !$0.1.isEmpty }.map { PlannedWeek(title: $0.0, workouts: $0.1) }
+        // Added to the start rather than stepped by 86,400 s, so the walk survives a DST change.
+        var days: [Date] = []
+        while let day = calendar.date(byAdding: .day, value: days.count, to: start), day < end {
+            days.append(day)
+        }
+        return days
     }
 
-    /// Behind, and not done. Listed rather than hidden: these are the ones still on the
-    /// watch, because a sync reaches two days back for exactly this reason.
-    var missed: [PlannedWorkout] {
-        let today = WorkoutDate.string(Date())
-        return workouts.filter { !$0.isDone && $0.date < today }.sorted { $0.date > $1.date }
+    func workouts(on day: Date) -> [PlannedWorkout] {
+        let key = WorkoutDate.string(day)
+        return workouts.filter { $0.date == key }
     }
 
     /// Every session there is evidence of, newest first: what Health has, plus anything the
@@ -219,6 +199,20 @@ final class AppModel: ObservableObject {
 
         if case .syncing = sync { return }
         guard PlanSync.isStale || PlanSync.hasChanged(PlanSync.due(in: workouts)) else { return }
+        await syncToAppleFitness(using: client)
+    }
+
+    /// The sample on an empty day, then straight to the watch: trying the app should not wait
+    /// on a sync the athlete has to know to ask for.
+    func createSample(on day: Date, using client: WorkoutsClient?) async {
+        guard let client else { return }
+        do {
+            try await client.create(.sample(on: day))
+        } catch {
+            problem = error.localizedDescription
+            return
+        }
+        await refresh(using: client)
         await syncToAppleFitness(using: client)
     }
 
