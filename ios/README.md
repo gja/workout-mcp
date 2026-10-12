@@ -142,9 +142,8 @@ the line is true rather than merely reassuring.
 Under it, a calendar like the dashboard's, Monday to Sunday, with the picked day listed
 below it; a tap on a workout gets the steps — the plan as the server resolves it, repeats
 kept, each step with its duration and the band it is aimed at. A day behind with something
-undone is tinted, because those sessions are still on the watch. An empty day, today or
-later, offers **Add a sample workout**, and **Plan with Claude** walks through adding the
-connector.
+undone is tinted, because those sessions are still on the watch. **Plan with Claude** walks
+through adding the connector.
 
 **Executed.** Every session there is evidence of, newest first: what Health recorded on
 this phone, and what the server has already read a file for. A tick means the server has

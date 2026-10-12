@@ -202,20 +202,6 @@ final class AppModel: ObservableObject {
         await syncToAppleFitness(using: client)
     }
 
-    /// The sample on an empty day, then straight to the watch: trying the app should not wait
-    /// on a sync the athlete has to know to ask for.
-    func createSample(on day: Date, using client: WorkoutsClient?) async {
-        guard let client else { return }
-        do {
-            try await client.create(.sample(on: day))
-        } catch {
-            problem = error.localizedDescription
-            return
-        }
-        await refresh(using: client)
-        await syncToAppleFitness(using: client)
-    }
-
     // --- Out to Apple -------------------------------------------------------------------------
 
     /// The near part of the plan, onto the watch. Run whole rather than per workout, because

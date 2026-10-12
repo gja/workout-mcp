@@ -267,39 +267,3 @@ enum Timestamps {
         return fractional.date(from: text) ?? whole.date(from: text)
     }
 }
-
-/// The body of `POST /api/workouts`, in docs/workouts.md's format. Written snake_case.
-struct NewWorkout: Encodable {
-    let date: String
-    let name: String
-    let sport: String
-    let notes: String?
-    let steps: [NewStep]
-
-    /// Something to sync and run before an assistant has planned anything: an easy run with
-    /// strides, timed rather than paced, because nothing is known yet about the athlete.
-    static func sample(on day: Date) -> NewWorkout {
-        NewWorkout(
-            date: WorkoutDate.string(day),
-            name: "Sample: easy run with strides",
-            sport: "running",
-            notes: "A sample to try the app with. Connect Claude to plan real ones.",
-            steps: [
-                NewStep(name: "Warm up", goalS: 600),
-                NewStep(repeat: 4, steps: [
-                    NewStep(name: "Stride", goalS: 20),
-                    NewStep(name: "Easy", goalS: 60),
-                ]),
-                NewStep(name: "Easy", goalS: 900),
-                NewStep(name: "Cool down", goalS: 300),
-            ]
-        )
-    }
-}
-
-struct NewStep: Encodable {
-    var name: String?
-    var goalS: Int?
-    var `repeat`: Int?
-    var steps: [NewStep]?
-}

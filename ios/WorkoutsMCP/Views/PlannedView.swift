@@ -10,7 +10,6 @@ struct PlannedView: View {
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var model: AppModel
     @State private var selected = Calendar.current.startOfDay(for: Date())
-    @State private var addingSample = false
     @State private var showingConnect = false
 
     var body: some View {
@@ -31,18 +30,6 @@ struct PlannedView: View {
                     if workouts.isEmpty {
                         Text(model.loading ? "Loading…" : "Nothing planned.")
                             .foregroundStyle(.secondary)
-                        if !model.loading && !isPast {
-                            Button {
-                                addingSample = true
-                                Task {
-                                    await model.createSample(on: selected, using: session.client)
-                                    addingSample = false
-                                }
-                            } label: {
-                                Label(addingSample ? "Adding…" : "Add a sample workout", systemImage: "plus.circle")
-                            }
-                            .disabled(addingSample)
-                        }
                     }
                     ForEach(workouts) { workout in
                         NavigationLink(value: workout) { PlannedRow(workout: workout) }
@@ -66,8 +53,6 @@ struct PlannedView: View {
             .sheet(isPresented: $showingConnect) { ConnectClaudeView() }
         }
     }
-
-    private var isPast: Bool { selected < Calendar.current.startOfDay(for: Date()) }
 
     private var dayTitle: String {
         let day = Formats.day(selected)
