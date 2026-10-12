@@ -13,6 +13,7 @@ export function QuickAdd({ onCreated }: { onCreated: () => void }) {
   const [date, setDate] = useState(() => toKey(startOfToday()));
   const [description, setDescription] = useState('');
   const [draft, setDraft] = useState<string | null>(null);
+  const [summary, setSummary] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,8 +37,9 @@ export function QuickAdd({ onCreated }: { onCreated: () => void }) {
 
   const makeDraft = () =>
     run(async () => {
-      const { workout } = await quickAdd(date, description);
-      setDraft(JSON.stringify(workout, null, 2));
+      const drafted = await quickAdd(date, description);
+      setDraft(JSON.stringify(drafted.workout, null, 2));
+      setSummary(drafted.summary);
     });
 
   const save = () =>
@@ -80,8 +82,12 @@ export function QuickAdd({ onCreated }: { onCreated: () => void }) {
 
         {draft !== null && (
           <>
-            <p className="note">Check it before saving; you can edit the JSON.</p>
-            <textarea className="json" spellCheck={false} value={draft} onChange={(e) => setDraft(e.target.value)} />
+            <p className="note">Nothing is saved yet. Not right? Reword it and draft again.</p>
+            <pre>{summary}</pre>
+            <details>
+              <summary className="note">Edit the JSON (the preview above will not follow)</summary>
+              <textarea className="json" spellCheck={false} value={draft} onChange={(e) => setDraft(e.target.value)} />
+            </details>
           </>
         )}
         {error && <p className="error">{error}</p>}

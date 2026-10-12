@@ -45,7 +45,11 @@ describe('POST /api/quick-add', () => {
 
     const response = await quickAdd({ date: '2026-10-14', description: 'easy 25 min, then strides 20s on 2 min off' });
     expect(response.status).toBe(200);
-    const { workout } = await response.json<{ workout: { date: string; name: string; steps: unknown[] } }>();
+    const { workout, summary } = await response.json<{
+      workout: { date: string; name: string; steps: unknown[] };
+      summary: string;
+    }>();
+    expect(summary.split('\n')[0]).toBe('2026-10-14 — Easy run with strides (running)');
     expect(workout.date).toBe('2026-10-14');
     expect(workout.name).toBe('Easy run with strides');
     expect(workout.steps).toHaveLength(2);

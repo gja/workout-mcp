@@ -3,6 +3,7 @@
 
 import { readContext } from './context';
 import type { Env } from './db';
+import { describeWorkout } from './describe';
 import { fail, parseDate } from './units';
 import type { WorkoutInput } from './workout';
 import { parseWorkout } from './workout';
@@ -56,7 +57,8 @@ const replyText = (result: unknown): string => {
   return response && typeof response === 'object' ? JSON.stringify(response) : '';
 };
 
-export type Draft = { workout: WorkoutInput } | { error: string; reply: string };
+/** `summary` is the same prose a saved workout reads back with, so the athlete can judge it before saving. */
+export type Draft = { workout: WorkoutInput; summary: string } | { error: string; reply: string };
 
 /** Validated by the same parser a create goes through, so a draft that comes back will save. */
 export async function draftWorkout(env: Env, userId: string, body: unknown): Promise<Draft> {
@@ -84,7 +86,8 @@ export async function draftWorkout(env: Env, userId: string, body: unknown): Pro
   try {
     const drafted = extractJson(reply) as Record<string, unknown>;
     // The day is the athlete's, never the model's.
-    return { workout: parseWorkout({ ...drafted, date }) };
+    const workout = parseWorkout({ ...drafted, date });
+    return { workout, summary: describeWorkout(workout) };
   } catch (err) {
     return { error: (err as Error).message, reply };
   }

@@ -6,10 +6,11 @@ Claude with the MCP tools is that.
 
 ## It only drafts
 
-`POST /api/quick-add` takes `{date, description}` and answers `{workout}`: the JSON
-`POST /api/workouts` takes. Nothing is saved. The dashboard shows the draft, lets the
-athlete edit it, and saves it with the ordinary create, so every write still goes through
-`src/plan.ts`.
+`POST /api/quick-add` takes `{date, description}` and answers `{workout, summary}`: the
+JSON `POST /api/workouts` takes, and the prose a saved workout reads back with. Nothing is
+saved. The dashboard shows the summary so the athlete can reword and draft again, keeps the
+JSON one click away for editing, and saves it with the ordinary create, so every write
+still goes through `src/plan.ts`.
 
 The draft is run through `parseWorkout` before it is returned, the same parser a create
 uses, so a draft that comes back will save. One that does not validate is a `422` carrying
