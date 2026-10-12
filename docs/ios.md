@@ -466,8 +466,9 @@ sign in with the same account, after which it is there in Claude's iPhone app. c
 is opened for that step because a connector is added there once, not per device.
 
 **+** on the Planned tab is [quick add](quick-add.md): a day and a sentence, drafted into a
-workout and read back before **Save** creates it. It opens on the day picked, and the
-calendar moves to the day it was saved on.
+workout and read back before **Save** creates it. It opens on the day picked, offers only
+the days the app loads, and after a save moves the calendar to that day and syncs the
+watch if the plan changed.
 
 **Executed** lists every session there is evidence of, from two places at once: what Health
 recorded on this phone, which is what can still be uploaded, and what the server has read a

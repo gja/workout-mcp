@@ -58,7 +58,8 @@ export function QuickAdd({ onCreated }: { onCreated: () => void }) {
   return (
     <>
       <button onClick={open}>+ Quick add</button>
-      <dialog className="quick-add" ref={dialog}>
+      {/* Escape is held off mid-request too: a save landing after a cancel would add a workout nobody kept. */}
+      <dialog className="quick-add" ref={dialog} onCancel={(event) => busy && event.preventDefault()}>
         <h3>Quick add</h3>
         <p className="note">
           Quick add cannot see your planned or completed workouts: it only turns a sentence into a
@@ -99,7 +100,9 @@ export function QuickAdd({ onCreated }: { onCreated: () => void }) {
         {error && <p className="error">{error}</p>}
 
         <footer className="row end">
-          <button onClick={() => dialog.current?.close()}>Cancel</button>
+          <button disabled={busy} onClick={() => dialog.current?.close()}>
+            Cancel
+          </button>
           <button className="primary" disabled={busy || draft === null} onClick={save}>
             Save workout
           </button>

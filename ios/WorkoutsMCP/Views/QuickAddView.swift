@@ -8,7 +8,9 @@ struct QuickAddView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State var date: Date
-    /// Handed the day it landed on, so the calendar can move there.
+    /// The days the Planned tab can show it on.
+    let days: ClosedRange<Date>
+    /// Handed the day it landed on, so the calendar can move there. Run after the sheet closes.
     let onSaved: (Date) async -> Void
 
     @State private var description = ""
@@ -21,9 +23,12 @@ struct QuickAddView: View {
         NavigationStack {
             Form {
                 Section {
-                    DatePicker("Date", selection: $date, displayedComponents: .date)
+                    // Locked while a draft is out, or it would land carrying the day before.
+                    DatePicker("Date", selection: $date, in: days, displayedComponents: .date)
+                        .disabled(busy)
                     TextField("Easy run 25 min, then strides: 20 s on, 2 min off, x6", text: $description, axis: .vertical)
                         .lineLimit(3 ... 6)
+                        .disabled(busy)
                     Button(action: makeDraft) {
                         HStack {
                             Text(draft == nil ? "Draft" : "Draft again")
@@ -59,7 +64,8 @@ struct QuickAddView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    // Not mid-request: a save that finishes after Cancel would add a workout nobody kept.
+                    Button("Cancel") { dismiss() }.disabled(busy)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save", action: save).disabled(busy || draft == nil)
@@ -67,6 +73,7 @@ struct QuickAddView: View {
             }
             // The draft carries the day it was made for; a new day needs a new draft.
             .onChange(of: date) { draft = nil }
+            .interactiveDismissDisabled(busy)
             .sheet(isPresented: $showingConnect) { ConnectClaudeView() }
         }
     }
@@ -81,8 +88,8 @@ struct QuickAddView: View {
         guard let draft else { return }
         run {
             try await client().create(draft)
-            await onSaved(date)
             dismiss()
+            Task { await onSaved(draft.date) }
         }
     }
 

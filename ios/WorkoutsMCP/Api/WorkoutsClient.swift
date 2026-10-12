@@ -88,31 +88,32 @@ struct WorkoutsClient: Sendable {
     /// A sentence drafted into a workout by the server's small model. Nothing is saved: the
     /// draft goes back unchanged to `create` once the athlete has read it. See docs/quick-add.md.
     func quickAdd(on date: Date, description: String) async throws -> QuickAddDraft {
-        var request = try await signed("/api/quick-add")
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(["date": WorkoutDate.string(date), "description": description])
-
-        let data = try await sendForData(request)
+        let asked = try JSONEncoder().encode(["date": WorkoutDate.string(date), "description": description])
+        let data = try await post("/api/quick-add", body: asked)
+        // An object, checked: `JSONSerialization` raises an uncatchable exception on a bare null or string.
         guard let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let workout = body["workout"], let summary = body["summary"] as? String
+              let workout = body["workout"] as? [String: Any], let summary = body["summary"] as? String
         else { throw ApiError(status: 200, message: "could not read the draft") }
-        return QuickAddDraft(workout: try JSONSerialization.data(withJSONObject: workout), summary: summary)
+        return QuickAddDraft(date: date, workout: try JSONSerialization.data(withJSONObject: workout), summary: summary)
     }
 
     /// Saves a quick-add draft as it came back: the app never needs a model of the plan format.
     func create(_ draft: QuickAddDraft) async throws {
-        var request = try await signed("/api/workouts")
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = draft.workout
-        _ = try await sendForData(request)
+        _ = try await post("/api/workouts", body: draft.workout)
     }
 
     // --- The plumbing ------------------------------------------------------------
 
     private func get<T: Decodable>(_ path: String) async throws -> T {
         try await send(try await signed(path))
+    }
+
+    private func post(_ path: String, body: Data) async throws -> Data {
+        var request = try await signed(path)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        return try await sendForData(request)
     }
 
     private func signed(_ path: String) async throws -> URLRequest {
@@ -151,7 +152,9 @@ struct WorkoutsClient: Sendable {
 }
 
 /// `workout` is the JSON `POST /api/workouts` takes, kept as bytes; `summary` is how it reads.
+/// `date` is the day it was drafted for, which the server wrote into `workout`.
 struct QuickAddDraft {
+    let date: Date
     let workout: Data
     let summary: String
 }

@@ -58,9 +58,12 @@ struct PlannedView: View {
             }
             .sheet(isPresented: $showingConnect) { ConnectClaudeView() }
             .sheet(isPresented: $showingQuickAdd) {
-                QuickAddView(date: selected) { day in
-                    await model.refresh(using: session.client)
+                let days = model.loadedDays
+                // The calendar draws whole weeks, so the day picked can sit just outside what is loaded.
+                QuickAddView(date: min(max(selected, days.lowerBound), days.upperBound), days: days) { day in
                     selected = Calendar.current.startOfDay(for: day)
+                    // Syncs too: a new workout in the window is a plan the watch does not hold yet.
+                    await model.refreshAndSyncIfStale(using: session.client)
                 }
             }
         }
