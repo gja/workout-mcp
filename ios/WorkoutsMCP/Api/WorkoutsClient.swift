@@ -103,9 +103,16 @@ struct WorkoutsClient: Sendable {
     }
 
     /// Gone from the plan, its recorded numbers with it. The server takes it off any connected
-    /// platform too; the watch loses it on the next sync, which prunes what the plan no longer has.
+    /// platform too; the sync the model runs straight after takes it off the watch.
     func delete(_ workout: PlannedWorkout) async throws {
         var request = try await signed("/api/workouts/\(workout.key)")
+        request.httpMethod = "DELETE"
+        _ = try await sendForData(request)
+    }
+
+    /// The account and everything in it, for good, along with every token — this one included.
+    func deleteAccount() async throws {
+        var request = try await signed("/api/account")
         request.httpMethod = "DELETE"
         _ = try await sendForData(request)
     }

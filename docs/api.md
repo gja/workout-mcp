@@ -13,6 +13,7 @@ set at login.
 | `GET /auth/intervals/connect-callback` | Finish that, storing the token; no session is touched |
 | `POST /api/auth/logout` | End the session |
 | `GET /api/me` | Who you are, and the retention window |
+| `DELETE /api/account` | Delete the account, everything in it and every sign-in to it. See [auth.md](auth.md#deleting-an-account) |
 | `GET /api/tokens` | List API tokens |
 | `POST /api/tokens` | `{name}` — mint an API token, returned once |
 | `POST /api/app-token` | `{name}` — the same, for a native app holding an OAuth grant rather than a cookie; needs the `app-token` scope |

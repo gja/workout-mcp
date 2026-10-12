@@ -458,7 +458,9 @@ setup interview wants those two figures from an athlete who has not signed in ye
 planned workouts · 2 min ago*, tappable to sync again. The app syncs on its own when the
 last one was over four hours ago, or when the plan it has just read is not the one that
 reached the watch: a status line that is merely the last thing that happened is worse than
-none. Under it is **a calendar, as on the dashboard**: the Monday-to-Sunday weeks over the
+none. **Anything changed in the app syncs at once** — a workout added, deleted, or recorded
+and marked done, and a pull to refresh — so nothing waits for the next sync or a tap. A change
+that lands while a sync is running runs one more when it ends. Under it is **a calendar, as on the dashboard**: the Monday-to-Sunday weeks over the
 days the app loads, a sport icon a workout, a tick for one done, and a day behind with
 something undone tinted, because a session missed is a decision to make. A week runs
 **Monday to Sunday** whatever the phone's locale says, because it is a training week and
@@ -473,12 +475,17 @@ is opened for that step because a connector is added there once, not per device.
 **+** on the Planned tab is [quick add](quick-add.md): a day and a sentence, drafted into a
 workout and read back before **Save** creates it. It opens on the day picked, offers only
 the days the app loads, and after a save moves the calendar to that day and syncs the
-watch if the plan changed.
+watch.
 
 **Deleting** is a swipe on a workout in the day's list, or **Delete workout** at the foot of
 its own screen, each asked once more first: the server deletes the session recorded against
-it too, and there is no undo. The app reads the plan again and syncs, and the sync's prune
-takes the workout off the watch.
+it too, and there is no undo. The app reads the plan again and syncs straight away, and the
+sync's prune takes the workout off the watch.
+
+**Delete account**, at the foot of Settings, asks once and then calls `DELETE /api/account`:
+the server deletes everything, sign-ins included (see [auth.md](auth.md#deleting-an-account)).
+The app then takes everything it scheduled off the watch and signs out. What it saved in
+Health stays, because that is the athlete's own and not the account's.
 
 **Executed** lists every session there is evidence of, from two places at once: what Health
 recorded on this phone, which is what can still be uploaded, and what the server has read a

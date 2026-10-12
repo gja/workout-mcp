@@ -35,6 +35,11 @@ enum PlanLink {
         UserDefaults.standard.set(pruned(links), forKey: defaultsKey)
     }
 
+    /// For an account that has been deleted. After the prune, which reads these to know what is ours.
+    static func forgetAll() {
+        UserDefaults.standard.removeObject(forKey: defaultsKey)
+    }
+
     static func workoutKey(forPlan planID: UUID) -> String? {
         all()[planID.uuidString]
     }

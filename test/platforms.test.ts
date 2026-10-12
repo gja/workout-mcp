@@ -491,6 +491,12 @@ describe('disconnecting', () => {
     expect((await platformStatus()).intervals.connected).toBe(false);
   });
 
+  it('happens when the account is deleted, too', async () => {
+    await connect();
+    expect((await call('/api/account', { method: 'DELETE' })).status).toBe(200);
+    expect(await revoked()).toEqual([TOKEN]);
+  });
+
   // Their call releases the *app* for that athlete, not one token of it, and one
   // athlete legitimately maps to more than one account here. See docs/auth.md.
   it('keeps the grant when another account here is connected to the same athlete', async () => {

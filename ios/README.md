@@ -137,14 +137,15 @@ Apple Fitness · 8 planned workouts · 2 minutes ago*, and tapping it syncs agai
 coarse on purpose: *just now*, then minutes, then hours. A sync five seconds ago and one
 twenty seconds ago are the same fact. Opening the app syncs on its own when the last one was
 over four hours ago, or when the plan it just read is not the one that reached the watch, so
-the line is true rather than merely reassuring.
+the line is true rather than merely reassuring. Adding, deleting or finishing a workout in
+the app syncs at once.
 
 Under it, a calendar like the dashboard's, Monday to Sunday, with the picked day listed
 below it; a tap on a workout gets the steps — the plan as the server resolves it, repeats
 kept, each step with its duration and the band it is aimed at. A day behind with something
 undone is tinted, because those sessions are still on the watch. A swipe on a workout, or
-**Delete workout** on its screen, deletes it after asking, and the next sync takes it off the
-watch. **Plan with Claude** walks through adding the connector.
+**Delete workout** on its screen, deletes it after asking, and the sync that follows takes
+it off the watch. **Plan with Claude** walks through adding the connector.
 
 **Executed.** Every session there is evidence of, newest first: what Health recorded on
 this phone, and what the server has already read a file for. A tick means the server has
@@ -245,7 +246,11 @@ Needs an **Apple Developer Program** membership. Everything below is done once e
    any SKU. An upload with no app record behind it is rejected at the end of a long archive,
    so do this before the first one.
 3. **Privacy policy URL**: `https://workouts-mcp.com/privacy-policy`. HealthKit apps are
-   reviewed against it, and App Store Connect asks for it under *App Privacy*.
+   reviewed against it, and App Store Connect asks for it under *App Privacy*. What the app
+   collects is declared in `WorkoutsMCP/PrivacyInfo.xcprivacy`; *App Privacy* should say
+   the same.
+
+iPhone only: WorkoutKit schedules nothing on an iPad, so the app does not offer itself there.
 
 ### Compile it first
 

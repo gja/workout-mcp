@@ -128,6 +128,16 @@ enum PlanSync {
         return count
     }
 
+    /// Everything this app scheduled, off the watch, and forgotten. For an account that has
+    /// just been deleted: its plan should not go on being offered in the Workout app.
+    static func clear() async {
+        await WorkoutKitSync.pruneTo(keys: [], among: await WorkoutKitSync.scheduled())
+        PlanPlacement.keep([])
+        PlanLink.forgetAll()
+        UserDefaults.standard.removeObject(forKey: syncedAtKey)
+        UserDefaults.standard.removeObject(forKey: syncedCountKey)
+    }
+
     private static func day(_ offset: Int) -> String {
         WorkoutDate.string(Calendar.current.date(byAdding: .day, value: offset, to: Date()) ?? Date())
     }

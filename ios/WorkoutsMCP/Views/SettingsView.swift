@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var showingHeartRate = false
     @State private var showingConnect = false
     @State private var showingSensors = false
+    @State private var confirmingDelete = false
     #if ON_PHONE_RECORDING
     @AppStorage(RunVoice.defaultsKey) private var speaking = true
     #endif
@@ -76,6 +77,16 @@ struct SettingsView: View {
                     Button("Log out", role: .destructive) { session.signOut() }
                         .frame(maxWidth: .infinity)
                 }
+
+                Section {
+                    Button("Delete account", role: .destructive) { confirmingDelete = true }
+                        .frame(maxWidth: .infinity)
+                        .disabled(session.busy)
+                } footer: {
+                    if let problem = session.problem {
+                        Text(problem).foregroundStyle(.red)
+                    }
+                }
             }
             .listStyle(.insetGrouped)
             .navigationTitle("Settings")
@@ -84,6 +95,15 @@ struct SettingsView: View {
             .sheet(isPresented: $showingHeartRate) { HeartRateView() }
             .sheet(isPresented: $showingConnect) { ConnectClaudeView() }
             .sheet(isPresented: $showingSensors) { SensorLabView() }
+            .confirmationDialog("Delete your account?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+                Button("Delete account", role: .destructive) { Task { await session.deleteAccount() } }
+            } message: {
+                Text(
+                    "Your plan, recorded sessions, notes and connections are deleted from the server, "
+                        + "and the workouts this app put on your watch are removed. This cannot be undone. "
+                        + "Sessions already saved in Health stay there."
+                )
+            }
         }
     }
 }

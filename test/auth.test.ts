@@ -460,3 +460,48 @@ describe('API tokens', () => {
     expect((await post('/api/tokens', {})).status).toBe(401);
   });
 });
+
+describe('deleting the account', () => {
+  const remove = (headers: HeadersInit) => SELF.fetch(`${BASE}/api/account`, { method: 'DELETE', headers });
+  const count = async (sql: string) => (await env.DB.prepare(sql).first<{ n: number }>())?.n;
+
+  it('takes the plan, every credential and the sign-in with it', async () => {
+    const cookie = await sessionCookieFor();
+    const { token } = (await (await post('/api/tokens', {}, { Cookie: cookie })).json()) as { token: string };
+    const created = await post('/api/workouts', { date: today(), name: 'Easy', steps: [{ goal_s: 1800 }] }, { Cookie: cookie });
+    expect(created.status, await created.clone().text()).toBe(201);
+
+    expect((await remove({ Cookie: cookie })).status).toBe(200);
+
+    expect((await SELF.fetch(`${BASE}/api/me`, { headers: { Cookie: cookie } })).status).toBe(401);
+    expect((await SELF.fetch(`${BASE}/api/me`, { headers: { Authorization: `Bearer ${token}` } })).status).toBe(401);
+    expect(await count('SELECT COUNT(*) AS n FROM users')).toBe(0);
+    expect(await count('SELECT COUNT(*) AS n FROM workouts')).toBe(0);
+    expect(await count('SELECT COUNT(*) AS n FROM tokens')).toBe(0);
+    expect(await count('SELECT COUNT(*) AS n FROM sessions')).toBe(0);
+  });
+
+  it('takes the sign-ins linked to it too, so signing in again starts afresh', async () => {
+    const google = await signIn('google');
+    await signIn('apple', 'ok-shared-email');
+    expect(await count('SELECT COUNT(*) AS n FROM users')).toBe(2);
+
+    expect((await remove({ Cookie: sessionFrom(google) })).status).toBe(200);
+    expect(await count('SELECT COUNT(*) AS n FROM users')).toBe(0);
+
+    const { token } = (await (await post('/api/apple-session', { code: 'ok' })).json()) as { token: string };
+    const listed = await SELF.fetch(`${BASE}/api/workouts.json`, { headers: { Authorization: `Bearer ${token}` } });
+    expect(await listed.json()).toMatchObject({ workouts: [] });
+  });
+
+  it('leaves everyone else alone', async () => {
+    await signIn('google');
+    const apple = await signIn('apple');
+    expect((await remove({ Cookie: sessionFrom(apple) })).status).toBe(200);
+    expect(await count("SELECT COUNT(*) AS n FROM users WHERE provider = 'google'")).toBe(1);
+  });
+
+  it('needs a credential', async () => {
+    expect((await remove({})).status).toBe(401);
+  });
+});

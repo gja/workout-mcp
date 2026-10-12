@@ -47,7 +47,7 @@ struct PlannedView: View {
                     Button { showingQuickAdd = true } label: { Label("Quick add", systemImage: "plus") }
                 }
             }
-            .refreshable { await model.refresh(using: session.client) }
+            .refreshable { await model.planDidChange(using: session.client) }
             .deleteConfirmation(for: $deleting) { workout in
                 await model.delete(workout, using: session.client)
             }
@@ -59,8 +59,7 @@ struct PlannedView: View {
                 // The calendar draws whole weeks, so the day picked can sit just outside what is loaded.
                 QuickAddView(date: min(max(selected, days.lowerBound), days.upperBound), days: days) { day in
                     selected = Calendar.current.startOfDay(for: day)
-                    // Syncs too: a new workout in the window is a plan the watch does not hold yet.
-                    await model.refreshAndSyncIfStale(using: session.client)
+                    await model.planDidChange(using: session.client)
                 }
             }
         }
@@ -88,8 +87,8 @@ extension View {
             Button("Delete", role: .destructive) { Task { await perform(target) } }
         } message: { target in
             Text(target.isDone
-                ? "It is gone from the plan, the session recorded against it with it, and from the watch at the next sync."
-                : "It is gone from the plan, and from the watch at the next sync.")
+                ? "It is gone from the plan and the watch, and the session recorded against it with it."
+                : "It is gone from the plan and the watch.")
         }
     }
 }

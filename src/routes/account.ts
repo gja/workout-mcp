@@ -4,6 +4,7 @@ import * as auth from '../auth';
 import * as db from '../db';
 import type { AuthedRoute, Context } from '../http';
 import { error, json, withUser } from '../http';
+import * as platforms from '../platforms';
 import type { Router } from '../router';
 
 // The window is UTC, so a client computing it from local midnight would disagree at the edges.
@@ -39,9 +40,30 @@ const revokeConnection: AuthedRoute<'/api/connections/:id'> = async ({ env, user
   return json({ revoked: true });
 };
 
+/**
+ * Everything, for good: the plan, every credential, and each sign-in's provider identifier,
+ * so the next sign-in with the same Apple or Google account starts a new, empty one. Nothing
+ * of Apple's is held to revoke — the native sign-in spends its code and keeps no token.
+ */
+const deleteAccount: AuthedRoute = async ({ env, user }) => {
+  // Handed back upstream while the credential can still be read, as a disconnect does.
+  for (const id of Object.keys(platforms.PLATFORMS) as platforms.PlatformId[]) {
+    await platforms.disconnect(env, user, id);
+  }
+
+  const rows = await auth.signInsOf(env, user.id);
+  await auth.deleteAccount(env, rows.map((row) => row.id));
+
+  // After, so a failed delete leaves the MCP clients connected to an account that still exists.
+  const { items } = await env.OAUTH_PROVIDER.listUserGrants(user.id, { limit: 1000 });
+  await Promise.all(items.map((grant) => env.OAUTH_PROVIDER.revokeGrant(grant.id, user.id)));
+  return json({ deleted: true });
+};
+
 export const routes = (app: Router<Context>): void => {
   app
     .get('/api/me', withUser(whoAmI))
+    .delete('/api/account', withUser(deleteAccount))
 
     .get('/api/tokens', withUser(listTokens))
     .post('/api/tokens', withUser(createToken))

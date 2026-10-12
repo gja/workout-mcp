@@ -2,7 +2,7 @@
 
 import type { Env, User } from './db';
 import { newId } from './db';
-import { all, changes, one, qb, run } from './sql';
+import { all, batch, changes, one, qb, run } from './sql';
 import type { Identity } from './identity';
 
 export const SESSION_TTL_DAYS = 30;
@@ -177,6 +177,41 @@ async function link(env: Env, id: string, created: string, email: string): Promi
 
   await run(env, qb.updateTable('users').set({ alias_of_user_id: linkTo }).where('id', '=', id));
   return linkTo;
+}
+
+/** Every sign-in that reaches this account: its own row and any linked to it. */
+export async function signInsOf(env: Env, accountId: string): Promise<{ id: string }[]> {
+  return all(
+    env,
+    qb
+      .selectFrom('users')
+      .select('id')
+      .where((eb) => eb.or([eb('id', '=', accountId), eb('alias_of_user_id', '=', accountId)])),
+  );
+}
+
+/**
+ * Everything the account holds, and every way into it, in one batch. OAuth grants live in KV
+ * and are the caller's to revoke first. See docs/auth.md.
+ */
+export async function deleteAccount(env: Env, rowIds: string[]): Promise<void> {
+  if (rowIds.length === 0) return;
+  const owned = [
+    'workouts',
+    'notes',
+    'contexts',
+    'sessions',
+    'tokens',
+    'login_states',
+    'platform_connections',
+    'platform_links',
+    'drive_connections',
+    'drive_copies',
+  ] as const;
+  await batch(env, [
+    ...owned.map((table) => qb.deleteFrom(table).where('user_id', 'in', rowIds)),
+    qb.deleteFrom('users').where('id', 'in', rowIds),
+  ]);
 }
 
 // --- Sessions --------------------------------------------------------------
