@@ -137,7 +137,9 @@ is not that.
 
 `DELETE /api/account` takes everything at once: workouts, notes, contexts, platform and
 Drive connections, sessions, API tokens, OAuth grants, and the `users` rows themselves —
-the account and every sign-in linked to it. Deleting the rows deletes the provider's
+the account and every sign-in linked to it. A connected intervals.icu is handed back
+upstream first, as a disconnect does, and grants are revoked only once the rows are gone.
+Deleting the rows deletes the provider's
 identifier, so the same Apple or Google account signing in afterwards starts a new, empty
 account. No Apple token is held to revoke: the native sign-in spends its code and keeps
 nothing but the subject. The iOS app offers it under Settings, as App Store review requires.

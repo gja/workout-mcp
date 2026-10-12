@@ -4,6 +4,7 @@ import * as auth from '../auth';
 import * as db from '../db';
 import type { AuthedRoute, Context } from '../http';
 import { error, json, withUser } from '../http';
+import * as platforms from '../platforms';
 import type { Router } from '../router';
 
 // The window is UTC, so a client computing it from local midnight would disagree at the edges.
@@ -45,12 +46,17 @@ const revokeConnection: AuthedRoute<'/api/connections/:id'> = async ({ env, user
  * of Apple's is held to revoke — the native sign-in spends its code and keeps no token.
  */
 const deleteAccount: AuthedRoute = async ({ env, user }) => {
-  const rows = await auth.signInsOf(env, user.id);
-  for (const row of rows) {
-    const { items } = await env.OAUTH_PROVIDER.listUserGrants(row.id, { limit: 1000 });
-    await Promise.all(items.map((grant) => env.OAUTH_PROVIDER.revokeGrant(grant.id, row.id)));
+  // Handed back upstream while the credential can still be read, as a disconnect does.
+  for (const id of Object.keys(platforms.PLATFORMS) as platforms.PlatformId[]) {
+    await platforms.disconnect(env, user, id);
   }
+
+  const rows = await auth.signInsOf(env, user.id);
   await auth.deleteAccount(env, rows.map((row) => row.id));
+
+  // After, so a failed delete leaves the MCP clients connected to an account that still exists.
+  const { items } = await env.OAUTH_PROVIDER.listUserGrants(user.id, { limit: 1000 });
+  await Promise.all(items.map((grant) => env.OAUTH_PROVIDER.revokeGrant(grant.id, user.id)));
   return json({ deleted: true });
 };
 

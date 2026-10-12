@@ -133,6 +133,7 @@ enum PlanSync {
     static func clear() async {
         await WorkoutKitSync.pruneTo(keys: [], among: await WorkoutKitSync.scheduled())
         PlanPlacement.keep([])
+        PlanLink.forgetAll()
         UserDefaults.standard.removeObject(forKey: syncedAtKey)
         UserDefaults.standard.removeObject(forKey: syncedCountKey)
     }

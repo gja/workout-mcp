@@ -154,10 +154,13 @@ final class AppModel: ObservableObject {
 
     // --- Loading ---------------------------------------------------------------------------
 
-    func refresh(using client: WorkoutsClient?) async {
-        guard let client else { return }
+    /// Whether the plan was read: a failure leaves the last listing in `workouts`.
+    @discardableResult
+    func refresh(using client: WorkoutsClient?) async -> Bool {
+        guard let client else { return false }
         loading = true
         defer { loading = false }
+        var planRead = true
 
         do {
             let from = Calendar.current.date(byAdding: .day, value: -recentDays, to: Date()) ?? Date()
@@ -167,6 +170,7 @@ final class AppModel: ObservableObject {
             problem = nil
         } catch {
             problem = error.localizedDescription
+            planRead = false
         }
 
         do {
@@ -187,6 +191,7 @@ final class AppModel: ObservableObject {
         } catch {
             problem = error.localizedDescription
         }
+        return planRead
     }
 
     /// Opening the app syncs unless the watch already holds this plan: the status line
@@ -212,8 +217,10 @@ final class AppModel: ObservableObject {
     /// After anything in this app changed the plan — a workout added, deleted, or recorded and
     /// marked done: read it back and put it on the watch now, never "at the next sync". A sync
     /// that has nothing to do costs one read of the scheduler, so this does not ask first.
+    /// Not when the plan could not be read back: syncing the listing from before the change
+    /// would put it on the watch as it was and call that synced.
     func planDidChange(using client: WorkoutsClient?) async {
-        await refresh(using: client)
+        guard await refresh(using: client) else { return }
         await syncToAppleFitness(using: client)
     }
 

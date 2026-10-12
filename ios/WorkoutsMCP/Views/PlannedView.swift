@@ -47,7 +47,7 @@ struct PlannedView: View {
                     Button { showingQuickAdd = true } label: { Label("Quick add", systemImage: "plus") }
                 }
             }
-            .refreshable { await model.refreshAndSyncIfStale(using: session.client) }
+            .refreshable { await model.planDidChange(using: session.client) }
             .deleteConfirmation(for: $deleting) { workout in
                 await model.delete(workout, using: session.client)
             }
