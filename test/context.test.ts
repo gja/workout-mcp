@@ -1,6 +1,6 @@
 import { SELF } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { CONTEXTS, CONTEXT_KINDS, MAX_CONTEXT_BYTES, WRITABLE_KINDS, readToolName } from '../src/context';
+import { CONTEXTS, CONTEXT_KINDS, MAX_CONTEXT_BYTES, WRITABLE_KINDS, maxContextBytes, readToolName } from '../src/context';
 import { TOOLS } from '../src/tools';
 import { mcpFetch, resetDatabase, seedUser } from './helpers';
 import { readZip } from './zip-reader';
@@ -143,6 +143,15 @@ describe('writing one over REST', () => {
     expect((await write('current-plan', 'x'.repeat(MAX_CONTEXT_BYTES + 1))).status).toBe(400);
     // Half as many characters as the limit, and three bytes each, so still too much.
     expect((await write('current-plan', '€'.repeat(MAX_CONTEXT_BYTES / 2))).status).toBe(400);
+  });
+
+  it('holds the workout zones to 32 KB, since quick add sends them whole on every draft', async () => {
+    const limit = maxContextBytes('workout-zones');
+    expect(limit).toBe(32 * 1024);
+    expect((await write('workout-zones', 'x'.repeat(limit))).status).toBe(200);
+    const response = await write('workout-zones', 'x'.repeat(limit + 1));
+    expect(response.status).toBe(400);
+    expect((await response.json<{ error: string }>()).error).toContain(`workout zones document may be at most ${limit} bytes`);
   });
 
   it('is one set of documents per athlete', async () => {

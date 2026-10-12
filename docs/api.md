@@ -40,7 +40,7 @@ set at login.
 | `GET /api/context` | Every context document an assistant reads, where each stands, and the tool that reads it |
 | `GET /api/context.zip` | All of them as `backup-context.zip`, plus a manifest |
 | `GET /api/context/:kind` | One of them |
-| `PUT /api/context/:kind` | `{markdown}` — replace it; empty clears it, over 100 KB is refused |
+| `PUT /api/context/:kind` | `{markdown}` — replace it; empty clears it, over 100 KB (32 KB for `workout-zones`) is refused |
 | `DELETE /api/context/:kind` | Forget what they wrote, going back to the built-in document or to nothing |
 | `GET /api/config` | Every integration and where each one stands |
 | `PUT /api/config/:integration` | Answers 400: a platform is connected by OAuth, not by a body |

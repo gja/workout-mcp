@@ -28,9 +28,13 @@ model's reply go to the Worker's logs, not to the caller.
 
 ## What the model sees
 
-The format, one example, the athlete's **workout zones** (the first 4000 characters) and
-the description. Nothing else: not the plan, not past sessions, not the other context
-documents. That keeps every call small, and it is why the dialog says quick add cannot see
+The format, one example, the athlete's whole **workout zones** document and the
+description. Whole, because a real zones document runs to many thousands of characters of
+reasoning and the bands for one sport can sit far in: sending only its opening once left
+the model guessing at run paces it was never shown. The zones document is capped at 32 KB,
+roughly 8,000 tokens, which keeps it well inside the model's context window.
+
+Nothing else: not the plan, not past sessions, not the other context documents. That keeps every call small, and it is why the dialog says quick add cannot see
 their training.
 
 ## The model
@@ -46,9 +50,9 @@ Workers AI bills in neurons: 10,000 a day are free on every plan, and beyond tha
 Paid charges $0.011 per 1,000. On the 8B model that is $0.045 per million input tokens and
 $0.384 per million output.
 
-A typical draft is about 800 tokens in and 250 out, roughly **$0.00013**; the worst case,
-with long zones and the 1024-token output cap, is about $0.0005. The free allocation covers
-roughly 800 typical drafts a day. On Workers Free, calls past it fail rather than bill.
+Input is mostly the zones document. With a 15 KB one, a draft is about 4,500 tokens in and
+250 out, roughly **$0.0003**; the worst case, a 32 KB document and the 1024-token output
+cap, is about $0.0008. The free allocation covers roughly 350 drafts a day at 15 KB. On Workers Free, calls past it fail rather than bill.
 
 ## Switching it off
 
