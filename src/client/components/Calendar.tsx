@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { Note, Workout, Window } from '../api';
 import { calendarDays, longDate, shortDate, fromKey, toKey } from '../dates';
 import { useFitDrop } from '../fitDrop';
@@ -24,6 +25,8 @@ type Props = {
   selected: string | null;
   onSelect: (key: string | null) => void;
   onRecorded: () => void;
+  /** Sits on the title row, at its end. */
+  action?: ReactNode;
 };
 
 /** A workout on its day. A .fit dropped on it is recorded against it. */
@@ -66,7 +69,7 @@ function WorkoutChip({ workout, on, onSelect, onRecorded }: {
   );
 }
 
-export function Calendar({ window, workouts, notes, selected, onSelect, onRecorded }: Props) {
+export function Calendar({ window, workouts, notes, selected, onSelect, onRecorded, action }: Props) {
   const span = windowCovering(window, workouts);
   const days = calendarDays(span.from, span.to);
   const today = toKey(new Date());
@@ -78,9 +81,12 @@ export function Calendar({ window, workouts, notes, selected, onSelect, onRecord
 
   return (
     <section>
-      <h2>
-        {shortDate(fromKey(span.from))} – {shortDate(fromKey(span.to))}
-      </h2>
+      <div className="calendar-head">
+        <h2>
+          {shortDate(fromKey(span.from))} – {shortDate(fromKey(span.to))}
+        </h2>
+        {action}
+      </div>
 
       <div className="calendar">
         {WEEKDAYS.map((day) => (

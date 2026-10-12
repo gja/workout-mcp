@@ -92,10 +92,6 @@ function Dashboard({ me }: { me: Me }) {
         <p className="note">That workout could not be found — it may have been deleted.</p>
       )}
 
-      <div className="row toolbar">
-        <QuickAdd onCreated={reload} />
-      </div>
-
       <Calendar
         window={shown}
         workouts={workouts}
@@ -103,6 +99,7 @@ function Dashboard({ me }: { me: Me }) {
         selected={selected}
         onSelect={setSelected}
         onRecorded={reload}
+        action={<QuickAdd onCreated={reload} />}
       />
 
       {/* An empty calendar is usually an athlete who has not reached Claude yet, so the two doors are right here. */}

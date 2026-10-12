@@ -57,7 +57,7 @@ export function QuickAdd({ onCreated }: { onCreated: () => void }) {
 
   return (
     <>
-      <button onClick={open}>Quick add</button>
+      <button onClick={open}>+ Quick add</button>
       <dialog className="quick-add" ref={dialog}>
         <h3>Quick add</h3>
         <p className="note">
@@ -80,6 +80,12 @@ export function QuickAdd({ onCreated }: { onCreated: () => void }) {
           onChange={(event) => setDescription(event.target.value)}
         />
 
+        <div className="row end">
+          <button disabled={busy || !description.trim()} onClick={makeDraft}>
+            {draft === null ? 'Draft' : 'Draft again'}
+          </button>
+        </div>
+
         {draft !== null && (
           <>
             <p className="note">Nothing is saved yet. Not right? Reword it and draft again.</p>
@@ -92,19 +98,12 @@ export function QuickAdd({ onCreated }: { onCreated: () => void }) {
         )}
         {error && <p className="error">{error}</p>}
 
-        <div className="row">
-          <button className={draft === null ? 'primary' : undefined} disabled={busy || !description.trim()} onClick={makeDraft}>
-            {draft === null ? 'Draft' : 'Draft again'}
+        <footer className="row end">
+          <button onClick={() => dialog.current?.close()}>Cancel</button>
+          <button className="primary" disabled={busy || draft === null} onClick={save}>
+            Save workout
           </button>
-          {draft !== null && (
-            <button className="primary" disabled={busy} onClick={save}>
-              Save workout
-            </button>
-          )}
-          <button className="link" onClick={() => dialog.current?.close()}>
-            Cancel
-          </button>
-        </div>
+        </footer>
       </dialog>
     </>
   );
