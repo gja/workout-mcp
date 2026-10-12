@@ -70,7 +70,7 @@ export function describeSteps(steps: ResolvedStep[], indent = ''): string[] {
   return lines;
 }
 
-export function describeWorkout(workout: Workout): string {
+export function describeWorkout(workout: Pick<Workout, 'date' | 'name' | 'sport' | 'sub_sport' | 'tags' | 'steps'>): string {
   const sport = workout.sub_sport ? `${workout.sport}, ${workout.sub_sport.replace('_', ' ')}` : workout.sport;
   const tags = workout.tags?.length ? ` [${workout.tags.join(', ')}]` : '';
   return [

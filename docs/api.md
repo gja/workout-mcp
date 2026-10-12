@@ -23,6 +23,7 @@ set at login.
 | `GET /api/workouts.json?from=&to=` | List within the retention window; a wider range is narrowed to it. `notes` beside `workouts` are the notes overlapping it |
 | `GET /api/workout-plans?plan-ids=` | Those plans resolved — one duration and its targets a step, repeats kept — for a client that schedules them |
 | `POST /api/workouts` | Create; returns the id and URLs |
+| `POST /api/quick-add` | `{date, description}` drafted into a workout by a small model; returns `{workout, summary}` and saves nothing. See [quick-add.md](quick-add.md) |
 | `GET /api/workouts/:date/:id.json` | Read one |
 | `GET /api/workouts/:date/:id/stats` | What was actually recorded against it, laps and all; 404 until a session comes back |
 | `POST /api/workouts/:date/:id/recording` | The recorded FIT file itself as the body; read for its stats, marks the session done, keeps nothing |

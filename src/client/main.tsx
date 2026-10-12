@@ -10,6 +10,7 @@ import { ConnectedApps } from './components/ConnectedApps';
 import { CONNECT_SECTION_ID, ConnectToClaude } from './components/ConnectToClaude';
 import { Faq, REPO_URL, STARTER_SECTION_ID } from './components/Faq';
 import { Platforms } from './components/Platforms';
+import { QuickAdd } from './components/QuickAdd';
 import { SignIn } from './components/SignIn';
 import { WorkoutCard } from './components/WorkoutCard';
 import { guardPageDrops } from './fitDrop';
@@ -90,6 +91,10 @@ function Dashboard({ me }: { me: Me }) {
       {missing && (
         <p className="note">That workout could not be found — it may have been deleted.</p>
       )}
+
+      <div className="row toolbar">
+        <QuickAdd onCreated={reload} />
+      </div>
 
       <Calendar
         window={shown}

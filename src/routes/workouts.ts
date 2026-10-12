@@ -1,6 +1,7 @@
 // The REST API, the tools over plain REST, and the FIT download a watch follows.
 
 import * as db from '../db';
+import { QUICK_ADD_FAILED, draftWorkout, quickAddEnabled } from '../quick-add';
 import { encodeWorkoutFit, fitFilename } from '../fit';
 import type { AuthedRoute, Context } from '../http';
 import { CORS_HEADERS, error, json, withUser } from '../http';
@@ -52,6 +53,14 @@ const deleteNote: AuthedRoute<NoteRoute> = async ({ env, user, params }) =>
   (await db.deleteNote(env, user.id, params.id))
     ? json({ deleted: true, id: params.id })
     : error(`no note ${params.id}`, 404);
+
+/** Drafts and returns the JSON; the client saves it with `POST /api/workouts`. See docs/quick-add.md. */
+const quickAdd: AuthedRoute = async ({ request, env, user }) => {
+  // Switched off reads as any other failure, so nothing tells a caller it is off.
+  if (!quickAddEnabled(env)) return error(QUICK_ADD_FAILED, 503);
+  const draft = await draftWorkout(env, user.id, await request.json());
+  return draft ? json(draft) : error(QUICK_ADD_FAILED, 503);
+};
 
 const createWorkout: AuthedRoute = async ({ request, url, env, user }) => {
   const workout = await plan.createWorkout(env, user, parseWorkout((await request.json()) ?? {}));
@@ -273,6 +282,7 @@ export const routes = (app: Router<Context>): void => {
     .get('/api/workout-plans', withUser(getWorkoutPlans))
     .get('/api/workouts', withUser(listWorkouts))
     .post('/api/workouts', withUser(createWorkout))
+    .post('/api/quick-add', withUser(quickAdd))
     .get(WORKOUT, withUser(getWorkout))
     .get(`${WORKOUT}/stats`, withUser(getWorkoutStats))
     .post(`${WORKOUT}/recording`, withUser(recordWorkout))

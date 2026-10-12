@@ -121,6 +121,12 @@ export const listWorkouts = (to: string): Promise<{ workouts: Workout[]; notes: 
   request(`/api/workouts.json?to=${to}`);
 /** By id alone: the server ignores the day in the path, so today stands in for it. */
 export const getWorkout = (id: string, day: string): Promise<Workout> => request(`/api/workouts/${day}/${id}.json`);
+/** A workout as `POST /api/workouts` takes it; quick add drafts one and saves nothing. */
+export type WorkoutInput = { date: string; name: string; sport: string; steps: unknown[]; [field: string]: unknown };
+export const quickAdd = (date: string, description: string): Promise<{ workout: WorkoutInput; summary: string }> =>
+  request('/api/quick-add', { method: 'POST', body: { date, description } });
+export const createWorkout = (workout: WorkoutInput): Promise<unknown> =>
+  request('/api/workouts', { method: 'POST', body: workout });
 export const deleteWorkout = (workout: Workout): Promise<unknown> => request(workout.json_url, { method: 'DELETE' });
 
 export const getWorkoutStats = (workout: Workout): Promise<WorkoutStats> =>

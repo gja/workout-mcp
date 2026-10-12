@@ -424,3 +424,17 @@ textarea.context {
   background: var(--bg);
   color: var(--ink);
 }
+
+dialog.quick-add {
+  width: min(560px, calc(100vw - 32px));
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--ink);
+  padding: 16px;
+}
+dialog.quick-add::backdrop { background: rgb(0 0 0 / 0.4); }
+dialog.quick-add h3 { margin-top: 0; }
+dialog.quick-add textarea { width: 100%; box-sizing: border-box; font: inherit; margin: 8px 0; }
+dialog.quick-add textarea.json { font-family: ui-monospace, monospace; font-size: 12px; min-height: 220px; }
+.toolbar { justify-content: flex-end; margin-bottom: 8px; }

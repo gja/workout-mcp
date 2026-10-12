@@ -82,6 +82,12 @@ The full REST surface as one table: sign-in, tokens, workout CRUD, completion, p
 FIT export and the MCP tools over plain HTTP. Explains the `.json` suffix, 401 before 404,
 and posting a recording as raw bytes.
 
+### [docs/quick-add.md](docs/quick-add.md)
+
+A sentence turned into workout JSON by a small Workers AI model, which drafts and never
+saves. What the model is shown, why the draft is validated before it returns, what each
+call costs, and how to switch it off.
+
 ### [docs/prompts.md](docs/prompts.md)
 
 The MCP prompt surface, which is one template: the getting-started interview that fills an

@@ -57,6 +57,11 @@ export type Env = {
   GOOGLE_DRIVE_CLIENT_EMAIL?: string;
   /** Its private key, PEM PKCS#8, straight out of the JSON Google downloads. */
   GOOGLE_DRIVE_PRIVATE_KEY?: string;
+
+  /** Workers AI, for quick add. Typed by the one call made on it rather than the full model union. */
+  AI?: { run(model: string, inputs: Record<string, unknown>): Promise<unknown> };
+  /** `off` switches quick add off without a deploy. See docs/quick-add.md. */
+  QUICK_ADD?: string;
 };
 
 export type User = { id: string; email: string | null };
