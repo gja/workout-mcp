@@ -205,14 +205,20 @@ final class AppModel: ObservableObject {
         // read, and reaches this screen whether a wake or this call sent it.
         await BackgroundSync.uploadWhatIsCertain()
 
-        if case .syncing = sync { return }
         guard PlanSync.isStale || PlanSync.hasChanged(PlanSync.due(in: workouts)) else { return }
         await syncToAppleFitness(using: client)
     }
 
-    /// Deleted on the server, then read back and synced: a workout gone from the window is a
-    /// plan the watch should no longer hold, and the prune takes it off. No `note`: the athlete
-    /// has just confirmed it, and the list it goes from says the rest.
+    /// After anything in this app changed the plan — a workout added, deleted, or recorded and
+    /// marked done: read it back and put it on the watch now, never "at the next sync". A sync
+    /// that has nothing to do costs one read of the scheduler, so this does not ask first.
+    func planDidChange(using client: WorkoutsClient?) async {
+        await refresh(using: client)
+        await syncToAppleFitness(using: client)
+    }
+
+    /// Deleted on the server, then read back and synced, which takes it off the watch. No
+    /// `note`: the athlete has just confirmed it, and the list it goes from says the rest.
     func delete(_ workout: PlannedWorkout, using client: WorkoutsClient?) async {
         guard let client else { return }
         do {
@@ -221,7 +227,7 @@ final class AppModel: ObservableObject {
             problem = error.localizedDescription
             return
         }
-        await refreshAndSyncIfStale(using: client)
+        await planDidChange(using: client)
     }
 
     // --- Out to Apple -------------------------------------------------------------------------
@@ -230,10 +236,19 @@ final class AppModel: ObservableObject {
     /// what the athlete wants to know is whether their plan is there, not which parts of it.
     func syncToAppleFitness(using client: WorkoutsClient?) async {
         guard let client else { return }
-        // A tap while it is already running is not a second run.
-        if case .syncing = sync { return }
-        await performSync(using: client)
+        // A change that lands mid-sync may have been read after that sync read the plan, so it
+        // is run once more when this one ends rather than dropped.
+        if case .syncing = sync {
+            resyncWhenDone = true
+            return
+        }
+        repeat {
+            resyncWhenDone = false
+            await performSync(using: client)
+        } while resyncWhenDone
     }
+
+    private var resyncWhenDone = false
 
     /// The rules are `PlanSync`'s, because a turn iOS grants in the background runs the same
     /// ones. What is left here is the counting-out the status line does.
@@ -316,7 +331,8 @@ final class AppModel: ObservableObject {
                 said += " — \(Formats.distance(metres))"
             }
             note = said
-            await refresh(using: client)
+            // Done here is ticked on the watch.
+            await planDidChange(using: client)
         } catch {
             problem = error.localizedDescription
         }

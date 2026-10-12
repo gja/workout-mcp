@@ -82,6 +82,23 @@ final class AppSession: ObservableObject {
         account = try? await client.me()
     }
 
+    /// Deleted on the server, then whatever this app put on the watch is taken off, so nothing
+    /// of the account is left behind on the phone either.
+    func deleteAccount() async {
+        guard let client else { return }
+        busy = true
+        defer { busy = false }
+
+        do {
+            try await client.deleteAccount()
+        } catch {
+            problem = error.localizedDescription
+            return
+        }
+        await PlanSync.clear()
+        signOut()
+    }
+
     func signOut() {
         StoredSession.forget()
         stored = nil

@@ -39,9 +39,25 @@ const revokeConnection: AuthedRoute<'/api/connections/:id'> = async ({ env, user
   return json({ revoked: true });
 };
 
+/**
+ * Everything, for good: the plan, every credential, and each sign-in's provider identifier,
+ * so the next sign-in with the same Apple or Google account starts a new, empty one. Nothing
+ * of Apple's is held to revoke — the native sign-in spends its code and keeps no token.
+ */
+const deleteAccount: AuthedRoute = async ({ env, user }) => {
+  const rows = await auth.signInsOf(env, user.id);
+  for (const row of rows) {
+    const { items } = await env.OAUTH_PROVIDER.listUserGrants(row.id, { limit: 1000 });
+    await Promise.all(items.map((grant) => env.OAUTH_PROVIDER.revokeGrant(grant.id, row.id)));
+  }
+  await auth.deleteAccount(env, rows.map((row) => row.id));
+  return json({ deleted: true });
+};
+
 export const routes = (app: Router<Context>): void => {
   app
     .get('/api/me', withUser(whoAmI))
+    .delete('/api/account', withUser(deleteAccount))
 
     .get('/api/tokens', withUser(listTokens))
     .post('/api/tokens', withUser(createToken))

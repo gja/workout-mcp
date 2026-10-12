@@ -133,6 +133,15 @@ What does **not** move either is anything the demoted row owns — workouts, con
 connected platform — so a row with data of its own is a merge rather than a link, and this
 is not that.
 
+## Deleting an account
+
+`DELETE /api/account` takes everything at once: workouts, notes, contexts, platform and
+Drive connections, sessions, API tokens, OAuth grants, and the `users` rows themselves —
+the account and every sign-in linked to it. Deleting the rows deletes the provider's
+identifier, so the same Apple or Google account signing in afterwards starts a new, empty
+account. No Apple token is held to revoke: the native sign-in spends its code and keeps
+nothing but the subject. The iOS app offers it under Settings, as App Store review requires.
+
 ## State handling
 
 The in-flight sign-in is remembered in **two** places and the callback insists on both.
