@@ -11,6 +11,7 @@ struct PlannedView: View {
     @EnvironmentObject private var model: AppModel
     @State private var selected = Calendar.current.startOfDay(for: Date())
     @State private var showingQuickAdd = false
+    @State private var deleting: PlannedWorkout?
 
     var body: some View {
         NavigationStack {
@@ -33,6 +34,9 @@ struct PlannedView: View {
                     }
                     ForEach(workouts) { workout in
                         NavigationLink(value: workout) { PlannedRow(workout: workout) }
+                            .swipeActions {
+                                Button("Delete", role: .destructive) { deleting = workout }
+                            }
                     }
                 }
             }
@@ -44,6 +48,9 @@ struct PlannedView: View {
                 }
             }
             .refreshable { await model.refresh(using: session.client) }
+            .deleteConfirmation(for: $deleting) { workout in
+                await model.delete(workout, using: session.client)
+            }
             .navigationDestination(for: PlannedWorkout.self) { workout in
                 PlannedWorkoutView(workout: workout)
             }
@@ -62,6 +69,28 @@ struct PlannedView: View {
     private var dayTitle: String {
         let day = Formats.day(selected)
         return Calendar.current.isDateInToday(selected) ? "Today · \(day)" : day
+    }
+}
+
+extension View {
+    /// Asked first, because a delete takes a recorded session's numbers with it and there is
+    /// no undo. Shared by the swipe on the Planned tab and the button on a workout's own screen.
+    func deleteConfirmation(
+        for workout: Binding<PlannedWorkout?>,
+        perform: @escaping (PlannedWorkout) async -> Void
+    ) -> some View {
+        confirmationDialog(
+            workout.wrappedValue.map { "Delete \($0.name)?" } ?? "",
+            isPresented: Binding(get: { workout.wrappedValue != nil }, set: { if !$0 { workout.wrappedValue = nil } }),
+            titleVisibility: .visible,
+            presenting: workout.wrappedValue
+        ) { target in
+            Button("Delete", role: .destructive) { Task { await perform(target) } }
+        } message: { target in
+            Text(target.isDone
+                ? "It is gone from the plan, the session recorded against it with it, and from the watch at the next sync."
+                : "It is gone from the plan, and from the watch at the next sync.")
+        }
     }
 }
 

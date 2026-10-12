@@ -11,10 +11,12 @@ struct PlannedWorkoutView: View {
 
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
 
     @State private var plan: ResolvedPlan?
     @State private var failure: String?
     @State private var running = false
+    @State private var deleting: PlannedWorkout?
 
     /// The listing's copy, which an upload a moment ago may have moved on from.
     private var current: PlannedWorkout { model.current(workout) }
@@ -54,6 +56,11 @@ struct PlannedWorkoutView: View {
             }
 
             start
+
+            Section {
+                Button("Delete workout", role: .destructive) { deleting = current }
+                    .frame(maxWidth: .infinity)
+            }
         }
         .listStyle(.insetGrouped)
         .navigationTitle(current.name)
@@ -63,6 +70,12 @@ struct PlannedWorkoutView: View {
         // that is there only while the workout is not done, and an upload landing mid-run
         // would take the running screen down with it while HealthKit kept recording.
         .fullScreenCover(isPresented: $running) { run }
+        .deleteConfirmation(for: $deleting) { workout in
+            // Taken before leaving: the environment is not this view's to read once it has gone.
+            let (model, client) = (self.model, self.session.client)
+            dismiss()
+            await model.delete(workout, using: client)
+        }
     }
 
     /// `WorkoutStart` is compiled out of a build without `ON_PHONE_RECORDING`, so what is named

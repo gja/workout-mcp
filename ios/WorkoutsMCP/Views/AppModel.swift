@@ -210,6 +210,20 @@ final class AppModel: ObservableObject {
         await syncToAppleFitness(using: client)
     }
 
+    /// Deleted on the server, then read back and synced: a workout gone from the window is a
+    /// plan the watch should no longer hold, and the prune takes it off. No `note`: the athlete
+    /// has just confirmed it, and the list it goes from says the rest.
+    func delete(_ workout: PlannedWorkout, using client: WorkoutsClient?) async {
+        guard let client else { return }
+        do {
+            try await client.delete(workout)
+        } catch {
+            problem = error.localizedDescription
+            return
+        }
+        await refreshAndSyncIfStale(using: client)
+    }
+
     // --- Out to Apple -------------------------------------------------------------------------
 
     /// The near part of the plan, onto the watch. Run whole rather than per workout, because

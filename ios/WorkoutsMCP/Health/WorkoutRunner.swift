@@ -166,6 +166,12 @@ final class WorkoutRunner: NSObject, ObservableObject {
 
     // --- Readings ----------------------------------------------------------------------------
 
+    /// A strap or power meter paired in Settings. See `writeSensors`.
+    private let sensors = SensorLab.shared
+    /// The types a sensor is supplying, which HealthKit's own collection stands down for.
+    private var fromSensor: Set<HKQuantityType> = []
+    private var sensorWriteFailed = false
+
     private var powerSum = 0.0
     private var powerReadings = 0
     private var stepCounts: [(at: Date, steps: Double)] = []
@@ -304,6 +310,7 @@ final class WorkoutRunner: NSObject, ObservableObject {
             route = HKWorkoutRouteBuilder(healthStore: HealthAccess.store, device: nil)
             startLocating()
         }
+        sensors.reconnect()
     }
 
     /// Cadence and power are asked for by name: the data source collects neither on its own,
@@ -565,10 +572,13 @@ final class WorkoutRunner: NSObject, ObservableObject {
                 : nil
         }
 
-        heartRate = latest(HKQuantityType(.heartRate), in: .count().unitDivided(by: .minute()))
-        power = latest(HKQuantityType(isCycling ? .cyclingPower : .runningPower), in: .watt())
+        heartRate = sensors.fresh(.heartRate)
+            ?? latest(HKQuantityType(.heartRate), in: .count().unitDivided(by: .minute()))
+        power = (isCycling ? sensors.fresh(.cyclingPower) : nil)
+            ?? latest(HKQuantityType(isCycling ? .cyclingPower : .runningPower), in: .watt())
         let now = Date()
         if onTick {
+            writeSensors(at: now)
             averagePower()
             readCadence(at: now)
             readSpeed(at: now)
@@ -629,7 +639,8 @@ final class WorkoutRunner: NSObject, ObservableObject {
     /// them swings by twenty with every stride landing either side of a tick.
     private func readCadence(at now: Date) {
         if isCycling {
-            cadence = latest(HKQuantityType(.cyclingCadence), in: .count().unitDivided(by: .minute()))
+            cadence = sensors.fresh(.speedCadence)
+                ?? latest(HKQuantityType(.cyclingCadence), in: .count().unitDivided(by: .minute()))
             return
         }
         guard let steps = builder?.statistics(for: HKQuantityType(.stepCount))?
@@ -640,6 +651,52 @@ final class WorkoutRunner: NSObject, ObservableObject {
         guard let oldest = stepCounts.first else { return }
         let span = now.timeIntervalSince(oldest.at)
         cadence = span >= Self.cadenceFloor ? (steps - oldest.steps) / span * 60 : nil
+    }
+
+    /// What a paired sensor reads, written into the session once a second while it runs, so
+    /// Health and the FIT file have it as they would a watch's. Heart rate for any sport; power
+    /// and cadence on a ride. While a sensor supplies a type HealthKit stops collecting it, or a
+    /// watch on the wrist would put a second series beside it; when the sensor goes quiet,
+    /// collection comes back.
+    private func writeSensors(at now: Date) {
+        guard sessionState == .running, let builder else { return }
+        let perMinute = HKUnit.count().unitDivided(by: .minute())
+        var readings: [(type: HKQuantityType, unit: HKUnit, value: Double?)] = [
+            (HKQuantityType(.heartRate), perMinute, sensors.fresh(.heartRate)),
+        ]
+        if isCycling {
+            readings.append((HKQuantityType(.cyclingPower), .watt(), sensors.fresh(.cyclingPower)))
+            readings.append((HKQuantityType(.cyclingCadence), perMinute, sensors.fresh(.speedCadence)))
+        }
+
+        var samples: [HKSample] = []
+        for (type, unit, value) in readings {
+            let supplying = value != nil
+            if supplying != fromSensor.contains(type) {
+                if supplying {
+                    builder.dataSource?.disableCollection(for: type)
+                    fromSensor.insert(type)
+                } else {
+                    builder.dataSource?.enableCollection(for: type, predicate: nil)
+                    fromSensor.remove(type)
+                }
+            }
+            guard let value else { continue }
+            let quantity = HKQuantity(unit: unit, doubleValue: value)
+            samples.append(HKQuantitySample(type: type, quantity: quantity, start: now, end: now))
+        }
+        guard !samples.isEmpty else { return }
+
+        Task { [weak self] in
+            do {
+                try await builder.addSamples(samples)
+            } catch {
+                // Once: a refusal is the same refusal every second after it.
+                guard let self, !self.sensorWriteFailed else { return }
+                self.sensorWriteFailed = true
+                SyncLog.record(.upload, "could not write sensor readings: \(SyncLog.describe(error))")
+            }
+        }
     }
 
     /// GPS where there is a fix, then HealthKit's own series, then distance over time: a walk has
