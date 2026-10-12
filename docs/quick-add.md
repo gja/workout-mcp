@@ -12,6 +12,10 @@ saved. The dashboard shows the summary so the athlete can reword and draft again
 JSON one click away for editing, and saves it with the ordinary create, so every write
 still goes through `src/plan.ts`.
 
+The iPhone app has the same thing behind the **+** on its Planned tab. It keeps the drafted
+`workout` as raw JSON and posts it back unchanged, so the app needs no model of the plan
+format; changing the day clears the draft, since the draft carries the day it was made for.
+
 The draft is run through `parseWorkout` before it is returned, the same parser a create
 uses, so a draft that comes back will save. The date is always the one asked for; the
 model's own is overwritten.

@@ -85,6 +85,30 @@ struct WorkoutsClient: Sendable {
         return request
     }
 
+    /// A sentence drafted into a workout by the server's small model. Nothing is saved: the
+    /// draft goes back unchanged to `create` once the athlete has read it. See docs/quick-add.md.
+    func quickAdd(on date: Date, description: String) async throws -> QuickAddDraft {
+        var request = try await signed("/api/quick-add")
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(["date": WorkoutDate.string(date), "description": description])
+
+        let data = try await sendForData(request)
+        guard let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let workout = body["workout"], let summary = body["summary"] as? String
+        else { throw ApiError(status: 200, message: "could not read the draft") }
+        return QuickAddDraft(workout: try JSONSerialization.data(withJSONObject: workout), summary: summary)
+    }
+
+    /// Saves a quick-add draft as it came back: the app never needs a model of the plan format.
+    func create(_ draft: QuickAddDraft) async throws {
+        var request = try await signed("/api/workouts")
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = draft.workout
+        _ = try await sendForData(request)
+    }
+
     // --- The plumbing ------------------------------------------------------------
 
     private func get<T: Decodable>(_ path: String) async throws -> T {
@@ -102,6 +126,18 @@ struct WorkoutsClient: Sendable {
     }
 
     private func send<T: Decodable>(_ request: URLRequest) async throws -> T {
+        let data = try await sendForData(request)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        do {
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            throw ApiError(status: 200, message: "could not read the answer: \(error.localizedDescription)")
+        }
+    }
+
+    /// The body of a 2xx, or the server's own words for why not.
+    private func sendForData(_ request: URLRequest) async throws -> Data {
         let (data, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
 
@@ -110,15 +146,14 @@ struct WorkoutsClient: Sendable {
             let said = (try? JSONDecoder().decode(ServerError.self, from: data))?.error
             throw ApiError(status: status, message: said ?? "the server answered \(status)")
         }
-
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        do {
-            return try decoder.decode(T.self, from: data)
-        } catch {
-            throw ApiError(status: status, message: "could not read the answer: \(error.localizedDescription)")
-        }
+        return data
     }
+}
+
+/// `workout` is the JSON `POST /api/workouts` takes, kept as bytes; `summary` is how it reads.
+struct QuickAddDraft {
+    let workout: Data
+    let summary: String
 }
 
 /// `/api/me`: who the credential belongs to, and the days the server will answer for.

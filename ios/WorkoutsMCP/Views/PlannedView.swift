@@ -11,6 +11,7 @@ struct PlannedView: View {
     @EnvironmentObject private var model: AppModel
     @State private var selected = Calendar.current.startOfDay(for: Date())
     @State private var showingConnect = false
+    @State private var showingQuickAdd = false
 
     var body: some View {
         NavigationStack {
@@ -46,11 +47,22 @@ struct PlannedView: View {
             }
             .listStyle(.insetGrouped)
             .navigationTitle("Planned")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showingQuickAdd = true } label: { Label("Quick add", systemImage: "plus") }
+                }
+            }
             .refreshable { await model.refresh(using: session.client) }
             .navigationDestination(for: PlannedWorkout.self) { workout in
                 PlannedWorkoutView(workout: workout)
             }
             .sheet(isPresented: $showingConnect) { ConnectClaudeView() }
+            .sheet(isPresented: $showingQuickAdd) {
+                QuickAddView(date: selected) { day in
+                    await model.refresh(using: session.client)
+                    selected = Calendar.current.startOfDay(for: day)
+                }
+            }
         }
     }
 
