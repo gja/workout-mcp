@@ -1,4 +1,5 @@
-// What is coming: the plan the server holds, in the order it will be run.
+// What is coming: the plan the server holds, as a calendar like the dashboard's, and the
+// day picked on it underneath.
 //
 // The watch is where these are followed — this tab is not a second copy to keep honest,
 // it is the answer to "what is it today, and what is it on Saturday".
@@ -8,6 +9,8 @@ import SwiftUI
 struct PlannedView: View {
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var model: AppModel
+    @State private var selected = Calendar.current.startOfDay(for: Date())
+    @State private var showingConnect = false
 
     var body: some View {
         NavigationStack {
@@ -18,27 +21,27 @@ struct PlannedView: View {
 
                 ProblemRow(problem: model.problem)
 
-                if !model.missed.isEmpty {
-                    Section("Missed") {
-                        ForEach(model.missed) { workout in
-                            NavigationLink(value: workout) { PlannedRow(workout: workout) }
-                        }
-                    }
+                Section {
+                    PlanCalendar(days: model.calendarDays, workouts: model.workouts, selected: $selected)
                 }
 
-                if model.upcoming.isEmpty {
-                    Section("This week") {
+                Section(dayTitle) {
+                    let workouts = model.workouts(on: selected)
+                    if workouts.isEmpty {
                         Text(model.loading ? "Loading…" : "Nothing planned.")
                             .foregroundStyle(.secondary)
                     }
+                    ForEach(workouts) { workout in
+                        NavigationLink(value: workout) { PlannedRow(workout: workout) }
+                    }
                 }
 
-                ForEach(model.plannedWeeks) { week in
-                    Section(week.title) {
-                        ForEach(week.workouts) { workout in
-                            NavigationLink(value: workout) { PlannedRow(workout: workout) }
-                        }
+                Section {
+                    Button { showingConnect = true } label: {
+                        Label("Plan with Claude", systemImage: "sparkles")
                     }
+                } footer: {
+                    Text("Claude writes the plan; this app puts it on your watch.")
                 }
             }
             .listStyle(.insetGrouped)
@@ -47,7 +50,13 @@ struct PlannedView: View {
             .navigationDestination(for: PlannedWorkout.self) { workout in
                 PlannedWorkoutView(workout: workout)
             }
+            .sheet(isPresented: $showingConnect) { ConnectClaudeView() }
         }
+    }
+
+    private var dayTitle: String {
+        let day = Formats.day(selected)
+        return Calendar.current.isDateInToday(selected) ? "Today · \(day)" : day
     }
 }
 
@@ -56,15 +65,15 @@ struct PlannedRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(workout.name).font(.headline)
-            Text(dateLine).font(.caption).foregroundStyle(.secondary)
+            Text("\(Sports.icon(workout.sport)) \(workout.name)").font(.headline)
+            Text(detail).font(.caption).foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
     }
 
-    private var dateLine: String {
+    private var detail: String {
         [
-            workout.day.map(Formats.day) ?? workout.date,
+            workout.isDone ? "Done" : "",
             workout.sport,
             Formats.summary(of: workout.planned),
         ]

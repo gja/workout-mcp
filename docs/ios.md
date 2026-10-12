@@ -453,11 +453,17 @@ setup interview wants those two figures from an athlete who has not signed in ye
 planned workouts · 2 min ago*, tappable to sync again. The app syncs on its own when the
 last one was over four hours ago, or when the plan it has just read is not the one that
 reached the watch: a status line that is merely the last thing that happened is worse than
-none. Under it the plan is grouped **Missed**, **This week**, **Next week**, **Later**, with
-an empty group left out. A week runs **Monday to Sunday** whatever the phone's locale says,
-because it is a training week and the long run is on a Sunday — the same week
-`src/client/dates.ts` groups the dashboard by. **Missed** sits first and is its own list,
-because a session behind is a decision to make.
+none. Under it is **a calendar, as on the dashboard**: the Monday-to-Sunday weeks over the
+days the app loads, a sport icon a workout, a tick for one done, and a day behind with
+something undone tinted, because a session missed is a decision to make. A week runs
+**Monday to Sunday** whatever the phone's locale says, because it is a training week and
+the long run is on a Sunday — the week `src/client/dates.ts` draws. Tapping a day lists it
+underneath; the tab opens on today.
+
+**Plan with Claude**, under the day and again in Settings, is the steps for connecting
+one: copy `https://workouts-mcp.com/mcp`, add it on claude.ai as a custom connector and
+sign in with the same account, after which it is there in Claude's iPhone app. claude.ai
+is opened for that step because a connector is added there once, not per device.
 
 **Executed** lists every session there is evidence of, from two places at once: what Health
 recorded on this phone, which is what can still be uploaded, and what the server has read a
@@ -481,7 +487,7 @@ asynchronously. Where the session has no planned workout to file against, the ex
 is not offered at all.
 
 **Settings** is who is signed in, which deployment this build talks to, the way out,
-**Heart rate** (below) — and **Sync log**, a sheet over what the half of this app nobody
+**Connect to Claude**, **Heart rate** (below) — and **Sync log**, a sheet over what the half of this app nobody
 watches has been doing. A session
 missing from the server is equally consistent with HealthKit never having woken the app, a
 wake that was cut short, and a session this app will not upload unattended, and nothing in a

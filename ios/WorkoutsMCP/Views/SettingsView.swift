@@ -12,6 +12,7 @@ struct SettingsView: View {
     @EnvironmentObject private var session: AppSession
     @State private var showingLog = false
     @State private var showingHeartRate = false
+    @State private var showingConnect = false
     #if SENSOR_LAB
     @State private var showingSensors = false
     #endif
@@ -27,6 +28,12 @@ struct SettingsView: View {
                         LabeledContent("Signed in as", value: email)
                     }
                     LabeledContent("Server", value: AppServer.host)
+                }
+
+                Section {
+                    Button("Connect to Claude") { showingConnect = true }
+                } footer: {
+                    Text("Step by step: add this server to Claude, then plan from the Claude iPhone app.")
                 }
 
                 Section {
@@ -79,6 +86,7 @@ struct SettingsView: View {
             .task { await session.loadAccount() }
             .sheet(isPresented: $showingLog) { SyncLogView() }
             .sheet(isPresented: $showingHeartRate) { HeartRateView() }
+            .sheet(isPresented: $showingConnect) { ConnectClaudeView() }
             #if SENSOR_LAB
             .sheet(isPresented: $showingSensors) { SensorLabView() }
             #endif

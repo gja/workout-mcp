@@ -31,6 +31,20 @@ enum Sports {
         }
     }
 
+    /// `sportIcon` in src/client/format.ts, so a day reads the same on the dashboard.
+    static func icon(_ sport: String) -> String {
+        switch sport {
+        case "running": return "\u{1F3C3}"
+        case "cycling": return "\u{1F6B4}"
+        case "swimming": return "\u{1F3CA}"
+        case "walking": return "\u{1F6B6}"
+        case "hiking": return "\u{1F97E}"
+        case "rowing": return "\u{1F6A3}"
+        case "training": return "\u{1F3CB}\u{FE0F}"
+        default: return "\u{1F3C5}"
+        }
+    }
+
     static func fitSubSport(_ subSport: String?) -> SubSport {
         switch subSport {
         case "treadmill": return .treadmill
