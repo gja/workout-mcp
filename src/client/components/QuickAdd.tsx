@@ -1,8 +1,6 @@
 import { useRef, useState } from 'react';
 import { createWorkout, quickAdd, type WorkoutInput } from '../api';
 import { startOfToday, toKey } from '../dates';
-import { openSection } from './Accordion';
-import { CONNECT_SECTION_ID } from './ConnectToClaude';
 
 /**
  * A sentence in, a workout out: the server drafts the JSON and saves nothing, and the
@@ -50,11 +48,6 @@ export function QuickAdd({ onCreated }: { onCreated: () => void }) {
       onCreated();
     });
 
-  const connect = () => {
-    dialog.current?.close();
-    openSection(CONNECT_SECTION_ID);
-  };
-
   return (
     <>
       <button onClick={open}>+ Quick add</button>
@@ -62,12 +55,8 @@ export function QuickAdd({ onCreated }: { onCreated: () => void }) {
       <dialog className="quick-add" ref={dialog} onCancel={(event) => busy && event.preventDefault()}>
         <h3>Quick add</h3>
         <p className="note">
-          Quick add cannot see your planned or completed workouts: it only turns a sentence into a
-          workout. For planning around your training,{' '}
-          <button className="link" onClick={connect}>
-            connect Claude
-          </button>
-          .
+          Quick add doesn't have access to your planned or executed workouts, goals or other context. Please
+          connect via Claude or ChatGPT for a richer experience.
         </p>
 
         <div className="row">

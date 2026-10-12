@@ -17,7 +17,6 @@ struct QuickAddView: View {
     @State private var draft: QuickAddDraft?
     @State private var busy = false
     @State private var problem: String?
-    @State private var showingConnect = false
 
     var body: some View {
         NavigationStack {
@@ -37,7 +36,7 @@ struct QuickAddView: View {
                     }
                     .disabled(busy || description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 } footer: {
-                    Text("Quick add cannot see your planned or completed workouts: it only turns a sentence into a workout.")
+                    Text("Quick add doesn't have access to your planned or executed workouts, goals or other context. Please connect via Claude or ChatGPT for a richer experience.")
                 }
 
                 if let draft {
@@ -52,12 +51,6 @@ struct QuickAddView: View {
 
                 if let problem {
                     Section { Text(problem).foregroundStyle(.red) }
-                }
-
-                Section {
-                    Button { showingConnect = true } label: {
-                        Label("Plan with Claude instead", systemImage: "sparkles")
-                    }
                 }
             }
             .navigationTitle("Quick add")
@@ -74,7 +67,6 @@ struct QuickAddView: View {
             // The draft carries the day it was made for; a new day needs a new draft.
             .onChange(of: date) { draft = nil }
             .interactiveDismissDisabled(busy)
-            .sheet(isPresented: $showingConnect) { ConnectClaudeView() }
         }
     }
 
