@@ -102,6 +102,14 @@ struct WorkoutsClient: Sendable {
         _ = try await post("/api/workouts", body: draft.workout)
     }
 
+    /// Gone from the plan, its recorded numbers with it. The server takes it off any connected
+    /// platform too; the watch loses it on the next sync, which prunes what the plan no longer has.
+    func delete(_ workout: PlannedWorkout) async throws {
+        var request = try await signed("/api/workouts/\(workout.key)")
+        request.httpMethod = "DELETE"
+        _ = try await sendForData(request)
+    }
+
     // --- The plumbing ------------------------------------------------------------
 
     private func get<T: Decodable>(_ path: String) async throws -> T {

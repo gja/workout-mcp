@@ -1,6 +1,6 @@
 // Bluetooth heart rate, cycling power and cadence read straight off the standard GATT
-// profiles, with HealthKit nowhere in the loop. Debug builds only. See docs/ios.md.
-#if SENSOR_LAB
+// profiles. The Settings screen pairs them; a session recorded on the phone reconnects to the
+// ones paired there and writes what they read into the workout. See docs/ios.md.
 import CoreBluetooth
 import Foundation
 
@@ -52,8 +52,12 @@ private struct CrankEvent {
 
 /// Delegate calls arrive on the main queue and are handled in place: a hop through `Task`
 /// would reorder them, and a crank delta taken out of order is a cadence in the thousands.
+///
+/// One for the app, so a strap connected in Settings is still connected when a session starts.
 @MainActor
 final class SensorLab: NSObject, ObservableObject {
+    static let shared = SensorLab()
+
     @Published private(set) var state: CBManagerState = .unknown
     @Published private(set) var nearby: [UUID: NearbySensor] = [:]
     @Published private(set) var connected: Set<UUID> = []
@@ -62,6 +66,7 @@ final class SensorLab: NSObject, ObservableObject {
     @Published private(set) var power: Int?
     @Published private(set) var cadence: Double?
     @Published private(set) var lastReading: Date?
+    private var readAt: [SensorProfile: Date] = [:]
 
     private var central: CBCentralManager?
     private var lastCrank: CrankEvent?
@@ -69,35 +74,73 @@ final class SensorLab: NSObject, ObservableObject {
 
     /// A pedal stroke every 3 s is 20 rpm; with no new crank event for longer, they have stopped.
     private static let cadenceTimeout: TimeInterval = 3
+    /// A reading older than this is a strap that has dropped, not a heart that has held still.
+    private static let freshFor: TimeInterval = 5
+
+    /// The sensors connected on the Settings screen, kept so a session can find them again.
+    private static let pairedKey = "sensors.paired"
+    private var paired: Set<UUID> {
+        get {
+            let stored = UserDefaults.standard.stringArray(forKey: Self.pairedKey) ?? []
+            return Set(stored.compactMap(UUID.init(uuidString:)))
+        }
+        set { UserDefaults.standard.set(newValue.map(\.uuidString), forKey: Self.pairedKey) }
+    }
+    private var scanning = false
 
     /// Creating the manager is what puts up the Bluetooth permission prompt, so it waits for the screen.
     func start() {
-        guard central == nil else { return }
-        central = CBCentralManager(delegate: self, queue: nil)
+        scanning = true
+        if central == nil {
+            central = CBCentralManager(delegate: self, queue: nil)
+        } else if central?.state == .poweredOn {
+            poweredOn()
+        }
     }
 
+    /// Stops looking, and leaves whatever is connected connected: the session is what it is for.
     func stop() {
+        scanning = false
         central?.stopScan()
-        for sensor in nearby.values where connected.contains(sensor.id) || connecting.contains(sensor.id) {
-            central?.cancelPeripheralConnection(sensor.peripheral)
+    }
+
+    /// For a session starting: connects whatever was paired in Settings. Asks nothing of an
+    /// athlete who never paired one, because then it never creates the manager.
+    func reconnect() {
+        guard !paired.isEmpty else { return }
+        if central == nil {
+            central = CBCentralManager(delegate: self, queue: nil)
+        } else if central?.state == .poweredOn {
+            connectPaired()
         }
-        central = nil
-        connected = []
-        connecting = []
     }
 
     func toggle(_ sensor: NearbySensor) {
         guard let central else { return }
         if connected.contains(sensor.id) || connecting.contains(sensor.id) {
+            paired.remove(sensor.id)
             central.cancelPeripheralConnection(sensor.peripheral)
         } else {
+            paired.insert(sensor.id)
             connecting.insert(sensor.id)
             central.connect(sensor.peripheral)
         }
     }
 
+    /// The latest reading of one kind, or nothing if it has gone quiet.
+    func fresh(_ profile: SensorProfile) -> Double? {
+        guard let at = readAt[profile], Date().timeIntervalSince(at) <= Self.freshFor else { return nil }
+        switch profile {
+        case .heartRate: return heartRate.map { Double($0) }
+        case .cyclingPower: return power.map { Double($0) }
+        case .speedCadence: return cadence
+        }
+    }
+
     private func poweredOn() {
         guard let central else { return }
+        connectPaired()
+        guard scanning else { return }
         // A strap already held by another app, or by iOS itself, does not advertise.
         for peripheral in central.retrieveConnectedPeripherals(withServices: SensorProfile.services) {
             remember(peripheral, profiles: [], rssi: nil)
@@ -106,6 +149,17 @@ final class SensorLab: NSObject, ObservableObject {
             withServices: SensorProfile.services,
             options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
         )
+    }
+
+    /// `connect` does not time out, so a paired strap out of range is connected when it comes back.
+    private func connectPaired() {
+        guard let central else { return }
+        for peripheral in central.retrievePeripherals(withIdentifiers: Array(paired)) {
+            remember(peripheral, profiles: [], rssi: nil)
+            guard !connected.contains(peripheral.identifier), !connecting.contains(peripheral.identifier) else { continue }
+            connecting.insert(peripheral.identifier)
+            central.connect(peripheral)
+        }
     }
 
     private func remember(_ peripheral: CBPeripheral, profiles: [SensorProfile], rssi: Int?) {
@@ -121,10 +175,13 @@ final class SensorLab: NSObject, ObservableObject {
         let bytes = [UInt8](data)
         switch profile {
         case .heartRate:
-            if let bpm = Self.heartRate(bytes) { heartRate = bpm }
+            guard let bpm = Self.heartRate(bytes) else { return }
+            heartRate = bpm
+            readAt[.heartRate] = Date()
         case .cyclingPower:
             guard let (watts, crank) = Self.cyclingPower(bytes) else { return }
             power = watts
+            readAt[.cyclingPower] = Date()
             if let crank { took(crank) }
         case .speedCadence:
             if let crank = Self.speedCadence(bytes) { took(crank) }
@@ -135,6 +192,8 @@ final class SensorLab: NSObject, ObservableObject {
 
     private func took(_ crank: CrankEvent) {
         defer { lastCrank = crank }
+        // Either profile's crank counts as a cadence reading, even one that moved nothing.
+        readAt[.speedCadence] = Date()
         guard let last = lastCrank else { return }
         // Both counters are UInt16 and wrap; subtracting with overflow gives the true delta.
         let revolutions = crank.revolutions &- last.revolutions
@@ -230,6 +289,11 @@ extension SensorLab: CBCentralManagerDelegate {
         MainActor.assumeIsolated {
             self.connecting.remove(peripheral.identifier)
             self.connected.remove(peripheral.identifier)
+            // Dropped rather than let go: out of range mid-ride. Asked again, it waits for it.
+            if self.paired.contains(peripheral.identifier) {
+                self.connecting.insert(peripheral.identifier)
+                self.central?.connect(peripheral)
+            }
         }
     }
 }
@@ -266,4 +330,3 @@ extension SensorLab: CBPeripheralDelegate {
         MainActor.assumeIsolated { self.read(profile, data) }
     }
 }
-#endif

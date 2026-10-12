@@ -13,9 +13,7 @@ struct SettingsView: View {
     @State private var showingLog = false
     @State private var showingHeartRate = false
     @State private var showingConnect = false
-    #if SENSOR_LAB
     @State private var showingSensors = false
-    #endif
     #if ON_PHONE_RECORDING
     @AppStorage(RunVoice.defaultsKey) private var speaking = true
     #endif
@@ -55,13 +53,11 @@ struct SettingsView: View {
                     )
                 }
 
-                #if SENSOR_LAB
                 Section {
                     Button("Bluetooth sensors") { showingSensors = true }
                 } footer: {
-                    Text("Debug builds only. Connect a heart rate strap or a power meter and see its readings.")
+                    Text("Connect a heart rate strap or a power meter and see its readings.")
                 }
-                #endif
 
                 #if ON_PHONE_RECORDING
                 Section {
@@ -87,9 +83,7 @@ struct SettingsView: View {
             .sheet(isPresented: $showingLog) { SyncLogView() }
             .sheet(isPresented: $showingHeartRate) { HeartRateView() }
             .sheet(isPresented: $showingConnect) { ConnectClaudeView() }
-            #if SENSOR_LAB
             .sheet(isPresented: $showingSensors) { SensorLabView() }
-            #endif
         }
     }
 }

@@ -1,12 +1,11 @@
-// Pair a Bluetooth strap or power meter to the phone and watch its numbers. Debug builds only;
-// nothing here is recorded. See docs/ios.md.
-#if SENSOR_LAB
+// Pair a Bluetooth strap or power meter to the phone and watch its numbers. Nothing here is
+// recorded. See docs/ios.md.
 import CoreBluetooth
 import SwiftUI
 
 struct SensorLabView: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var lab = SensorLab()
+    @ObservedObject private var lab = SensorLab.shared
 
     var body: some View {
         NavigationStack {
@@ -90,4 +89,3 @@ struct SensorLabView: View {
         }
     }
 }
-#endif

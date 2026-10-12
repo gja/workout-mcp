@@ -142,8 +142,9 @@ the line is true rather than merely reassuring.
 Under it, a calendar like the dashboard's, Monday to Sunday, with the picked day listed
 below it; a tap on a workout gets the steps — the plan as the server resolves it, repeats
 kept, each step with its duration and the band it is aimed at. A day behind with something
-undone is tinted, because those sessions are still on the watch. **Plan with Claude** walks
-through adding the connector.
+undone is tinted, because those sessions are still on the watch. A swipe on a workout, or
+**Delete workout** on its screen, deletes it after asking, and the next sync takes it off the
+watch. **Plan with Claude** walks through adding the connector.
 
 **Executed.** Every session there is evidence of, newest first: what Health recorded on
 this phone, and what the server has already read a file for. A tick means the server has
@@ -199,10 +200,11 @@ highest, because a wrist sensor spikes — and a **Sync log** sheet: whether Hea
 what came of it, how many sessions have gone up without anybody tapping *Export*, and the
 events behind all three.
 
-A **Debug** build also has **Bluetooth sensors**: connect a heart rate strap or a cycling
-power meter straight to the phone and watch heart rate, power and cadence. It is behind
-`SENSOR_LAB`, which Release does not set, so TestFlight never sees it. See
-[docs/ios.md](../docs/ios.md#bluetooth-sensors-in-a-debug-build).
+**Bluetooth sensors** connects a heart rate strap or a cycling power meter straight to the
+phone and shows heart rate, power and cadence, in every build. What is paired there is
+reconnected when a session is recorded on the phone, and its heart rate — and on a ride its
+power and cadence — goes into the workout. See
+[docs/ios.md](../docs/ios.md#bluetooth-sensors).
 
 What goes to the watch is **two days back to seven days ahead**, done or not — a session
 already done goes out ticked, so the days behind read as finished rather than absent. Back
