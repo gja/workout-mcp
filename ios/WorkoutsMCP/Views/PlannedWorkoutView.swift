@@ -39,10 +39,12 @@ struct PlannedWorkoutView: View {
                     HStack {
                         Text("Apple Watch")
                         Spacer()
-                        Image(systemName: "applewatch")
-                        Text("In the Workout app")
+                        Group {
+                            Image(systemName: "applewatch")
+                            Text("In the Workout app")
+                        }
+                        .foregroundStyle(.green)
                     }
-                    .foregroundStyle(.green)
                 }
             }
 
