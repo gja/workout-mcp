@@ -245,7 +245,8 @@ Needs an **Apple Developer Program** membership. Everything below is done once e
 2. **Create the app record** at *App Store Connect › Apps › +*. iOS, the same bundle id,
    any SKU. An upload with no app record behind it is rejected at the end of a long archive,
    so do this before the first one.
-3. **Privacy policy URL**: `https://workouts-mcp.com/privacy-policy`. HealthKit apps are
+3. **Support URL**: `https://workouts-mcp.com/support`. **Privacy policy URL**:
+   `https://workouts-mcp.com/privacy-policy`. HealthKit apps are
    reviewed against it, and App Store Connect asks for it under *App Privacy*. What the app
    collects is declared in `WorkoutsMCP/PrivacyInfo.xcprivacy`; *App Privacy* should say
    the same.

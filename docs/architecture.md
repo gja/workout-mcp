@@ -87,6 +87,6 @@ where the workouts would be. Each Setup panel fetches its own slice. Each contex
 it, so a save cannot overwrite what is being typed.
 
 Two Vite entries: the dashboard and the OAuth consent screen. `public/privacy-policy.html`
-is a static file with no script. `/workout/<id>` is the one page path the routing table
+and `public/support.html` are static files with no script. `/workout/<id>` is the one page path the routing table
 claims; the client resolves the id against the first list that arrives, which is where it
 learns the day to open the panel on.
