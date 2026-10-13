@@ -80,11 +80,11 @@ enum WorkoutKitSync {
         PlanLink.remember(planID: planID, for: key)
     }
 
-    /// The workout, opened in the Workout app on the watch, ready to start. The same id it is
-    /// scheduled under, so it is the plan already there rather than a second copy of it.
-    static func openOnWatch(_ plan: ResolvedPlan) async throws {
-        let planID = PlanLink.planID(for: "\(plan.date)/\(plan.id)")
-        try await WorkoutPlan(.custom(build(plan)), id: planID).openInWorkoutApp()
+    /// The workout as Apple's preview sheet takes it, under the id it is scheduled with, so
+    /// sending it to the watch from there is the plan already there rather than a second copy.
+    /// `openInWorkoutApp()` would be the direct route, but it is watchOS-only.
+    static func preview(_ plan: ResolvedPlan) throws -> WorkoutPlan {
+        WorkoutPlan(.custom(try build(plan)), id: PlanLink.planID(for: "\(plan.date)/\(plan.id)"))
     }
 
     /// Takes off the watch anything this app put there that the plan no longer has — a

@@ -278,7 +278,7 @@ extension SensorLab: CBCentralManagerDelegate {
         didFailToConnect peripheral: CBPeripheral,
         error: Error?
     ) {
-        MainActor.assumeIsolated { self.connecting.remove(peripheral.identifier) }
+        _ = MainActor.assumeIsolated { self.connecting.remove(peripheral.identifier) }
     }
 
     nonisolated func centralManager(
