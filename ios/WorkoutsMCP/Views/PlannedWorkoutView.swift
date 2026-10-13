@@ -17,6 +17,7 @@ struct PlannedWorkoutView: View {
     @State private var failure: String?
     @State private var running = false
     @State private var deleting: PlannedWorkout?
+    @State private var showingHowTo = false
 
     /// The listing's copy, which an upload a moment ago may have moved on from.
     private var current: PlannedWorkout { model.current(workout) }
@@ -44,6 +45,15 @@ struct PlannedWorkoutView: View {
                             Text("In the Workout app")
                         }
                         .foregroundStyle(.green)
+                        // Borderless, or the whole row becomes the button.
+                        Button { showingHowTo = true } label: {
+                            Image(systemName: "info.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("How to start it on your watch")
+                        .popover(isPresented: $showingHowTo) {
+                            StartOnWatchHelp().presentationCompactAdaptation(.popover)
+                        }
                     }
                 }
             }
@@ -205,5 +215,30 @@ private struct PlanLineRow: View {
         }
         .padding(.leading, CGFloat(line.depth) * 16)
         .padding(.vertical, 1)
+    }
+}
+
+/// Where a scheduled workout is on the watch, which nothing in the Workout app makes obvious.
+private struct StartOnWatchHelp: View {
+    /// Shown once it is in the asset catalog, and not missed until then.
+    private static let picture = "start-on-watch"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Start it on your Apple Watch").font(.headline)
+            Text("1. Open the Workout app.")
+            Text("2. Scroll up to find WorkoutsMCP.")
+            Text("3. Tap this workout, then Start.")
+            if UIImage(named: Self.picture) != nil {
+                Image(Self.picture)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxHeight: 240)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .font(.callout)
+        .padding()
+        .frame(width: 300)
     }
 }
