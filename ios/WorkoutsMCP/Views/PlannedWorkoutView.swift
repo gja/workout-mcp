@@ -5,6 +5,7 @@
 // re-implementing the resolver that decides what it means. See docs/ios.md.
 
 import SwiftUI
+import WorkoutKit
 
 struct PlannedWorkoutView: View {
     let workout: PlannedWorkout
@@ -17,7 +18,6 @@ struct PlannedWorkoutView: View {
     @State private var failure: String?
     @State private var running = false
     @State private var deleting: PlannedWorkout?
-    @State private var openProblem: String?
 
     /// The listing's copy, which an upload a moment ago may have moved on from.
     private var current: PlannedWorkout { model.current(workout) }
@@ -64,16 +64,10 @@ struct PlannedWorkoutView: View {
             }
 
             if !current.isDone {
-                Section {
-                    // Waits for the plan, which is what the watch is handed.
-                    Button {
-                        Task { await openOnWatch() }
-                    } label: {
-                        Label("Open on Apple Watch", systemImage: "applewatch")
-                    }
-                    .disabled(plan == nil)
-                } footer: {
-                    if let openProblem { Text(openProblem).foregroundStyle(.red) }
+                // Waits for the plan, which is what the watch is handed; absent for one the
+                // Workout app cannot take, which the sync has already said it could not send.
+                if let plan, let preview = try? WorkoutKitSync.preview(plan) {
+                    Section { OpenOnWatch(plan: preview) }
                 }
             }
 
@@ -136,16 +130,6 @@ struct PlannedWorkoutView: View {
 
     private var sport: String {
         current.subSport.map { "\(current.sport), \($0.replacingOccurrences(of: "_", with: " "))" } ?? current.sport
-    }
-
-    private func openOnWatch() async {
-        guard let plan else { return }
-        do {
-            try await WorkoutKitSync.openOnWatch(plan)
-            openProblem = nil
-        } catch {
-            openProblem = error.localizedDescription
-        }
     }
 
     private func load() async {
@@ -224,5 +208,20 @@ private struct PlanLineRow: View {
         }
         .padding(.leading, CGFloat(line.depth) * 16)
         .padding(.vertical, 1)
+    }
+}
+
+/// Apple's own preview of the workout, whose button sends it to the Workout app on the watch.
+private struct OpenOnWatch: View {
+    let plan: WorkoutPlan
+    @State private var showing = false
+
+    var body: some View {
+        Button {
+            showing = true
+        } label: {
+            Label("Open on Apple Watch", systemImage: "applewatch")
+        }
+        .workoutPreview(plan, isPresented: $showing)
     }
 }
