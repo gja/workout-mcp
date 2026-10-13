@@ -33,12 +33,16 @@ struct PlannedWorkoutView: View {
                 if let done = current.doneAt {
                     LabeledContent("Completed", value: Formats.moment(done))
                 }
+                // A plain row: a `Label` inside `LabeledContent` left the section with a tall
+                // blank under it.
                 if model.isOnWatch(current) {
-                    LabeledContent {
-                        Label("In the Workout app", systemImage: "applewatch").foregroundStyle(.green)
-                    } label: {
+                    HStack {
                         Text("Apple Watch")
+                        Spacer()
+                        Image(systemName: "applewatch")
+                        Text("In the Workout app")
                     }
+                    .foregroundStyle(.green)
                 }
             }
 
