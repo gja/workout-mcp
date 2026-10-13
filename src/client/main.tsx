@@ -192,7 +192,7 @@ function App() {
       )}
 
       <footer className="colophon">
-        <a href="/privacy-policy">Privacy policy</a>
+        <a href="/privacy-policy">Privacy policy</a> · <a href="/support">Support</a>
       </footer>
     </main>
   );

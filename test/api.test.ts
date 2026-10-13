@@ -103,6 +103,15 @@ describe('dashboard', () => {
     expect(response.headers.get('Content-Type')).toContain('text/html');
     expect(await response.text()).toContain('<title>Privacy policy</title>');
   });
+
+  it('serves the support page at /support, with a way to get in touch', async () => {
+    const response = await SELF.fetch(`${BASE}/support`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toContain('text/html');
+    const html = await response.text();
+    expect(html).toContain('<title>Support</title>');
+    expect(html).toContain('mailto:tejas@gja.in');
+  });
 });
 
 describe('workout CRUD', () => {

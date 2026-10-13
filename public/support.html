@@ -1,0 +1,86 @@
+<!doctype html>
+<!--
+  Static, like privacy-policy.html, and styled the same way: served at /support,
+  and the page App Store Connect's Support URL points at.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <title>Support</title>
+    <style>
+      :root {
+        --bg: #fbfbf9;
+        --ink: #1a1a17;
+        --muted: #6b6b63;
+        --line: #e4e4de;
+        --accent: #1f6feb;
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #16161a;
+          --ink: #ececec;
+          --muted: #9a9a95;
+          --line: #2e2e35;
+          --accent: #63a2ff;
+        }
+      }
+      body {
+        margin: 0 auto;
+        max-width: 68ch;
+        padding: 24px 16px 64px;
+        background: var(--bg);
+        color: var(--ink);
+        font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+      }
+      h1 { font-size: 20px; margin: 0 0 4px; }
+      h2 { font-size: 16px; margin: 32px 0 10px; }
+      p, ul { color: var(--muted); font-size: 14px; }
+      ul { padding-left: 20px; }
+      li { margin-bottom: 8px; }
+      a { color: var(--accent); }
+      footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 13px; }
+      footer a { color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <h1>Support</h1>
+    <p>Help with WorkoutsMCP — the website, the MCP server and the iPhone app.</p>
+
+    <h2>Contact</h2>
+    <p>
+      Email <a href="mailto:tejas@gja.in">tejas@gja.in</a> with anything: a question, a bug, a workout that did not
+      reach your watch. It is a one-person side project, so expect an answer within a few days. Bugs in the code can also
+      go to <a href="https://github.com/gja/workout-mcp/issues">the issue tracker</a>.
+    </p>
+
+    <h2>Common questions</h2>
+    <ul>
+      <li>
+        <strong>A workout is not on my Apple Watch.</strong> Open the app: it syncs the plan to Apple Fitness straight
+        away, and the Planned tab says when it last did. On the watch, open the Workout app and scroll up to find
+        WorkoutsMCP. Scheduling must be allowed in <em>Settings › Fitness</em> on the iPhone.
+      </li>
+      <li>
+        <strong>Planning with Claude or ChatGPT.</strong> In the app, <em>Settings › Connect to Claude</em> walks
+        through adding <code>https://workouts-mcp.com/mcp</code> as a connector and signing in with the same account.
+      </li>
+      <li>
+        <strong>Connecting intervals.icu.</strong> Sign in on <a href="/">workouts-mcp.com</a> and connect it from the
+        Setup section; planned workouts are pushed there and completed sessions come back.
+      </li>
+      <li>
+        <strong>Deleting your account.</strong> In the app, <em>Settings › Delete account</em> deletes everything held
+        for you. You can also ask by email.
+      </li>
+    </ul>
+
+    <p>What is stored and why is in the <a href="/privacy-policy">privacy policy</a>.</p>
+
+    <footer><a href="/">Back to the dashboard</a></footer>
+  </body>
+</html>

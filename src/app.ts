@@ -19,8 +19,8 @@ const appName = (env: Env): string => env.APP_NAME ?? 'Workouts';
 
 /**
  * A path with no file behind it, answered with the page it belongs to: the client
- * reads the path back off `location`. Only pages that exist as a file — `/` and
- * `/privacy-policy` — are served by the assets binding on their own.
+ * reads the path back off `location`. Only pages that exist as a file — `/`,
+ * `/privacy-policy` and `/support` — are served by the assets binding on their own.
  */
 const page =
   (asset: string): Handler<Context> =>
