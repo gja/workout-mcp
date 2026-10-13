@@ -5,7 +5,6 @@
 // re-implementing the resolver that decides what it means. See docs/ios.md.
 
 import SwiftUI
-import WorkoutKit
 
 struct PlannedWorkoutView: View {
     let workout: PlannedWorkout
@@ -34,11 +33,17 @@ struct PlannedWorkoutView: View {
                 if let done = current.doneAt {
                     LabeledContent("Completed", value: Formats.moment(done))
                 }
+                // A plain row: a `Label` inside `LabeledContent` left the section with a tall
+                // blank under it.
                 if model.isOnWatch(current) {
-                    LabeledContent {
-                        Label("In the Workout app", systemImage: "applewatch").foregroundStyle(.green)
-                    } label: {
+                    HStack {
                         Text("Apple Watch")
+                        Spacer()
+                        Group {
+                            Image(systemName: "applewatch")
+                            Text("In the Workout app")
+                        }
+                        .foregroundStyle(.green)
                     }
                 }
             }
@@ -61,14 +66,6 @@ struct PlannedWorkoutView: View {
             // session: this view is a step below it, not beside it.
             if let totals = current.stats?.session {
                 Section("What you did") { Text(Formats.line(totals)).font(.callout) }
-            }
-
-            if !current.isDone {
-                // Waits for the plan, which is what the watch is handed; absent for one the
-                // Workout app cannot take, which the sync has already said it could not send.
-                if let plan, let preview = try? WorkoutKitSync.preview(plan) {
-                    Section { OpenOnWatch(plan: preview) }
-                }
             }
 
             start
@@ -208,20 +205,5 @@ private struct PlanLineRow: View {
         }
         .padding(.leading, CGFloat(line.depth) * 16)
         .padding(.vertical, 1)
-    }
-}
-
-/// Apple's own preview of the workout, whose button sends it to the Workout app on the watch.
-private struct OpenOnWatch: View {
-    let plan: WorkoutPlan
-    @State private var showing = false
-
-    var body: some View {
-        Button {
-            showing = true
-        } label: {
-            Label("Open on Apple Watch", systemImage: "applewatch")
-        }
-        .workoutPreview(plan, isPresented: $showing)
     }
 }
