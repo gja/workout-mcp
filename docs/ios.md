@@ -468,8 +468,7 @@ the long run is on a Sunday — the week `src/client/dates.ts` draws. Tapping a 
 underneath; the tab opens on today. A workout already in the Workout app carries a green
 watch badge, there and on its own screen — as `PlanPlacement` last recorded it, so an edit
 not yet synced shows none. Beside the badge on that screen, ⓘ says where to find it on the watch:
-the Workout app, scrolled up to WorkoutsMCP — with a picture once `start-on-watch` is in the
-asset catalog.
+the Workout app, scrolled up to WorkoutsMCP, and ▶ — with a picture of that card on a watch.
 
 **Plan with Claude**, in Settings, is the steps for connecting
 one: copy `https://workouts-mcp.com/mcp`, add it on claude.ai as a custom connector and

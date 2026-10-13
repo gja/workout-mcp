@@ -220,22 +220,20 @@ private struct PlanLineRow: View {
 
 /// Where a scheduled workout is on the watch, which nothing in the Workout app makes obvious.
 private struct StartOnWatchHelp: View {
-    /// Shown once it is in the asset catalog, and not missed until then.
-    private static let picture = "start-on-watch"
-
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Start it on your Apple Watch").font(.headline)
             Text("1. Open the Workout app.")
             Text("2. Scroll up to find WorkoutsMCP.")
-            Text("3. Tap this workout, then Start.")
-            if UIImage(named: Self.picture) != nil {
-                Image(Self.picture)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxHeight: 240)
-                    .frame(maxWidth: .infinity)
-            }
+            Text("3. Tap ▶ under this workout's name.")
+            // The Workout app's card for it, from a real watch.
+            Image("start-on-watch")
+                .resizable()
+                .scaledToFit()
+                .frame(maxHeight: 220)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .frame(maxWidth: .infinity)
+                .accessibilityHidden(true)
         }
         .font(.callout)
         .padding()
