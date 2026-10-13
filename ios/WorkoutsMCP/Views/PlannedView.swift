@@ -33,7 +33,7 @@ struct PlannedView: View {
                             .foregroundStyle(.secondary)
                     }
                     ForEach(workouts) { workout in
-                        NavigationLink(value: workout) { PlannedRow(workout: workout) }
+                        NavigationLink(value: workout) { PlannedRow(workout: workout, onWatch: model.isOnWatch(workout)) }
                             .swipeActions {
                                 Button("Delete", role: .destructive) { deleting = workout }
                             }
@@ -95,11 +95,21 @@ extension View {
 
 struct PlannedRow: View {
     let workout: PlannedWorkout
+    /// Whether it is in the Workout app, as the badge says.
+    let onWatch: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text("\(Sports.icon(workout.sport)) \(workout.name)").font(.headline)
-            Text(detail).font(.caption).foregroundStyle(.secondary)
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("\(Sports.icon(workout.sport)) \(workout.name)").font(.headline)
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if onWatch {
+                Image(systemName: "applewatch")
+                    .foregroundStyle(.green)
+                    .accessibilityLabel("On your Apple Watch")
+            }
         }
         .padding(.vertical, 2)
     }

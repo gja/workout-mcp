@@ -465,7 +465,10 @@ days the app loads, a sport icon a workout, a tick for one done, and a day behin
 something undone tinted, because a session missed is a decision to make. A week runs
 **Monday to Sunday** whatever the phone's locale says, because it is a training week and
 the long run is on a Sunday — the week `src/client/dates.ts` draws. Tapping a day lists it
-underneath; the tab opens on today.
+underneath; the tab opens on today. A workout already in the Workout app carries a green
+watch badge, there and on its own screen — as `PlanPlacement` last recorded it, so an edit
+not yet synced shows none. **Open on Apple Watch**, on a workout not yet done, hands it to the
+Workout app on the watch (`openInWorkoutApp`) under the id it is scheduled with, ready to start.
 
 **Plan with Claude**, in Settings, is the steps for connecting
 one: copy `https://workouts-mcp.com/mcp`, add it on claude.ai as a custom connector and

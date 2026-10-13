@@ -17,6 +17,7 @@ struct PlannedWorkoutView: View {
     @State private var failure: String?
     @State private var running = false
     @State private var deleting: PlannedWorkout?
+    @State private var openProblem: String?
 
     /// The listing's copy, which an upload a moment ago may have moved on from.
     private var current: PlannedWorkout { model.current(workout) }
@@ -32,6 +33,13 @@ struct PlannedWorkoutView: View {
                 }
                 if let done = current.doneAt {
                     LabeledContent("Completed", value: Formats.moment(done))
+                }
+                if model.isOnWatch(current) {
+                    LabeledContent {
+                        Label("In the Workout app", systemImage: "applewatch").foregroundStyle(.green)
+                    } label: {
+                        Text("Apple Watch")
+                    }
                 }
             }
 
@@ -53,6 +61,20 @@ struct PlannedWorkoutView: View {
             // session: this view is a step below it, not beside it.
             if let totals = current.stats?.session {
                 Section("What you did") { Text(Formats.line(totals)).font(.callout) }
+            }
+
+            if !current.isDone {
+                Section {
+                    // Waits for the plan, which is what the watch is handed.
+                    Button {
+                        Task { await openOnWatch() }
+                    } label: {
+                        Label("Open on Apple Watch", systemImage: "applewatch")
+                    }
+                    .disabled(plan == nil)
+                } footer: {
+                    if let openProblem { Text(openProblem).foregroundStyle(.red) }
+                }
             }
 
             start
@@ -114,6 +136,16 @@ struct PlannedWorkoutView: View {
 
     private var sport: String {
         current.subSport.map { "\(current.sport), \($0.replacingOccurrences(of: "_", with: " "))" } ?? current.sport
+    }
+
+    private func openOnWatch() async {
+        guard let plan else { return }
+        do {
+            try await WorkoutKitSync.openOnWatch(plan)
+            openProblem = nil
+        } catch {
+            openProblem = error.localizedDescription
+        }
     }
 
     private func load() async {

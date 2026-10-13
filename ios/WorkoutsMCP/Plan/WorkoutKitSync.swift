@@ -80,6 +80,13 @@ enum WorkoutKitSync {
         PlanLink.remember(planID: planID, for: key)
     }
 
+    /// The workout, opened in the Workout app on the watch, ready to start. The same id it is
+    /// scheduled under, so it is the plan already there rather than a second copy of it.
+    static func openOnWatch(_ plan: ResolvedPlan) async throws {
+        let planID = PlanLink.planID(for: "\(plan.date)/\(plan.id)")
+        try await WorkoutPlan(.custom(build(plan)), id: planID).openInWorkoutApp()
+    }
+
     /// Takes off the watch anything this app put there that the plan no longer has — a
     /// workout deleted or moved upstream, which would otherwise sit there being wrong.
     /// Only plans this app scheduled are touched; anything else the athlete follows is not ours.
