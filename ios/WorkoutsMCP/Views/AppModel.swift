@@ -51,6 +51,9 @@ final class AppModel: ObservableObject {
     private var planIsKnown = false
     @Published private(set) var activities: [HKWorkout] = []
     @Published private(set) var sync: SyncPhase = .never
+    /// What has been put on the watch, as `PlanPlacement` records it, for the badge on each
+    /// workout. Read again after every sync and every load, since a background turn writes it too.
+    @Published private(set) var placed: [String: String] = PlanPlacement.all()
     @Published var loading = false
     @Published var note: String?
     @Published var problem: String?
@@ -113,6 +116,12 @@ final class AppModel: ObservableObject {
         return days
     }
 
+    /// Placed on the watch as it now stands: an edit since the last sync is not there yet.
+    func isOnWatch(_ workout: PlannedWorkout) -> Bool {
+        guard let fingerprint = PlanPlacement.fingerprint(workout) else { return false }
+        return placed[workout.key] == fingerprint
+    }
+
     func workouts(on day: Date) -> [PlannedWorkout] {
         let key = WorkoutDate.string(day)
         return workouts.filter { $0.date == key }
@@ -167,6 +176,7 @@ final class AppModel: ObservableObject {
             let to = Calendar.current.date(byAdding: .day, value: plannedDays, to: Date()) ?? Date()
             workouts = try await client.workouts(from: from, to: to).sorted { $0.date < $1.date }
             planIsKnown = true
+            placed = PlanPlacement.all()
             problem = nil
         } catch {
             problem = error.localizedDescription
@@ -277,6 +287,7 @@ final class AppModel: ObservableObject {
         } catch {
             sync = .failed(error.localizedDescription)
         }
+        placed = PlanPlacement.all()
     }
 
     // --- Back from Apple -------------------------------------------------------------------

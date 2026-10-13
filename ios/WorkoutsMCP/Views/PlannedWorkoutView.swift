@@ -33,6 +33,13 @@ struct PlannedWorkoutView: View {
                 if let done = current.doneAt {
                     LabeledContent("Completed", value: Formats.moment(done))
                 }
+                if model.isOnWatch(current) {
+                    LabeledContent {
+                        Label("In the Workout app", systemImage: "applewatch").foregroundStyle(.green)
+                    } label: {
+                        Text("Apple Watch")
+                    }
+                }
             }
 
             if let notes = current.notes, !notes.isEmpty {
