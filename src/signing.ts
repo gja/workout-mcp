@@ -2,10 +2,11 @@
 // nothing is stored. Shared by recordings and routes. See docs/recordings.md#the-link.
 
 import type { Env } from './db';
+import { Unavailable } from './errors';
 
-export class LinksUnavailable extends Error {
+export class LinksUnavailable extends Unavailable {
   constructor() {
-    super('download links are not configured: set the CREDENTIALS_SECRET binding on the Worker');
+    super('download links are not configured: set the CREDENTIALS_SECRET binding on the Worker', 503);
   }
 }
 
@@ -37,19 +38,31 @@ const fromBase64Url = (value: string): Uint8Array | null => {
   }
 };
 
-/** `claims=…&signature=…`, both base64url, whose alphabet needs no escaping in a query string. */
-export async function signClaims(env: Env, label: string, claims: object): Promise<string> {
-  const payload = toBase64Url(new TextEncoder().encode(JSON.stringify(claims)));
+export type Link = { url: string; expires_at: string };
+
+type Where = { origin: string; path: string; ttlSeconds: number; now: Date };
+
+/**
+ * `<path>?claims=…&signature=…`, both base64url, whose alphabet needs no escaping in a query
+ * string. The claims gain `v`, a version so a later shape can be told from a forgery, and
+ * `x`, the expiry in epoch seconds.
+ */
+export async function signLink(env: Env, label: string, where: Where, claims: object): Promise<Link> {
+  const expiresAt = new Date(where.now.getTime() + where.ttlSeconds * 1000);
+  const signed = { v: 1, ...claims, x: Math.floor(expiresAt.getTime() / 1000) };
+  const payload = toBase64Url(new TextEncoder().encode(JSON.stringify(signed)));
   const signature = await crypto.subtle.sign('HMAC', await signingKey(env, label), new TextEncoder().encode(payload));
-  return new URLSearchParams({ claims: payload, signature: toBase64Url(new Uint8Array(signature)) }).toString();
+  const search = new URLSearchParams({ claims: payload, signature: toBase64Url(new Uint8Array(signature)) });
+  return { url: `${where.origin}${where.path}?${search}`, expires_at: expiresAt.toISOString() };
 }
 
 /** The signature is checked first: every claim is the caller's until it holds. */
-export async function openClaims(
+export async function openLink(
   env: Env,
   label: string,
   claimsParam: string | null,
   signatureParam: string | null,
+  now: Date,
 ): Promise<Record<string, unknown>> {
   if (!claimsParam || !signatureParam) throw new LinkRejected('that is not a download link');
 
@@ -66,16 +79,21 @@ export async function openClaims(
 
   const body = fromBase64Url(claimsParam);
   if (!body) throw new LinkRejected('that is not a download link');
+  let claims: unknown;
   try {
-    const claims = JSON.parse(new TextDecoder().decode(body)) as unknown;
-    if (typeof claims === 'object' && claims !== null && !Array.isArray(claims)) return claims as Record<string, unknown>;
+    claims = JSON.parse(new TextDecoder().decode(body));
   } catch {
-    // Signed but unreadable falls through to the same answer as unsigned garbage.
+    throw new LinkRejected('that is not a download link');
   }
-  throw new LinkRejected('that is not a download link');
+
+  // Signed, so this is our own doing: a link from a version that wrote a different shape.
+  const shaped = claims as Record<string, unknown> | null;
+  if (typeof shaped !== 'object' || shaped === null || shaped.v !== 1 || typeof shaped.x !== 'number') {
+    throw new LinkRejected(OLDER_VERSION);
+  }
+  if (shaped.x * 1000 <= now.getTime()) throw new LinkRejected('this link has expired; ask for a new one');
+  return shaped;
 }
 
-/** Checked after the signature, so an expired link is our own doing and can say so. */
-export function checkExpiry(expiresAtSeconds: number, now: Date): void {
-  if (expiresAtSeconds * 1000 <= now.getTime()) throw new LinkRejected('this link has expired; ask for a new one');
-}
+/** For a caller whose own claims turn out to be the wrong shape, after the signature held. */
+export const OLDER_VERSION = 'this link was made by an older version and cannot be read';

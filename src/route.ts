@@ -3,7 +3,9 @@
 
 import type { Env } from './db';
 import { fileSlug } from './fit';
-import { LinkRejected, checkExpiry, openClaims, signClaims } from './signing';
+import { Unavailable } from './errors';
+import * as signing from './signing';
+import { LinkRejected } from './signing';
 import { fail } from './units';
 
 export const MAX_WAYPOINTS = 25;
@@ -32,8 +34,11 @@ const PROFILE: Record<RouteSport, keyof typeof PROFILES> = {
   cycling: 'bike',
 };
 
-/** OSRM's codes for a request it understood and could not serve: the points, not the server. */
-const REFUSED_POINTS = new Set(['NoRoute', 'NoSegment', 'TooBig', 'InvalidQuery', 'InvalidValue']);
+/**
+ * OSRM's codes for a request it understood and could not serve: the points, not the server.
+ * InvalidQuery and the like mean our URL was wrong, which is ours to hear about, not theirs.
+ */
+const REFUSED_POINTS = new Set(['NoRoute', 'NoSegment', 'TooBig']);
 
 const USER_AGENT = 'workouts-mcp.com (+https://github.com/gja/workout-mcp)';
 const ATTRIBUTION = '© OpenStreetMap contributors, ODbL; routed by OSRM at routing.openstreetmap.de';
@@ -51,9 +56,9 @@ export type RouteQuery = {
 };
 
 /** The router failed rather than refused: said as such, so nobody draws the line by hand. */
-export class RouteUnavailable extends Error {
+export class RouteUnavailable extends Unavailable {
   constructor(reason: string) {
-    super(`${reason}; no route was made, so do not approximate one`);
+    super(`${reason}; no route was made, so do not approximate one`, 502);
   }
 }
 
@@ -297,30 +302,23 @@ export async function planRoute(env: Env, query: RouteQuery, origin: string, now
 
 // --- The signed link ---------------------------------------------------------
 
-/** The query, not the track: a link stays a few hundred bytes, and following it routes again. */
+/** The query, not the track: a link stays small, and following it routes again. */
 type Claims = {
-  v: 1;
   /** Waypoints as [lat, lon] or [lat, lon, name]. */
   w: ([number, number] | [number, number, string])[];
   l?: 1;
   s: RouteSport;
   n: string;
-  /** Expiry, epoch seconds. */
-  x: number;
 };
 
-async function signLink(env: Env, query: RouteQuery, origin: string, now: Date) {
-  const expiresAt = new Date(now.getTime() + LINK_TTL_SECONDS * 1000);
+function signLink(env: Env, query: RouteQuery, origin: string, now: Date) {
   const claims: Claims = {
-    v: 1,
     w: query.waypoints.map((p) => (p.name ? [p.lat, p.lon, p.name] : [p.lat, p.lon])),
     ...(query.loop ? { l: 1 as const } : {}),
     s: query.sport,
     n: query.name,
-    x: Math.floor(expiresAt.getTime() / 1000),
   };
-  const search = await signClaims(env, LABEL, claims);
-  return { url: `${origin}${DOWNLOAD_PATH}?${search}`, expires_at: expiresAt.toISOString() };
+  return signing.signLink(env, LABEL, { origin, path: DOWNLOAD_PATH, ttlSeconds: LINK_TTL_SECONDS, now }, claims);
 }
 
 /** The file a link names, routed afresh. Its claims are re-parsed: signed is not the same as valid. */
@@ -329,12 +327,9 @@ export async function downloadGpx(
   claimsParam: string | null,
   signatureParam: string | null,
   now: Date = new Date(),
-): Promise<{ filename: string; gpx: string }> {
-  const claims = (await openClaims(env, LABEL, claimsParam, signatureParam)) as Partial<Claims>;
-  if (claims.v !== 1 || !Array.isArray(claims.w) || typeof claims.x !== 'number') {
-    throw new LinkRejected('this link was made by an older version and cannot be read');
-  }
-  checkExpiry(claims.x, now);
+): Promise<{ filename: string; gpx: string; expiresAt: Date }> {
+  const claims = (await signing.openLink(env, LABEL, claimsParam, signatureParam, now)) as Partial<Claims>;
+  if (!Array.isArray(claims.w) || !claims.w.every(Array.isArray)) throw new LinkRejected(signing.OLDER_VERSION);
 
   const query = parseRouteQuery({
     waypoints: claims.w.map(([lat, lon, name]) => ({ lat, lon, name })),
@@ -343,7 +338,11 @@ export async function downloadGpx(
     name: claims.n,
   });
   const { summary, track } = await route(query);
-  return { filename: `${fileSlug(query.name) || 'route'}.gpx`, gpx: toGpx(track, summary) };
+  return {
+    filename: `${fileSlug(query.name) || 'route'}.gpx`,
+    gpx: toGpx(track, summary),
+    expiresAt: new Date((claims as { x: number }).x * 1000),
+  };
 }
 
 // --- Output ------------------------------------------------------------------

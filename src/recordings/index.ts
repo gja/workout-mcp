@@ -5,7 +5,8 @@
 import type { Env, User } from '../db';
 import * as platforms from '../platforms';
 import type { ActivitySource, PlatformId, Recorded } from '../platforms';
-import { LinkRejected, LinksUnavailable, checkExpiry, linksConfigured, openClaims, signClaims } from '../signing';
+import * as signing from '../signing';
+import { LinkRejected, LinksUnavailable, linksConfigured } from '../signing';
 import { fail, parseDate } from '../units';
 import { SPORTS } from '../workout';
 import type { Sport } from '../workout';
@@ -174,10 +175,8 @@ export { LinkRejected, LinksUnavailable, linksConfigured } from '../signing';
 
 const LABEL = 'workout-mcp/recording-download/v1';
 
-/** The signed half of a link. Short keys: it is read by machines and lives in a URL. */
+/** The signed half of a link, beside the version and expiry. Short keys: it lives in a URL. */
 type Claims = {
-  /** Version, so a later shape can be told from a forgery of this one. */
-  v: 1;
   /** The athlete. Signed, so it cannot be swapped for someone else's. */
   u: string;
   p: PlatformId;
@@ -185,31 +184,19 @@ type Claims = {
   t: string;
   /** Sports, comma-joined, or absent for all of them. */
   s?: string;
-  /** Expiry, epoch seconds. */
-  x: number;
 };
 
-export type Link = { url: string; expires_at: string };
+export type { Link } from '../signing';
 
-export async function signLink(
-  env: Env,
-  userId: string,
-  query: Query,
-  origin: string,
-  now: Date = new Date(),
-): Promise<Link> {
-  const expiresAt = new Date(now.getTime() + LINK_TTL_SECONDS * 1000);
+export async function signLink(env: Env, userId: string, query: Query, origin: string, now: Date = new Date()) {
   const claims: Claims = {
-    v: 1,
     u: userId,
     p: query.platform,
     f: query.from,
     t: query.to,
     ...(query.sports ? { s: query.sports.join(',') } : {}),
-    x: Math.floor(expiresAt.getTime() / 1000),
   };
-  const search = await signClaims(env, LABEL, claims);
-  return { url: `${origin}${DOWNLOAD_PATH}?${search}`, expires_at: expiresAt.toISOString() };
+  return signing.signLink(env, LABEL, { origin, path: DOWNLOAD_PATH, ttlSeconds: LINK_TTL_SECONDS, now }, claims);
 }
 
 export type Opened = { userId: string; query: Query; expiresAt: string };
@@ -220,13 +207,8 @@ export async function openLink(
   signatureParam: string | null,
   now: Date = new Date(),
 ): Promise<Opened> {
-  const claims = (await openClaims(env, LABEL, claimsParam, signatureParam)) as Partial<Claims>;
-
-  // Signed, so this is our own doing: a link from a version that wrote a different shape.
-  if (claims.v !== 1 || typeof claims.u !== 'string' || typeof claims.x !== 'number') {
-    throw new LinkRejected('this link was made by an older version and cannot be read');
-  }
-  checkExpiry(claims.x, now);
+  const claims = (await signing.openLink(env, LABEL, claimsParam, signatureParam, now)) as Partial<Claims> & { x: number };
+  if (typeof claims.u !== 'string') throw new LinkRejected(signing.OLDER_VERSION);
 
   return {
     userId: claims.u,

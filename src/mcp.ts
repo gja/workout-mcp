@@ -13,7 +13,7 @@ import {
 } from '@modelcontextprotocol/server';
 import { ONBOARDING, promptMessages } from './prompts';
 import { SKILLS_EXTENSION, findSkill, listResources, listSkills, readResource } from './skills';
-import { RouteUnavailable } from './route';
+import { Unavailable } from './errors';
 import { TOOLS, callTool, isCallerError } from './tools';
 import type { Env, User } from './db';
 
@@ -123,8 +123,8 @@ function buildServer(env: Env, user: User, origin: string, era: 'legacy' | 'mode
           if (isCallerError(error)) {
             return { content: [{ type: 'text' as const, text: error.message }], isError: true };
           }
-          // Not the caller's fault, but the model must read it: the message says not to improvise.
-          if (error instanceof RouteUnavailable) {
+          // Not the caller's fault, but the model must read it: a route's says not to improvise.
+          if (error instanceof Unavailable) {
             console.error(`tool ${tool.name}`, error.message);
             return { content: [{ type: 'text' as const, text: error.message }], isError: true };
           }

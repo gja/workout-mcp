@@ -114,14 +114,22 @@ describe('plan_route', () => {
     expect(gpx).toContain('<name>Café corner</name>');
     expect(gpx).toContain(`${(route.distance_m / 1000).toFixed(2)} km running route`);
     expect(gpx).toContain('OpenStreetMap contributors');
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
     // Following the link routes again; nothing about the route was stored.
+    expect(await routingRequests()).toHaveLength(2);
+
+    // But a link followed again is answered from the edge, so a leaked one cannot drive the router.
+    const again = await download(route.gpx_url);
+    expect(again.status).toBe(200);
+    expect(again.headers.get('Cache-Control')).toBe('no-store');
+    expect(await again.text()).toBe(gpx);
     expect(await routingRequests()).toHaveLength(2);
   });
 
-  it('names the file the way a FIT export would, accents and all', async () => {
-    const route = await planned({ waypoints: [HOTEL, EAST], name: 'Café Loop' });
+  it('names the file the way a FIT export would, accents dropped rather than split', async () => {
+    const route = await planned({ waypoints: [HOTEL, EAST], name: 'Crème Brûlée Loop' });
     expect((await download(route.gpx_url)).headers.get('Content-Disposition')).toBe(
-      'attachment; filename="Cafe-Loop.gpx"',
+      'attachment; filename="Creme-Brulee-Loop.gpx"',
     );
   });
 

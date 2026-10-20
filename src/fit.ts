@@ -288,6 +288,7 @@ export const fitFilename = (workout: Pick<Workout, 'date' | 'id'>): string => `$
 export const fileSlug = (name: string): string =>
   name
     .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
     .replace(/[^A-Za-z0-9]+/g, '-')
     .slice(0, 60)
     .replace(/^-+|-+$/g, '');

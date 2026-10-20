@@ -36,10 +36,17 @@ the server when the link is followed.
 
 The link carries **the query, not the track**: waypoints, loop, sport, name and expiry,
 signed the way the recordings link is ([recordings.md](recordings.md#the-link)), under a
-label of its own. Following it routes again and streams the GPX. Nothing is stored, and the
-link stays a few hundred bytes however long the route. The cost is a second request to the
-router, and that a map edit between the two calls could move the line; the file's own
-description states the distance it was built with.
+label of its own. Following it routes again and streams the GPX. Nothing is stored in D1,
+and the link's length depends on the waypoints, not the route: a few hundred bytes for a
+handful of unnamed ones, a few KB at worst with 25 long names. The cost is a second request
+to the router, and that a map edit between the two calls could move the line; the file's
+own description states the distance it was built with.
+
+**A followed link is kept at the edge** in the Workers cache until it expires, keyed on the
+whole URL. The link is a bearer credential that may leak, and without the cache every
+follow of a leaked one would be a request to FOSSGIS under our `User-Agent`; with it, the
+router is asked at most once per Cloudflare location. The caller is still told
+`Cache-Control: no-store`, because the link expires.
 
 It lasts 24 hours and names no athlete, since routing reads nothing of theirs. What it does
 reveal is the waypoints, which may be a hotel. It sits outside `/api/` for the same reason
@@ -64,7 +71,12 @@ followed into traffic. So the output is built to keep that from happening downst
 - **A failure says not to improvise.** An unreachable router, or one silent for 10 s, is
   a tool error reading "no route was made, so do not approximate one". A model told only
   "error" tends to draw the line itself. Over REST it is a 502. A route OSRM refuses for
-  its points (`NoRoute`, `TooBig` and the like) is the caller's 400 instead.
+  its points (`NoRoute`, `NoSegment`, `TooBig`) is the caller's 400 instead; its other
+  refusals mean our own URL was wrong, and are treated as an outage so they get logged.
+- **A deployment without `CREDENTIALS_SECRET`** cannot sign the link, and says so: a 503
+  over REST, and over MCP a tool error naming the binding. Both outcomes share one error
+  class, `Unavailable` in `src/errors.ts`, which both error funnels answer with its own
+  message.
 - **No elevation.** The router has none, and `<ele>0</ele>` would read as sea level, so
   the tag is left out.
 

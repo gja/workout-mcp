@@ -6,8 +6,22 @@ import * as route from '../route';
 import type { Router } from '../router';
 import { LinkRejected } from '../signing';
 
-/** No `withUser`, as with the recordings archive: the link is handed to whatever holds no credential. */
-const downloadGpx: Route = async ({ env, url }) => {
+/** What the caller is told: an expiring link is never to be kept. */
+const served = (cached: Response): Response => {
+  const response = new Response(cached.body, cached);
+  response.headers.set('Cache-Control', 'no-store');
+  return response;
+};
+
+/**
+ * No `withUser`, as with the recordings archive: the link is handed to whatever holds no
+ * credential. Each file is kept at the edge until its link expires, so a link that leaks
+ * costs the public router one route per colo rather than one per request.
+ */
+const downloadGpx: Route = async ({ request, env, url }) => {
+  const hit = await caches.default.match(request);
+  if (hit) return served(hit);
+
   let file;
   try {
     file = await route.downloadGpx(env, url.searchParams.get('claims'), url.searchParams.get('signature'));
@@ -15,15 +29,18 @@ const downloadGpx: Route = async ({ env, url }) => {
     if (err instanceof LinkRejected) return error(err.message, 403);
     throw err;
   }
-  return new Response(file.gpx, {
+  const seconds = Math.max(0, Math.floor((file.expiresAt.getTime() - Date.now()) / 1000));
+  const response = new Response(file.gpx, {
     headers: {
       ...CORS_HEADERS,
       'Content-Type': 'application/gpx+xml',
       'Content-Disposition': `attachment; filename="${file.filename}"`,
-      'Cache-Control': 'no-store',
+      'Cache-Control': `public, s-maxage=${seconds}`,
       'X-Robots-Tag': 'noindex, nofollow',
     },
   });
+  await caches.default.put(request, response.clone());
+  return served(response);
 };
 
 export const routes = (app: Router<Context>): void => {
