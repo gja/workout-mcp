@@ -136,6 +136,12 @@ The module map and how a request moves through it: the OAuth provider wrapping e
 the routing table, and `withUser`. Read this before adding a route, a module, or a second
 training platform.
 
+### [docs/routes.md](docs/routes.md)
+
+Waypoints snapped to OpenStreetMap paths and routed on foot or by bike. Why the track
+reaches the athlete through a signed GPX link and never through the model, how turns and
+snaps are reported honestly, and the public router behind it.
+
 ### [docs/fit.md](docs/fit.md)
 
 What you need before touching `src/fit.ts`: the SDK writes parent fields only, nested

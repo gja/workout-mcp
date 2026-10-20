@@ -284,12 +284,16 @@ export function base64Encode(bytes: Uint8Array): string {
 /** Download filename for a workout: `2026-09-12-a1b2c3d4.fit`. Mirrors the export URL. */
 export const fitFilename = (workout: Pick<Workout, 'date' | 'id'>): string => `${workout.date}-${workout.id}.fit`;
 
-/** `2026-09-12-4x10-Tempo.fit`, for a caller given the bytes rather than the URL. */
-export function fitDownloadName(workout: Pick<Workout, 'date' | 'id' | 'name'>): string {
-  const slug = (workout.name ?? '')
+/** A name made safe for a filename: accents dropped rather than the letters under them. */
+export const fileSlug = (name: string): string =>
+  name
     .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
     .replace(/[^A-Za-z0-9]+/g, '-')
     .slice(0, 60)
     .replace(/^-+|-+$/g, '');
-  return `${workout.date}-${slug || workout.id}.fit`;
+
+/** `2026-09-12-4x10-Tempo.fit`, for a caller given the bytes rather than the URL. */
+export function fitDownloadName(workout: Pick<Workout, 'date' | 'id' | 'name'>): string {
+  return `${workout.date}-${fileSlug(workout.name ?? '') || workout.id}.fit`;
 }

@@ -14,6 +14,9 @@
  *   - Google Drive, which needs state for the same reason: a test copies a race
  *     and then asks what path it landed at. The service account's own token
  *     exchange is the `jwt-bearer` grant on the same Google host as sign-in.
+ *
+ *   - FOSSGIS's OSRM, which routes straight from point to point, so a test can
+ *     work out the distance it should be told. A waypoint at 0,0 has no route.
  */
 
 import { WorkerEntrypoint } from 'cloudflare:workers';
@@ -295,6 +298,8 @@ const freshState = () => ({
     requests: [],
     failing: {},
   },
+  /** OSRM: each request seen, how far every waypoint is said to snap, and an outage on demand. */
+  routing: { requests: [], snapMetres: 2, down: false },
 });
 
 let state = freshState();
@@ -358,6 +363,7 @@ function control(request, path) {
     });
   }
   if (path === '/__control/ai') return Response.json({ calls: state.ai.calls });
+  if (path === '/__control/routing') return Response.json({ requests: state.routing.requests });
   if (path === '/__control/drive') {
     return Response.json({
       files: [...state.drive.files.entries()]
@@ -377,6 +383,8 @@ function control(request, path) {
       if (body.athlete) state.athlete = body.athlete;
       if (body.scope !== undefined) state.scope = body.scope;
       if (body.aiReply !== undefined) state.ai.reply = body.aiReply;
+      if (body.routingSnapMetres !== undefined) state.routing.snapMetres = body.routingSnapMetres;
+      if (body.routingDown !== undefined) state.routing.down = body.routingDown;
       return Response.json({ ok: true });
     });
   }
@@ -512,6 +520,66 @@ async function intervals(request, url) {
   return new Response(`unexpected intervals.icu request: ${request.method} ${path}`, { status: 404 });
 }
 
+const EARTH_RADIUS_M = 6371000;
+const RAD = Math.PI / 180;
+
+const metresBetween = ([lon1, lat1], [lon2, lat2]) => {
+  const h =
+    Math.sin(((lat2 - lat1) * RAD) / 2) ** 2 +
+    Math.cos(lat1 * RAD) * Math.cos(lat2 * RAD) * Math.sin(((lon2 - lon1) * RAD) / 2) ** 2;
+  return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(h));
+};
+
+/** Heading from one point to the next, in whole degrees clockwise from north, as OSRM gives it. */
+const bearing = ([lon1, lat1], [lon2, lat2]) => {
+  const y = Math.sin((lon2 - lon1) * RAD) * Math.cos(lat2 * RAD);
+  const x = Math.cos(lat1 * RAD) * Math.sin(lat2 * RAD) - Math.sin(lat1 * RAD) * Math.cos(lat2 * RAD) * Math.cos((lon2 - lon1) * RAD);
+  return Math.round((Math.atan2(y, x) / RAD + 360) % 360);
+};
+
+/**
+ * `/routed-<profile>/route/v1/<profile>/lon,lat;lon,lat`, answered as OSRM does, with each
+ * leg a straight line: a depart onto Queens Road, a right turn onto Mall Road halfway.
+ */
+function osrm(request, url) {
+  state.routing.requests.push({ path: url.pathname, search: url.search, userAgent: request.headers.get('User-Agent') });
+  if (state.routing.down) return new Response('<html>502 Bad Gateway</html>', { status: 502 });
+
+  const points = url.pathname.split('/').pop().split(';').map((pair) => pair.split(',').map(Number));
+  if (points.some(([lon, lat]) => lon === 0 && lat === 0)) {
+    return Response.json({ code: 'NoRoute', message: 'Impossible route between points' }, { status: 400 });
+  }
+
+  const legs = points.slice(1).map((to, i) => {
+    const distance = metresBetween(points[i], to);
+    const heading = bearing(points[i], to);
+    const step = (name, part, type, modifier) => ({
+      name,
+      distance: part,
+      maneuver: { type, modifier, bearing_before: heading, bearing_after: heading },
+    });
+    return {
+      distance,
+      steps: [
+        step('Queens Road', distance / 2, 'depart'),
+        step('Mall Road', distance / 2, 'turn', 'right'),
+        step('Mall Road', 0, 'arrive'),
+      ],
+    };
+  });
+  return Response.json({
+    code: 'Ok',
+    routes: [
+      {
+        distance: legs.reduce((sum, leg) => sum + leg.distance, 0),
+        geometry: { type: 'LineString', coordinates: points },
+        legs,
+      },
+    ],
+    waypoints: points.map((location) => ({ location, distance: state.routing.snapMetres, name: 'Queens Road' })),
+  });
+}
+
 /** The Workers AI binding, as RPC: `env.AI.run(model, inputs)` lands here, never on the network. */
 export class WorkersAi extends WorkerEntrypoint {
   async run(model, inputs) {
@@ -526,6 +594,7 @@ export default {
     const url = new URL(request.url);
     if (url.hostname === 'intervals.icu') return intervals(request, url);
     if (url.hostname === 'www.googleapis.com') return drive(request, url);
+    if (url.hostname === 'routing.openstreetmap.de') return osrm(request, url);
     if (url.hostname === 'oauth2.googleapis.com' || url.hostname === 'appleid.apple.com') {
       return signIn(request, url, env);
     }

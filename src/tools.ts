@@ -10,6 +10,8 @@ import * as plan from './plan';
 import { ONBOARDING_INSTRUCTIONS } from './prompts';
 import { PLATFORMS } from './platforms';
 import * as recordings from './recordings';
+import * as route from './route';
+import { LinksUnavailable, linksConfigured } from './signing';
 import { leanLaps } from './stats';
 import { WorkoutError, parseChangeReason, parseComment, parseWorkout } from './workout';
 import type { Workout } from './workout';
@@ -476,6 +478,43 @@ export const TOOLS = [
       required: ['platform', 'from', 'to'],
     },
   },
+  {
+    name: 'plan_route',
+    annotations: { title: 'Snap a route to real paths', readOnlyHint: true, openWorldHint: true },
+    description:
+      'Route through waypoints along OpenStreetMap paths: distances, turns, and a gpx_url to pass ' +
+      'on as it is, never redrawn. Knows nothing of traffic, surface or safety, so judge those from ' +
+      `\`turns\`; \`snap_m\` is how far a waypoint moved. The link needs no credential and lasts ` +
+      `${route.LINK_TTL_SECONDS / 3600} hours. On failure, never approximate a route.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        waypoints: {
+          type: 'array',
+          minItems: 2,
+          maxItems: route.MAX_WAYPOINTS,
+          description: 'Points to pass through, in order, e.g. [{"lat":31.6358,"lon":74.8786,"name":"Hotel"}]. Name the ones worth a GPX waypoint.',
+          items: {
+            type: 'object',
+            properties: { lat: { type: 'number' }, lon: { type: 'number' }, name: { type: 'string' } },
+            required: ['lat', 'lon'],
+          },
+        },
+        loop: { type: 'boolean', description: 'Route back to the first waypoint at the end. Defaults to false.' },
+        sport: {
+          type: 'string',
+          enum: [...route.ROUTE_SPORTS],
+          description: 'Cycling routes on the bike network; the rest on foot. Defaults to running.',
+        },
+        name: { type: 'string', description: 'Route name, used in the file and its filename.' },
+        geojson: {
+          type: 'boolean',
+          description: 'Also return the line as a GeoJSON LineString, to draw on a map. Defaults to false.',
+        },
+      },
+      required: ['waypoints'],
+    },
+  },
 ] as const;
 
 export type ToolName = (typeof TOOLS)[number]['name'];
@@ -686,6 +725,10 @@ export async function callTool(
 
     case 'list_recorded_workouts':
       return await recordings.list(env, user, recordings.parseQuery(args), origin);
+
+    case 'plan_route':
+      if (!linksConfigured(env)) throw new LinksUnavailable();
+      return await route.planRoute(env, route.parseRouteQuery(args), origin);
 
     default:
       throw new ToolError(`unknown tool "${name}"`);

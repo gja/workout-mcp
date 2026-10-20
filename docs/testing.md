@@ -19,7 +19,9 @@ Google, Apple, intervals.icu and the Google APIs are stood in for by an auxiliar
 `arctic` path runs — Apple's signed client secret included — offline. The intervals.icu
 and Drive stand-ins keep state a test reaches through a service binding, so a push is
 asserted against what landed rather than against the request we sent. The Drive stand-in
-generates a throwaway RSA key per run, so the service account's JWT is a real one.
+generates a throwaway RSA key per run, so the service account's JWT is a real one. The
+OSRM stand-in routes in straight lines, so a test can work out the distance it should be
+told.
 
 Every migration is replayed before each file, so one that does not parse fails the build
 rather than the next deploy. `0002`, which carries data, is tested against a row in the
@@ -37,6 +39,7 @@ old shape.
 | `auth.test.ts` | Google and Apple sign-in, state, ID-token checks, sessions, API tokens |
 | `oauth.test.ts` | Discovery, registration, consent, the PKCE exchange, refresh, connected apps |
 | `mcp.test.ts` | The JSON-RPC protocol and every tool |
+| `route.test.ts` | `plan_route`: one request per route, the signed GPX link, turns, snaps, refusals, an outage |
 | `platforms.test.ts` | Connecting, pushing edits and deletes, surviving an outage, completions |
 | `stats.test.ts` | Reading a recorded FIT file: totals, step mapping, quarters, band, flags |
 | `format.test.ts` | The dashboard's formatting, under the client's tsconfig |

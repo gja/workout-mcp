@@ -52,6 +52,7 @@ set at login.
 | `POST /api/tools/:name` | Any MCP tool, over REST |
 | `POST /webhooks/intervals` | intervals.icu's own callback; theirs to call, not yours |
 | `GET /downloads/completed-workouts.zip?claims=&signature=` | Those files as one ZIP. No auth: the signature is the credential |
+| `GET /downloads/route.gpx?claims=&signature=` | A `plan_route` route as GPX, routed again. No auth: the signature is the credential |
 
 `:integration` is a training platform's id (`intervals`). A platform has no `PUT` body
 because it is connected by an OAuth round — the two `/auth/intervals/connect*` routes —
@@ -83,12 +84,14 @@ file. Lists are windowed, and so is every write: changing an aged-out workout is
 
 ## The routes outside `/api/`
 
-Two carry their own authentication, and so must not meet `withUser`:
+Three carry their own authentication, and so must not meet `withUser`:
 `/webhooks/intervals`, authenticated by the secrets intervals.icu sends (see
 [integrations.md](integrations.md)), and
 `/downloads/completed-workouts.zip`, authenticated by a signature naming the athlete and
 the range, expiring after four hours — the point of it is to be followable by something
-holding no account at all (see [recordings.md](recordings.md)). Everything else outside
+holding no account at all (see [recordings.md](recordings.md)), and `/downloads/route.gpx`,
+signed the same way over a route's waypoints for 24 hours (see [routes.md](routes.md)).
+Everything else outside
 `/api/` is the dashboard.
 
 `/api/app-token` is the one path under `/api/` the session cookie does not reach: it is
