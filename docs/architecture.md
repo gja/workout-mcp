@@ -12,6 +12,8 @@ src/plan.ts             every write to the plan, and the platforms it tells
 src/platforms/          training platforms: the interface, the store, intervals.icu
 src/drive/              a scheduled copier, no routes of its own
 src/recordings/         those same sessions as one signed, streaming ZIP download
+src/route.ts            waypoints routed on OpenStreetMap, handed over as a signed GPX link
+src/signing.ts          the HMAC behind every link that needs no credential
 src/identity.ts         signing in with Google or Apple
 src/auth.ts             sessions, accounts and API tokens
 src/context.ts          what an assistant reads before planning

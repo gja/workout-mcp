@@ -11,6 +11,7 @@ import { ONBOARDING_INSTRUCTIONS } from './prompts';
 import { PLATFORMS } from './platforms';
 import * as recordings from './recordings';
 import * as route from './route';
+import { LinksUnavailable, linksConfigured } from './signing';
 import { leanLaps } from './stats';
 import { WorkoutError, parseChangeReason, parseComment, parseWorkout } from './workout';
 import type { Workout } from './workout';
@@ -481,10 +482,10 @@ export const TOOLS = [
     name: 'plan_route',
     annotations: { title: 'Snap a route to real paths', readOnlyHint: true, openWorldHint: true },
     description:
-      'Route through waypoints along OpenStreetMap paths, returning a dense GPX or GeoJSON track ' +
-      'to save or map. Knows nothing of traffic, surface or safety: judge those from `turns`. ' +
-      '`snap_m` is how far each waypoint moved to reach a path. If this fails, say so; never ' +
-      'draw a route by hand instead.',
+      'Route through waypoints along OpenStreetMap paths: distances, turns, and a gpx_url to pass ' +
+      'on as it is, never redrawn. Knows nothing of traffic, surface or safety, so judge those from ' +
+      `\`turns\`; \`snap_m\` is how far a waypoint moved. The link needs no credential and lasts ` +
+      `${route.LINK_TTL_SECONDS / 3600} hours. On failure, never approximate a route.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -505,8 +506,11 @@ export const TOOLS = [
           enum: [...route.ROUTE_SPORTS],
           description: 'Cycling routes on the bike network; the rest on foot. Defaults to running.',
         },
-        format: { type: 'string', enum: [...route.ROUTE_FORMATS], description: 'Defaults to gpx.' },
         name: { type: 'string', description: 'Route name, used in the file and its filename.' },
+        geojson: {
+          type: 'boolean',
+          description: 'Also return the line as a GeoJSON LineString, to draw on a map. Defaults to false.',
+        },
       },
       required: ['waypoints'],
     },
@@ -723,15 +727,8 @@ export async function callTool(
       return await recordings.list(env, user, recordings.parseQuery(args), origin);
 
     case 'plan_route':
-      try {
-        return await route.planRoute(route.parseRouteQuery(args));
-      } catch (error) {
-        // The refusal is the point: an assistant told only "error" may draw the line itself.
-        if (error instanceof route.RouteUnavailable) {
-          throw new ToolError(`${error.message}; no route was made, so do not approximate one`);
-        }
-        throw error;
-      }
+      if (!linksConfigured(env)) throw new LinksUnavailable();
+      return await route.planRoute(env, route.parseRouteQuery(args), origin);
 
     default:
       throw new ToolError(`unknown tool "${name}"`);

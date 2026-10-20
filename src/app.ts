@@ -10,6 +10,8 @@ import * as contexts from './routes/context';
 import * as integrations from './routes/integrations';
 import * as oauth from './routes/oauth';
 import * as recordings from './routes/recordings';
+import * as routeDownload from './routes/route-download';
+import { RouteUnavailable } from './route';
 import * as signin from './routes/signin';
 import * as webhooks from './routes/webhooks';
 import * as workouts from './routes/workouts';
@@ -52,6 +54,7 @@ const routes = new Router<Context>({
   .mount(integrations.routes)
   .mount(webhooks.routes)
   .mount(recordings.routes)
+  .mount(routeDownload.routes)
   .mount(workouts.routes)
   .mount(contexts.routes);
 
@@ -66,6 +69,10 @@ export const app = {
       return await routes.handle(request.method, context);
     } catch (err) {
       if (isCallerError(err)) return error(err.message, 400);
+      if (err instanceof RouteUnavailable) {
+        console.error('routing failed', err.message);
+        return error(err.message, 502);
+      }
       if (err instanceof SyntaxError) return error('invalid JSON body', 400);
       console.error('unhandled error', err);
       return error('internal error', 500);

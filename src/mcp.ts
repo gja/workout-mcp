@@ -13,6 +13,7 @@ import {
 } from '@modelcontextprotocol/server';
 import { ONBOARDING, promptMessages } from './prompts';
 import { SKILLS_EXTENSION, findSkill, listResources, listSkills, readResource } from './skills';
+import { RouteUnavailable } from './route';
 import { TOOLS, callTool, isCallerError } from './tools';
 import type { Env, User } from './db';
 
@@ -120,6 +121,11 @@ function buildServer(env: Env, user: User, origin: string, era: 'legacy' | 'mode
           // A tool that refused its input is a successful call carrying
           // `isError`, so the model reads the message and can retry.
           if (isCallerError(error)) {
+            return { content: [{ type: 'text' as const, text: error.message }], isError: true };
+          }
+          // Not the caller's fault, but the model must read it: the message says not to improvise.
+          if (error instanceof RouteUnavailable) {
+            console.error(`tool ${tool.name}`, error.message);
             return { content: [{ type: 'text' as const, text: error.message }], isError: true };
           }
           throw new ProtocolError(INTERNAL_ERROR, report(`tool ${tool.name}`, error));

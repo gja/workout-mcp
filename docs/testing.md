@@ -39,7 +39,7 @@ old shape.
 | `auth.test.ts` | Google and Apple sign-in, state, ID-token checks, sessions, API tokens |
 | `oauth.test.ts` | Discovery, registration, consent, the PKCE exchange, refresh, connected apps |
 | `mcp.test.ts` | The JSON-RPC protocol and every tool |
-| `route.test.ts` | `plan_route`: one request per route, density, snaps, refusals, an outage |
+| `route.test.ts` | `plan_route`: one request per route, the signed GPX link, turns, snaps, refusals, an outage |
 | `platforms.test.ts` | Connecting, pushing edits and deletes, surviving an outage, completions |
 | `stats.test.ts` | Reading a recorded FIT file: totals, step mapping, quarters, band, flags |
 | `format.test.ts` | The dashboard's formatting, under the client's tsconfig |

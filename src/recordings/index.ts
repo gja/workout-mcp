@@ -5,6 +5,7 @@
 import type { Env, User } from '../db';
 import * as platforms from '../platforms';
 import type { ActivitySource, PlatformId, Recorded } from '../platforms';
+import { LinkRejected, LinksUnavailable, checkExpiry, linksConfigured, openClaims, signClaims } from '../signing';
 import { fail, parseDate } from '../units';
 import { SPORTS } from '../workout';
 import type { Sport } from '../workout';
@@ -169,41 +170,9 @@ export async function search(env: Env, userId: string, query: Query): Promise<Se
  * a link is a bearer credential for its four hours — it cannot be called back, only
  * outlived or broken by disconnecting the platform.
  */
-export class LinksUnavailable extends Error {
-  constructor() {
-    super('download links are not configured: set the CREDENTIALS_SECRET binding on the Worker');
-  }
-}
+export { LinkRejected, LinksUnavailable, linksConfigured } from '../signing';
 
-export const linksConfigured = (env: Env): boolean => Boolean(env.CREDENTIALS_SECRET);
-
-/**
- * Domain-separated from the key `src/platforms/store.ts` derives out of the same secret,
- * so neither is usable in the other's place.
- */
 const LABEL = 'workout-mcp/recording-download/v1';
-
-async function signingKey(env: Env): Promise<CryptoKey> {
-  if (!env.CREDENTIALS_SECRET) throw new LinksUnavailable();
-  const material = new TextEncoder().encode(`${LABEL}\n${env.CREDENTIALS_SECRET}`);
-  const digest = await crypto.subtle.digest('SHA-256', material);
-  return crypto.subtle.importKey('raw', digest, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
-}
-
-const toBase64Url = (bytes: Uint8Array): string => {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-};
-
-const fromBase64Url = (value: string): Uint8Array | null => {
-  try {
-    const binary = atob(value.replace(/-/g, '+').replace(/_/g, '/'));
-    return Uint8Array.from(binary, (character) => character.charCodeAt(0));
-  } catch {
-    return null;
-  }
-};
 
 /** The signed half of a link. Short keys: it is read by machines and lives in a URL. */
 type Claims = {
@@ -222,7 +191,6 @@ type Claims = {
 
 export type Link = { url: string; expires_at: string };
 
-/** `?claims=…&signature=…`, both base64url, which is the whole of what is stored anywhere. */
 export async function signLink(
   env: Env,
   userId: string,
@@ -240,57 +208,25 @@ export async function signLink(
     ...(query.sports ? { s: query.sports.join(',') } : {}),
     x: Math.floor(expiresAt.getTime() / 1000),
   };
-
-  const payload = toBase64Url(new TextEncoder().encode(JSON.stringify(claims)));
-  const signature = await crypto.subtle.sign('HMAC', await signingKey(env), new TextEncoder().encode(payload));
-
-  // Both are base64url, whose alphabet needs no escaping in a query string.
-  const search = new URLSearchParams({ claims: payload, signature: toBase64Url(new Uint8Array(signature)) });
+  const search = await signClaims(env, LABEL, claims);
   return { url: `${origin}${DOWNLOAD_PATH}?${search}`, expires_at: expiresAt.toISOString() };
 }
 
 export type Opened = { userId: string; query: Query; expiresAt: string };
 
-/** Why a link did not open, in the words the response gives back. */
-export class LinkRejected extends Error {}
-
-/** The signature is checked first: every field, the athlete included, is the caller's until it holds. */
 export async function openLink(
   env: Env,
   claimsParam: string | null,
   signatureParam: string | null,
   now: Date = new Date(),
 ): Promise<Opened> {
-  if (!claimsParam || !signatureParam) throw new LinkRejected('that is not a download link');
-
-  const signature = fromBase64Url(signatureParam);
-  if (!signature) throw new LinkRejected('that is not a download link');
-
-  const valid = await crypto.subtle.verify(
-    'HMAC',
-    await signingKey(env),
-    signature,
-    new TextEncoder().encode(claimsParam),
-  );
-  if (!valid) throw new LinkRejected('this link has been altered, or was signed by someone else');
-
-  const body = fromBase64Url(claimsParam);
-  if (!body) throw new LinkRejected('that is not a download link');
-
-  let claims: Claims;
-  try {
-    claims = JSON.parse(new TextDecoder().decode(body)) as Claims;
-  } catch {
-    throw new LinkRejected('that is not a download link');
-  }
+  const claims = (await openClaims(env, LABEL, claimsParam, signatureParam)) as Partial<Claims>;
 
   // Signed, so this is our own doing: a link from a version that wrote a different shape.
   if (claims.v !== 1 || typeof claims.u !== 'string' || typeof claims.x !== 'number') {
     throw new LinkRejected('this link was made by an older version and cannot be read');
   }
-  if (claims.x * 1000 <= now.getTime()) {
-    throw new LinkRejected('this link has expired; ask for a new one');
-  }
+  checkExpiry(claims.x, now);
 
   return {
     userId: claims.u,

@@ -95,7 +95,8 @@ needs no escaping there.
 The claims are a small JSON object — version, athlete, platform, range, sports, expiry —
 and the signature is HMAC-SHA-256 over exactly that base64url text. The key is derived from
 `CREDENTIALS_SECRET` under its own label, so it is not usable in place of the key
-`src/platforms/store.ts` encrypts tokens with.
+`src/platforms/store.ts` encrypts tokens with. The signing itself is `src/signing.ts`,
+shared with the route download ([routes.md](routes.md)) under a label of its own.
 
 **The claims are signed, not encrypted.** Anyone holding the link can decode the athlete
 id, the range and the sports — they can also just follow it and read the files, which says

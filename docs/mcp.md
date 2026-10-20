@@ -92,9 +92,9 @@ that touches no athlete data, in [routes.md](routes.md).
 **A tool returns a URL only when the URL works for whoever ends up holding it.**
 `export_workout_fit` returns the file base64-encoded with the name to save it under, because
 an assistant handed a download link passes the link on and the bytes sit behind the caller's
-own credential. `list_recorded_workouts` is the one exception, precisely because its link is
-signed rather than guarded — and a month of recordings is not something to base64 into a
-tool result.
+own credential. `list_recorded_workouts` and `plan_route` are the exceptions, precisely
+because their links are signed rather than guarded — and neither a month of recordings nor
+a route's hundreds of coordinates is something to put through the model.
 
 **Annotations.** `readOnlyHint` on the eleven readers, so a client can allow them without
 asking each time; `destructiveHint` on `update_workout`, `delete_workout`, `save_note` and

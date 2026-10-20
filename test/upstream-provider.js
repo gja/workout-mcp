@@ -520,18 +520,27 @@ async function intervals(request, url) {
   return new Response(`unexpected intervals.icu request: ${request.method} ${path}`, { status: 404 });
 }
 
-/** The Workers AI binding, as RPC: `env.AI.run(model, inputs)` lands here, never on the network. */
 const EARTH_RADIUS_M = 6371000;
+const RAD = Math.PI / 180;
 
 const metresBetween = ([lon1, lat1], [lon2, lat2]) => {
-  const rad = Math.PI / 180;
   const h =
-    Math.sin(((lat2 - lat1) * rad) / 2) ** 2 +
-    Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(((lon2 - lon1) * rad) / 2) ** 2;
+    Math.sin(((lat2 - lat1) * RAD) / 2) ** 2 +
+    Math.cos(lat1 * RAD) * Math.cos(lat2 * RAD) * Math.sin(((lon2 - lon1) * RAD) / 2) ** 2;
   return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(h));
 };
 
-/** `/routed-<profile>/route/v1/<profile>/lon,lat;lon,lat`, answered as OSRM does with straight legs. */
+/** Heading from one point to the next, in whole degrees clockwise from north, as OSRM gives it. */
+const bearing = ([lon1, lat1], [lon2, lat2]) => {
+  const y = Math.sin((lon2 - lon1) * RAD) * Math.cos(lat2 * RAD);
+  const x = Math.cos(lat1 * RAD) * Math.sin(lat2 * RAD) - Math.sin(lat1 * RAD) * Math.cos(lat2 * RAD) * Math.cos((lon2 - lon1) * RAD);
+  return Math.round((Math.atan2(y, x) / RAD + 360) % 360);
+};
+
+/**
+ * `/routed-<profile>/route/v1/<profile>/lon,lat;lon,lat`, answered as OSRM does, with each
+ * leg a straight line: a depart onto Queens Road, a right turn onto Mall Road halfway.
+ */
 function osrm(request, url) {
   state.routing.requests.push({ path: url.pathname, search: url.search, userAgent: request.headers.get('User-Agent') });
   if (state.routing.down) return new Response('<html>502 Bad Gateway</html>', { status: 502 });
@@ -543,12 +552,18 @@ function osrm(request, url) {
 
   const legs = points.slice(1).map((to, i) => {
     const distance = metresBetween(points[i], to);
+    const heading = bearing(points[i], to);
+    const step = (name, part, type, modifier) => ({
+      name,
+      distance: part,
+      maneuver: { type, modifier, bearing_before: heading, bearing_after: heading },
+    });
     return {
       distance,
       steps: [
-        { name: 'Queens Road', distance: distance / 2, maneuver: { type: 'depart', modifier: 'left' } },
-        { name: 'Mall Road', distance: distance / 2, maneuver: { type: 'turn', modifier: 'right' } },
-        { name: 'Mall Road', distance: 0, maneuver: { type: 'arrive' } },
+        step('Queens Road', distance / 2, 'depart'),
+        step('Mall Road', distance / 2, 'turn', 'right'),
+        step('Mall Road', 0, 'arrive'),
       ],
     };
   });
@@ -565,6 +580,7 @@ function osrm(request, url) {
   });
 }
 
+/** The Workers AI binding, as RPC: `env.AI.run(model, inputs)` lands here, never on the network. */
 export class WorkersAi extends WorkerEntrypoint {
   async run(model, inputs) {
     state.ai.calls.push({ model, inputs });

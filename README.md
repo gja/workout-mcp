@@ -138,9 +138,9 @@ training platform.
 
 ### [docs/routes.md](docs/routes.md)
 
-Waypoints snapped to OpenStreetMap paths and routed on foot or by bike, returned as a dense
-GPX or GeoJSON track. Why the router's limits are spelled out in the result, how the track
-is densified, and the public server it leans on.
+Waypoints snapped to OpenStreetMap paths and routed on foot or by bike. Why the track
+reaches the athlete through a signed GPX link and never through the model, how turns and
+snaps are reported honestly, and the public router behind it.
 
 ### [docs/fit.md](docs/fit.md)
 
