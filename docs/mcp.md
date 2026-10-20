@@ -62,7 +62,7 @@ identity, and both kinds arrive at the handler identically:
 `delete_workout`, `complete_workout`, `comment_workout`, `save_note`, `export_workout_fit`, `get_workout_stats`,
 `get_workout_library`, `get_current_plan`, `get_scheduling_instructions`,
 `get_workout_zones`, `get_onboarding_instructions`, `update_context`,
-`list_recorded_workouts`.
+`list_recorded_workouts`, `plan_route`.
 
 A workout is named by its `id` alone: where a tool takes a `date` beside one it is
 optional and ignored, kept because callers hold it. `get_workout` is the exception — a
@@ -86,7 +86,8 @@ protects the athlete.
 `get_workout_stats` is the cheap way to read real training ([stats.md](stats.md));
 `list_recorded_workouts` is the drill-down, and the only way to reach a session never
 planned here ([recordings.md](recordings.md)). The four context readers and
-`update_context` are described in [context.md](context.md).
+`update_context` are described in [context.md](context.md), and `plan_route`, the one tool
+that touches no athlete data, in [routes.md](routes.md).
 
 **A tool returns a URL only when the URL works for whoever ends up holding it.**
 `export_workout_fit` returns the file base64-encoded with the name to save it under, because
@@ -95,7 +96,7 @@ own credential. `list_recorded_workouts` is the one exception, precisely because
 signed rather than guarded — and a month of recordings is not something to base64 into a
 tool result.
 
-**Annotations.** `readOnlyHint` on the ten readers, so a client can allow them without
+**Annotations.** `readOnlyHint` on the eleven readers, so a client can allow them without
 asking each time; `destructiveHint` on `update_workout`, `delete_workout`, `save_note` and
 `update_context`: `save_note` replaces or deletes by id, and `update_context` replaces a
 document the athlete wrote in full.

@@ -146,6 +146,7 @@ describe('protocol', () => {
       'get_workout_zones',
       'list_recorded_workouts',
       'list_workouts',
+      'plan_route',
     ]);
     expect(destructive.sort()).toEqual(['delete_workout', 'save_note', 'update_context', 'update_workout']);
     // Completing, commenting and moving are writes, but none can lose the plan they are against.
