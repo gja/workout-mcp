@@ -211,11 +211,15 @@ const turnOf = ({ type, modifier }: Maneuver): string => {
  * Road by road. A real turn always starts a line, even onto a road of the same name; a
  * waypoint passed through is a turn only if the heading changes there, which OSRM leaves
  * to be read off the arriving and departing bearings.
+ *
+ * Every U-turn is also a warning. On a planned route, turning round almost always means a
+ * waypoint sits off the path that was meant, and the line goes to fetch it and comes back.
  */
-function turnList(legs: OsrmLeg[]) {
+function turnList(legs: OsrmLeg[], count: number) {
   const turns: { turn: string; road: string; distance_m: number }[] = [];
+  const doublings: string[] = [];
   let arrivedHeading: number | null = null;
-  for (const leg of legs) {
+  legs.forEach((leg, i) => {
     for (const step of leg.steps) {
       const { type } = step.maneuver;
       if (type === 'arrive') {
@@ -223,16 +227,21 @@ function turnList(legs: OsrmLeg[]) {
         continue;
       }
       const road = step.name || '(unnamed)';
-      const turn =
-        type === 'depart' && arrivedHeading !== null
-          ? headingChange(arrivedHeading, step.maneuver.bearing_after)
-          : turnOf(step.maneuver);
+      const atWaypoint = type === 'depart' && arrivedHeading !== null;
+      const turn = atWaypoint ? headingChange(arrivedHeading!, step.maneuver.bearing_after) : turnOf(step.maneuver);
+      if (turn === 'uturn') {
+        doublings.push(
+          atWaypoint
+            ? `the route doubles back at waypoints[${i % count}], so that point is probably off the path you meant; move it onto that path`
+            : `the route turns round on ${road} between waypoints[${i}] and waypoints[${(i + 1) % count}], which usually means a waypoint is off the path you meant`,
+        );
+      }
       const last = turns[turns.length - 1];
       if (last && last.road === road && turn === 'straight') last.distance_m += step.distance;
       else turns.push({ turn, road, distance_m: step.distance });
     }
-  }
-  return turns.map((t) => ({ ...t, distance_m: roundM(t.distance_m) }));
+  });
+  return { turns: turns.map((t) => ({ ...t, distance_m: roundM(t.distance_m) })), doublings };
 }
 
 const stopsOf = (query: RouteQuery): Waypoint[] => (query.loop ? [...query.waypoints, query.waypoints[0]] : query.waypoints);
@@ -264,6 +273,7 @@ async function route(query: RouteQuery) {
     snap_m: roundM(w.distance),
     road: w.name || null,
   }));
+  const { turns, doublings } = turnList(found.legs, count);
   const vertices = found.geometry.coordinates.map(([lon, lat]) => ({ lat: round6(lat), lon: round6(lon) }));
   const track = densify(vertices).map((p) => ({ lat: round6(p.lat), lon: round6(p.lon) }));
 
@@ -274,12 +284,15 @@ async function route(query: RouteQuery) {
       distance_m: roundM(found.distance),
       legs: found.legs.map((leg, i) => ({ from: i, to: (i + 1) % count, distance_m: roundM(leg.distance) })),
       waypoints,
-      warnings: waypoints.flatMap((w, i) =>
-        w.snap_m > SNAP_WARNING_M
-          ? [`waypoints[${i}] is ${w.snap_m} m from the nearest ${PROFILE[query.sport]} way, and was moved onto it`]
-          : [],
-      ),
-      turns: turnList(found.legs),
+      warnings: [
+        ...waypoints.flatMap((w, i) =>
+          w.snap_m > SNAP_WARNING_M
+            ? [`waypoints[${i}] is ${w.snap_m} m from the nearest ${PROFILE[query.sport]} way, and was moved onto it`]
+            : [],
+        ),
+        ...doublings,
+      ],
+      turns,
       trackpoints: track.length,
       source: ATTRIBUTION,
     },

@@ -299,7 +299,7 @@ const freshState = () => ({
     failing: {},
   },
   /** OSRM: each request seen, how far every waypoint is said to snap, and an outage on demand. */
-  routing: { requests: [], snapMetres: 2, down: false },
+  routing: { requests: [], snapMetres: 2, down: false, turnRound: false },
 });
 
 let state = freshState();
@@ -385,6 +385,7 @@ function control(request, path) {
       if (body.aiReply !== undefined) state.ai.reply = body.aiReply;
       if (body.routingSnapMetres !== undefined) state.routing.snapMetres = body.routingSnapMetres;
       if (body.routingDown !== undefined) state.routing.down = body.routingDown;
+      if (body.routingTurnRound !== undefined) state.routing.turnRound = body.routingTurnRound;
       return Response.json({ ok: true });
     });
   }
@@ -562,7 +563,7 @@ function osrm(request, url) {
       distance,
       steps: [
         step('Queens Road', distance / 2, 'depart'),
-        step('Mall Road', distance / 2, 'turn', 'right'),
+        step('Mall Road', distance / 2, 'turn', state.routing.turnRound ? 'uturn' : 'right'),
         step('Mall Road', 0, 'arrive'),
       ],
     };

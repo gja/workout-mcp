@@ -484,8 +484,8 @@ export const TOOLS = [
     description:
       'Route through waypoints along OpenStreetMap paths: distances, turns, and a gpx_url to pass ' +
       'on as it is, never redrawn. Knows nothing of traffic, surface or safety, so judge those from ' +
-      `\`turns\`; \`snap_m\` is how far a waypoint moved. The link needs no credential and lasts ` +
-      `${route.LINK_TTL_SECONDS / 3600} hours. On failure, never approximate a route.`,
+      '`turns`. Read `warnings` first: a U-turn or a far snap means a waypoint is misplaced. ' +
+      'On failure, never approximate a route.',
     inputSchema: {
       type: 'object',
       properties: {
