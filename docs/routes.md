@@ -18,7 +18,7 @@ What comes back:
 | --- | --- |
 | `distance_m`, `legs` | The whole route, and each waypoint-to-waypoint leg. |
 | `waypoints` | Each input, where the router moved it to (`snapped`), how far (`snap_m`) and the road it landed on. |
-| `warnings` | One line for every waypoint that moved more than 30 m. |
+| `warnings` | One line for every waypoint that moved more than 30 m, and for every U-turn. |
 | `turns` | Each road in order, with the turn onto it and how far along it. |
 | `gpx_url`, `expires_at` | The file, behind a signed link. See below. |
 | `geojson` | Only with `geojson: true`: the router's own line, for drawing on a map. |
@@ -68,6 +68,11 @@ followed into traffic. So the output is built to keep that from happening downst
   waypoint sits, so the turn there is read off the two bearings.
 - **A far snap is reported, not hidden.** A waypoint 200 m from any path has been moved,
   and `snap_m` says by how much.
+- **A U-turn is a warning.** A waypoint guessed a few hundred metres wrong usually lands
+  *on* a path, just the wrong one, so `snap_m` is 0 and says nothing. What gives it away
+  is the line going out to fetch the point and coming back. Every U-turn is reported: at a
+  waypoint, read off the bearings either side of it, and mid-leg, where OSRM marks one at
+  a dead end. A loop around a park meant as a ring has none.
 - **A failure says not to improvise.** An unreachable router, or one silent for 10 s, is
   a tool error reading "no route was made, so do not approximate one". A model told only
   "error" tends to draw the line itself. Over REST it is a 502. A route OSRM refuses for

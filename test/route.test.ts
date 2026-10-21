@@ -177,6 +177,24 @@ describe('plan_route', () => {
     ]);
   });
 
+  it('warns when the route doubles back at a waypoint, as one placed off the path makes it', async () => {
+    // Out to NORTH and straight back: the line reaches it only to turn round.
+    const back = await planned({ waypoints: [HOTEL, NORTH, HOTEL] });
+    expect(back.turns.map((t) => t.turn)).toContain('uturn');
+    expect(back.warnings).toEqual([
+      'the route doubles back at waypoints[1], so that point is probably off the path you meant; move it onto that path',
+    ]);
+  });
+
+  it('warns when the router turns round between waypoints, as at a dead end', async () => {
+    await control('setup', { routingTurnRound: true });
+    const route = await planned({ waypoints: [HOTEL, EAST] });
+
+    expect(route.warnings).toEqual([
+      'the route turns round on Mall Road between waypoints[0] and waypoints[1], which usually means a waypoint is off the path you meant',
+    ]);
+  });
+
   it('warns when a waypoint had to move far to reach a way', async () => {
     await control('setup', { routingSnapMetres: SNAP_WARNING_M + 50 });
     const route = await planned({ waypoints: [HOTEL, EAST] });
