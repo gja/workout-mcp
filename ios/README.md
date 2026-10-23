@@ -186,13 +186,15 @@ If a recording is still going when you open the app — a force-quit or a crash 
 leaves one, because HealthKit holds it and not the app — it says so on the first screen and
 offers to carry on or to end and send it up. You never have to find the workout it came from.
 
-**It is behind `ON_PHONE_RECORDING`**, which is set for Debug **and Release**: every build
-has the feature, TestFlight included. The switch stays because it is what makes the recorder
+**It is behind `ON_PHONE_RECORDING`**, which is set for **Debug only**: App Store and
+TestFlight builds leave the recorder and the Bluetooth sensors out, as App Review asked for
+1.0. The switch stays because it is what makes the recorder
 removable from a build without unpicking it. Six files are inside the switch whole — `WorkoutRunner`, `RunVoice`, `TargetWatch`, `Underway`, `WorkoutView`, `RunSteps`
 and `Spoken` — and what is left in the shared files is the start button, the Settings toggle
 and the Health share types, which is the only part of it an athlete would otherwise see.
-`Info.plist` is the one thing the switch does not reach: `audio` and `location` are declared
-in both builds, and do nothing in one with nothing to ask for them.
+The switch cannot reach `Info.plist`, so there are two: `Info.plist` for Release declares
+background `fetch` alone, and `Info-Debug.plist` adds `audio`, `bluetooth-central` and
+`location` for the recorder. The Bluetooth and location purpose strings are Debug-only too.
 
 **Settings.** Who is signed in, which deployment this build talks to, **Log out**, a
 **Heart rate** sheet — a year of Health as the two figures zones are built from, an average
