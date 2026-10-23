@@ -1,5 +1,8 @@
 // Pair a Bluetooth strap or power meter to the phone and watch its numbers. Nothing here is
 // recorded. See docs/ios.md.
+// Compiled only with phone recording, which reads the sensors: a Release build has neither,
+// and so asks for no Bluetooth permission.
+#if ON_PHONE_RECORDING
 import CoreBluetooth
 import SwiftUI
 
@@ -89,3 +92,4 @@ struct SensorLabView: View {
         }
     }
 }
+#endif

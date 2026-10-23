@@ -293,13 +293,14 @@ first tick and advances itself, which put a resumed session straight onto interv
 interval the athlete was on is not recoverable: it lived in the process that went away, and
 the screen says one.
 
-**It is behind a compile-time switch, and the switch is now on in both builds.**
-`ON_PHONE_RECORDING` is in `SWIFT_ACTIVE_COMPILATION_CONDITIONS` for Debug and Release alike,
-so a TestFlight archive carries the recorder. It was Debug-only while the pause was being
-chased through HealthKit's several disagreeing accounts of a session's state; it went to
-Release once a real outdoor walk came back whole — laps matched to their steps with real
-distances, cadence recorded, and the session's moving time within two seconds of its elapsed
-time.
+**It is behind a compile-time switch, on in Debug and off in Release.**
+`ON_PHONE_RECORDING` is in `SWIFT_ACTIVE_COMPILATION_CONDITIONS` for Debug only, so an App
+Store or TestFlight archive does not carry the recorder. It was in Release for a while; App
+Review then asked for the background audio it needs to be demonstrated, and for a video of the
+Bluetooth sensors being paired, so 1.0 ships without either. The switch also holds the
+sensors (`SensorLab`, `SensorLabView` and their Settings row), and Release has its own
+`Info.plist` — background `fetch` only — with no Bluetooth or location purpose string;
+`Info-Debug.plist` keeps `audio`, `bluetooth-central` and `location` for the recorder.
 
 The switch stays rather than being deleted, because it is what makes the feature removable
 from a build without unpicking it. Six files are inside it whole — `WorkoutRunner`,
@@ -556,6 +557,8 @@ this screen alone. An athlete who declines it, or a watch that never wrote one, 
 section saying so rather than an average of nothing.
 
 ## Bluetooth sensors
+
+Debug builds only, with the recorder below `ON_PHONE_RECORDING`.
 
 *Settings › Bluetooth sensors* is how the limitation under
 [Recording it on the phone](#recording-it-on-the-phone) is fixed: a power meter does not pair

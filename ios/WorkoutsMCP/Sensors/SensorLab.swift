@@ -1,6 +1,9 @@
 // Bluetooth heart rate, cycling power and cadence read straight off the standard GATT
 // profiles. The Settings screen pairs them; a session recorded on the phone reconnects to the
 // ones paired there and writes what they read into the workout. See docs/ios.md.
+// Compiled only with phone recording, which reads the sensors: a Release build has neither,
+// and so asks for no Bluetooth permission.
+#if ON_PHONE_RECORDING
 import CoreBluetooth
 import Foundation
 
@@ -330,3 +333,4 @@ extension SensorLab: CBPeripheralDelegate {
         MainActor.assumeIsolated { self.read(profile, data) }
     }
 }
+#endif

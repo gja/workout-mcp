@@ -13,7 +13,9 @@ struct SettingsView: View {
     @State private var showingLog = false
     @State private var showingHeartRate = false
     @State private var showingConnect = false
+    #if ON_PHONE_RECORDING
     @State private var showingSensors = false
+    #endif
     @State private var confirmingDelete = false
     #if ON_PHONE_RECORDING
     @AppStorage(RunVoice.defaultsKey) private var speaking = true
@@ -54,11 +56,14 @@ struct SettingsView: View {
                     )
                 }
 
+                // With phone recording, which is what reads them: neither ships in a Release build.
+                #if ON_PHONE_RECORDING
                 Section {
                     Button("Bluetooth sensors") { showingSensors = true }
                 } footer: {
                     Text("Connect a heart rate strap or a power meter and see its readings.")
                 }
+                #endif
 
                 #if ON_PHONE_RECORDING
                 Section {
@@ -94,7 +99,9 @@ struct SettingsView: View {
             .sheet(isPresented: $showingLog) { SyncLogView() }
             .sheet(isPresented: $showingHeartRate) { HeartRateView() }
             .sheet(isPresented: $showingConnect) { ConnectClaudeView() }
+            #if ON_PHONE_RECORDING
             .sheet(isPresented: $showingSensors) { SensorLabView() }
+            #endif
             .confirmationDialog("Delete your account?", isPresented: $confirmingDelete, titleVisibility: .visible) {
                 Button("Delete account", role: .destructive) { Task { await session.deleteAccount() } }
             } message: {
