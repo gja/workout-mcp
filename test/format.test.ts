@@ -86,6 +86,7 @@ describe('reading a recorded session', () => {
         max_hr: 171,
         avg_pace_s_km: 300,
         avg_power_w: null,
+        max_power_w: null,
         avg_cadence: 168,
       }),
     ).toBe('1 h · 12 km · 5:00/km · 148 bpm avg');

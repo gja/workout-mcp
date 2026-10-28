@@ -72,6 +72,7 @@ export type RecordedSession = {
   max_hr: number | null;
   avg_pace_s_km: number | null;
   avg_power_w: number | null;
+  max_power_w: number | null;
   avg_cadence: number | null;
 };
 
