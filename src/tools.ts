@@ -79,6 +79,13 @@ export const STEP_SCHEMA = {
         enum: ['warmup', 'active', 'interval', 'rest', 'recovery', 'cooldown'],
         description: 'Defaults to a guess from the step name, or "interval" inside a repeat.',
       },
+      pace_basis: {
+        type: 'string',
+        enum: ['current', 'average'],
+        description:
+          '"average" judges the pace band on the step\'s average so far, not the pace this second. ' +
+          'Apple Watch only; FIT and other clients keep the current pace.',
+      },
 
       goal_s: { type: ['number', 'string'], description: 'Run for this long. Seconds, or "mm:ss" / "hh:mm:ss".' },
       goal_meters: { type: 'number', description: 'Run for this distance in metres, e.g. 400.' },

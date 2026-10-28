@@ -24,8 +24,8 @@ export type Target =
   | { type: 'open' }
   | { type: 'zone'; metric: ZoneMetric; zone: number }
   | { type: 'heart_rate'; low: HrValue | null; high: HrValue | null }
-  /** Speed in m/s. `unit` is only how the caller wrote it, for display. */
-  | { type: 'speed'; low: number | null; high: number | null; unit: 'km' | 'mi' }
+  /** Speed in m/s. `unit` is only how the caller wrote it, for display; `average` only a client's alert. */
+  | { type: 'speed'; low: number | null; high: number | null; unit: 'km' | 'mi'; average?: true }
   | { type: 'power'; low: PowerValue | null; high: PowerValue | null }
   | { type: 'cadence'; low: number | null; high: number | null };
 
@@ -287,6 +287,13 @@ function inferIntensity(name: string | undefined, insideRepeat: boolean): Intens
   return insideRepeat ? 'interval' : 'active';
 }
 
+/** FIT has no average-pace target, so this marks the band for a client that has one. See docs/workouts.md. */
+function holdPaceAsAverage(target: Target, secondary: Target | undefined, path: string): void {
+  const pace = [target, secondary].find((each) => each?.type === 'speed');
+  if (pace?.type !== 'speed') fail(path, 'only a target_pace_km or target_pace_miles band can be held as an average, and this step has neither');
+  pace.average = true;
+}
+
 // --- Steps -----------------------------------------------------------------
 
 const isRepeat = (step: PlanStep): step is Extract<PlanStep, { repeat: number }> => 'repeat' in step;
@@ -304,6 +311,7 @@ export function resolveStep(step: PlanStep, path: string, insideRepeat: boolean)
   const raw = step as unknown as Record<string, unknown>;
   const intensity = step.intensity ?? inferIntensity(step.name, insideRepeat);
   const { target, secondary } = parseTargets(raw, path);
+  if (step.pace_basis === 'average') holdPaceAsAverage(target, secondary, `${path}.pace_basis`);
 
   const resolved: ResolvedStep = { kind: 'step', intensity, duration: parseDuration(raw, path), target };
   if (secondary) resolved.secondary_target = secondary;

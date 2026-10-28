@@ -144,12 +144,12 @@ enum PlanTarget: Codable {
     case zone(metric: String, zone: Int)
     case heartRate(low: PlanBound?, high: PlanBound?)
     /// Metres a second, both ends, with the unit the athlete wrote the pace in so it can be
-    /// shown back the same way round.
-    case speed(low: Double?, high: Double?, unit: String)
+    /// shown back the same way round. `average` judges the band on the step's average pace.
+    case speed(low: Double?, high: Double?, unit: String, average: Bool)
     case power(low: PlanBound?, high: PlanBound?)
     case cadence(low: Double?, high: Double?)
 
-    private enum CodingKeys: String, CodingKey { case type, metric, zone, low, high, unit }
+    private enum CodingKeys: String, CodingKey { case type, metric, zone, low, high, unit, average }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -168,7 +168,8 @@ enum PlanTarget: Codable {
             self = .speed(
                 low: try container.decodeIfPresent(Double.self, forKey: .low),
                 high: try container.decodeIfPresent(Double.self, forKey: .high),
-                unit: try container.decodeIfPresent(String.self, forKey: .unit) ?? "km"
+                unit: try container.decodeIfPresent(String.self, forKey: .unit) ?? "km",
+                average: try container.decodeIfPresent(Bool.self, forKey: .average) ?? false
             )
         case "power":
             self = .power(
@@ -199,11 +200,12 @@ enum PlanTarget: Codable {
             try container.encode("heart_rate", forKey: .type)
             try container.encodeIfPresent(low, forKey: .low)
             try container.encodeIfPresent(high, forKey: .high)
-        case .speed(let low, let high, let unit):
+        case .speed(let low, let high, let unit, let average):
             try container.encode("speed", forKey: .type)
             try container.encodeIfPresent(low, forKey: .low)
             try container.encodeIfPresent(high, forKey: .high)
             try container.encode(unit, forKey: .unit)
+            if average { try container.encode(true, forKey: .average) }
         case .power(let low, let high):
             try container.encode("power", forKey: .type)
             try container.encodeIfPresent(low, forKey: .low)

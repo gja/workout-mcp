@@ -57,6 +57,21 @@ thing you are told to run is the primary. Writing the fields the other way round
 nothing. Two targets on the *same* metric is an error rather than a silent winner, and a
 third is refused because FIT has nowhere to put it.
 
+### Holding a pace as an average
+
+A step with a pace band can add `"pace_basis": "average"` to be judged on its average pace
+so far rather than the pace this second, so a slow few seconds in a kilometre rep raise
+nothing as long as the rep averages inside the band:
+
+```jsonc
+{ "goal_km": 1, "target_pace_km": ["5:50", "6:00"], "pace_basis": "average" }
+```
+
+It is a flag beside the band rather than a second band so that a client that does not know
+it still has the band: the Apple Watch (WorkoutKit's `.average` alert) honours it, while the
+FIT file, which has no average target, and intervals.icu keep the current pace. `current`
+is the default and is not stored; `average` on a step with no pace band is refused.
+
 ## Ranges
 
 Every target takes `[floor, ceiling]`, and either end may be `"-"` to leave it open (`""`,
