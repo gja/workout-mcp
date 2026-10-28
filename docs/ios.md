@@ -339,6 +339,12 @@ range with a stand-in — 20:00/km and 2:00/km, 40 and 220 bpm, 10 and 1000 W, 2
 — each past what a session reaches and no further, because a figure outside what the watch
 has a dial for is worse than a wide band, and a zero end reads as no target at all.
 
+**A pace band is judged now unless the plan says average.** `SpeedRangeAlert` goes out with
+`metric: .current`, or `.average` for a step marked `pace_basis: "average"` (see
+[workouts.md](workouts.md#holding-a-pace-as-an-average)), which the watch judges on the
+step's average so far: a few slow seconds in a kilometre rep say nothing. Recording on the
+phone does not judge an average band at all, since it reads only the pace this second.
+
 **A heart rate or cadence alert is not read in hertz.** `HeartRateRangeAlert` and
 `CadenceRangeAlert` are typed `Measurement<UnitFrequency>`, and Apple divides the
 measurement's base value by 60 to get the figure it shows. `UnitFrequency` has no case for

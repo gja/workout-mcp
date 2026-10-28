@@ -135,14 +135,15 @@ enum Formats {
         case .cadence(let low, let high):
             guard let both = range(low.map(whole), high.map(whole)) else { return nil }
             return "\(both) rpm"
-        case .speed(let low, let high, let unit):
+        case .speed(let low, let high, let unit, let average):
             // A faster pace is a higher speed, so the ends swap back for display.
             let metres = unit == "mi" ? 1609.344 : 1000.0
             let fastest = high.map { clock(metres / $0) }
             let slowest = low.map { clock(metres / $0) }
-            if let fastest, let slowest { return "\(fastest)-\(slowest)/\(unit)" }
-            if let slowest { return "faster than \(slowest)/\(unit)" }
-            return fastest.map { "slower than \($0)/\(unit)" }
+            let suffix = average ? "/\(unit) average" : "/\(unit)"
+            if let fastest, let slowest { return "\(fastest)-\(slowest)\(suffix)" }
+            if let slowest { return "faster than \(slowest)\(suffix)" }
+            return fastest.map { "slower than \($0)\(suffix)" }
         }
     }
 

@@ -43,7 +43,10 @@ struct TargetWatch {
         switch target {
         case .open, .zone:
             return nil
-        case .speed(let low, let high, _):
+        case .speed(_, _, _, true):
+            // Judged against a pace this second, an average band would be called wrong all step.
+            return nil
+        case .speed(let low, let high, _, false):
             self.init(metric: .speed, low: low, high: high)
         case .cadence(let low, let high):
             self.init(metric: .cadence, low: low, high: high)
