@@ -9,6 +9,7 @@ import { Contexts } from './components/Contexts';
 import { ConnectedApps } from './components/ConnectedApps';
 import { CONNECT_SECTION_ID, ConnectToClaude } from './components/ConnectToClaude';
 import { Faq, REPO_URL, STARTER_SECTION_ID } from './components/Faq';
+import { History } from './components/History';
 import { Platforms } from './components/Platforms';
 import { QuickAdd } from './components/QuickAdd';
 import { SignIn } from './components/SignIn';
@@ -115,6 +116,10 @@ function Dashboard({ me }: { me: Me }) {
         </>
       )}
 
+      <p className="row">
+        <a className="link" href="/history">See all past workouts →</a>
+      </p>
+
       {open && (
         <div className="day" ref={panel}>
           <h3>{relativeDate(open.date)}</h3>
@@ -175,7 +180,7 @@ function App() {
 
       {me ? (
         <>
-          <Dashboard me={me} />
+          {location.pathname === '/history' ? <History /> : <Dashboard me={me} />}
           <Faq />
         </>
       ) : (

@@ -30,8 +30,8 @@ const listWorkouts: AuthedRoute = async ({ url, env, user }) => {
   const to = url.searchParams.get('to');
   const range = [from ? parseDate(from, 'from') : undefined, to ? parseDate(to, 'to') : undefined] as const;
   const [workouts, notes] = await Promise.all([
-    db.listWorkouts(env, user.id, ...range),
-    db.listNotes(env, user.id, ...range),
+    db.listWorkouts(env, user.id, ...range, 'all'),
+    db.listNotes(env, user.id, ...range, 'all'),
   ]);
   return json({ workouts: workouts.map((workout) => present(workout, url.origin)), notes });
 };

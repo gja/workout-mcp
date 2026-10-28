@@ -47,6 +47,7 @@ const routes = new Router<Context>({
 
   // A link straight to one session; the dashboard opens it once the list loads.
   .get('/workout/:id', page('/'))
+  .get('/history', page('/'))
 
   .mount(signin.routes)
   .mount(oauth.routes)

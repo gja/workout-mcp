@@ -224,8 +224,8 @@ export const TOOLS = [
     name: 'list_workouts',
     annotations: { title: 'List planned workouts', readOnlyHint: true, openWorldHint: false },
     description:
-      'List planned workouts in the retention window: 7 days back, 28 ahead. A wider from/to is ' +
-      'narrowed to it rather than refused. A recorded session carries `stats`, and `comment` is ' +
+      `List planned workouts, 7 days back and 28 ahead by default. \`from\` reaches back up to ${db.MCP_HISTORY_DAYS} ` +
+      'days; a wider range is narrowed rather than refused. A recorded session carries `stats`, and `comment` is ' +
       "the athlete's own note on it. `notes` beside them are the dated notes overlapping the range: " +
       'travel, illness — plan around them.',
     inputSchema: {
@@ -578,8 +578,8 @@ export async function callTool(
       const from = args.from === undefined ? undefined : parseDate(args.from, 'from');
       const to = args.to === undefined ? undefined : parseDate(args.to, 'to');
       const [workouts, notes] = await Promise.all([
-        db.listWorkouts(env, user.id, from, to),
-        db.listNotes(env, user.id, from, to),
+        db.listWorkouts(env, user.id, from, to, db.MCP_HISTORY_DAYS),
+        db.listNotes(env, user.id, from, to, db.MCP_HISTORY_DAYS),
       ]);
       return { workouts: workouts.map((w) => present(w)), notes };
     }
@@ -592,7 +592,7 @@ export async function callTool(
         return present(workout);
       }
       const date = parseDate(requireString(args, 'date'), 'date');
-      const onDate = await db.listWorkouts(env, user.id, date, date);
+      const onDate = await db.listWorkouts(env, user.id, date, date, db.MCP_HISTORY_DAYS);
       if (onDate.length === 0) throw new ToolError(`no workouts on ${date}`);
       if (onDate.length > 1) {
         return {

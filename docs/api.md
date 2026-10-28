@@ -21,7 +21,7 @@ set at login.
 | `DELETE /api/tokens/:prefix` | Revoke one |
 | `GET /api/connections` | List OAuth grants (connected MCP clients) |
 | `DELETE /api/connections/:id` | Disconnect one |
-| `GET /api/workouts.json?from=&to=` | List within the retention window; a wider range is narrowed to it. `notes` beside `workouts` are the notes overlapping it |
+| `GET /api/workouts.json?from=&to=` | List from the retention window by default; `from` reaches back without limit, `to` stops at the window's end. `notes` beside `workouts` are the notes overlapping it |
 | `GET /api/workout-plans?plan-ids=` | Those plans resolved — one duration and its targets a step, repeats kept — for a client that schedules them |
 | `POST /api/workouts` | Create; returns the id and URLs |
 | `POST /api/quick-add` | `{date, description}` drafted into a workout by a small model; returns `{workout, summary}` and saves nothing. See [quick-add.md](quick-add.md) |
@@ -80,7 +80,13 @@ no id is a question about the day.
 
 A read by id is never held to the retention window: a workout that has aged out, or that
 sits further ahead than a list reaches, still opens by its id — as JSON, as stats, as a FIT
-file. Lists are windowed, and so is every write: changing an aged-out workout is a 404.
+file. Lists stop at the window's far edge but reach back as far as `from` says (90 days
+over MCP), and every write is windowed: changing an aged-out workout is a 404.
+
+The dashboard's `/history` screen is this list over a chosen range, a year by default, and
+exports it as JSON Lines: one workout a line, exactly as listed, `stats` totals included.
+The laps stay behind `/stats`, one request per workout, which an export of a year would
+not pay.
 
 ## The routes outside `/api/`
 
