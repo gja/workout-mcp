@@ -473,5 +473,4 @@ ul.history li {
 .history-date { color: var(--muted); }
 .history-name { color: var(--ink); text-decoration: none; }
 .history-name:hover { color: var(--accent); }
-.history-name .tick { font-weight: 700; color: var(--done); }
 .history-figures { grid-column: 2; color: var(--muted); font-size: 13px; }

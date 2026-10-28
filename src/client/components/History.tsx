@@ -6,8 +6,6 @@ import { plannedSummary, sessionLine, sportIcon } from '../format';
 /** What the range opens on. The server reaches back without limit; this is only the default. */
 const DEFAULT_DAYS_BACK = 365;
 
-type Status = 'all' | 'done' | 'missed';
-
 /** A number the filters can bound, read off the recording — or, for distance and time, the plan. */
 type Measure = {
   key: string;
@@ -93,37 +91,36 @@ export function History() {
   const [workouts, setWorkouts] = useState<Workout[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sport, setSport] = useState('all');
-  const [status, setStatus] = useState<Status>('all');
   const [bounds, setBounds] = useState<Bounds>({});
 
   useEffect(() => {
     if (!from || !to) return;
     setError(null);
-    listWorkouts(to, from).then(({ workouts: found }) => setWorkouts(found), (failure: Error) => setError(failure.message));
+    // History is what was done; what was only planned stays on the calendar.
+    listWorkouts(to, from).then(
+      ({ workouts: found }) => setWorkouts(found.filter((workout) => workout.completed_at)),
+      (failure: Error) => setError(failure.message),
+    );
   }, [from, to]);
 
   const sports = useMemo(() => [...new Set((workouts ?? []).map((w) => w.sport))].sort(), [workouts]);
 
   const matching = (workouts ?? []).filter(
-    (workout) =>
-      (sport === 'all' || workout.sport === sport) &&
-      (status === 'all' ||
-        (status === 'done' ? Boolean(workout.completed_at) : !workout.completed_at && workout.date < day)) &&
-      withinBounds(workout, bounds),
+    (workout) => (sport === 'all' || workout.sport === sport) && withinBounds(workout, bounds),
   );
   // Newest first: the list is for looking back, the calendar for looking ahead.
   const shown = [...matching].reverse();
 
   const setBound = (key: string, end: 'min' | 'max', text: string) =>
     setBounds((current) => ({ ...current, [key]: { ...(current[key] ?? { min: '', max: '' }), [end]: text } }));
-  const filtered = sport !== 'all' || status !== 'all' || Object.values(bounds).some((b) => b.min || b.max);
+  const filtered = sport !== 'all' || Object.values(bounds).some((b) => b.min || b.max);
 
   return (
     <>
       <p className="row">
         <a className="link" href="/">← Back to the calendar</a>
       </p>
-      <h2>All workouts</h2>
+      <h2>Completed workouts</h2>
       <div className="row">
         <label className="field">
           From <input type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} />
@@ -146,14 +143,6 @@ export function History() {
                 {each}
               </option>
             ))}
-          </select>
-        </label>
-        <label className="field">
-          Status
-          <select value={status} onChange={(event) => setStatus(event.target.value as Status)}>
-            <option value="all">All</option>
-            <option value="done">Done</option>
-            <option value="missed">Missed</option>
           </select>
         </label>
         {MEASURES.map((measure) => (
@@ -180,7 +169,6 @@ export function History() {
             className="link"
             onClick={() => {
               setSport('all');
-              setStatus('all');
               setBounds({});
             }}
           >
@@ -192,9 +180,8 @@ export function History() {
       {error && <p className="error">{error}</p>}
       {workouts && (
         <p className="note">
-          {filtered ? `${matching.length} of ${workouts.length}` : workouts.length} workout
-          {workouts.length === 1 ? '' : 's'}, {matching.filter((w) => w.completed_at).length} done.
-          {filtered && ' Export takes only these.'}
+          {filtered ? `${matching.length} of ${workouts.length}` : workouts.length} completed workout
+          {workouts.length === 1 ? '' : 's'}.{filtered && ' Export takes only these.'}
         </p>
       )}
 
@@ -206,11 +193,6 @@ export function History() {
               <span className="icon" role="img" aria-label={workout.sport}>
                 {sportIcon(workout.sport)}
               </span>
-              {workout.completed_at && (
-                <span className="tick" role="img" aria-label="done">
-                  ✓{' '}
-                </span>
-              )}
               {workout.name}
             </a>
             <span className="history-figures">

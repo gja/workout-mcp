@@ -117,7 +117,7 @@ function Dashboard({ me }: { me: Me }) {
       )}
 
       <p className="row">
-        <a className="link" href="/history">See all past workouts →</a>
+        <a className="link" href="/history">See completed workouts →</a>
       </p>
 
       {open && (

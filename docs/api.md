@@ -83,9 +83,9 @@ sits further ahead than a list reaches, still opens by its id — as JSON, as st
 file. Lists stop at the window's far edge but reach back as far as `from` says (90 days
 over MCP), and every write is windowed: changing an aged-out workout is a 404.
 
-The dashboard's `/history` screen is this list over a chosen range, a year by default,
-filtered in the browser by sport, done or missed, and bounds on distance, time, pace, heart
-rate and power. It exports what is shown as JSON Lines: one workout a line, exactly as
+The dashboard's `/history` screen is the completed workouts in this list over a chosen
+range, a year by default, filtered in the browser by sport and bounds on distance, time,
+pace, heart rate and power. It exports what is shown as JSON Lines: one workout a line, exactly as
 listed, `stats` totals included.
 The laps stay behind `/stats`, one request per workout, which an export of a year would
 not pay.
