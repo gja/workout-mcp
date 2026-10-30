@@ -2,7 +2,8 @@
 
 `ios/` carries a plan out to Apple's own Workout app and the recorded session back — the
 way in for an athlete whose watch is an Apple Watch and whose sessions therefore never
-reach a platform this server can read. Building it is [ios/README.md](../ios/README.md).
+reach a platform this server can read. It is [on the App Store](https://apps.apple.com/app/workoutsmcp/id6812959117);
+building it is [ios/README.md](../ios/README.md).
 
 ## There is no watch app
 

@@ -1,6 +1,7 @@
 # WorkoutsMCP for iOS
 
-An iPhone app that carries the plan out to Apple Fitness and the recorded session back.
+An iPhone app that carries the plan out to Apple Fitness and the recorded session back,
+[on the App Store](https://apps.apple.com/app/workoutsmcp/id6812959117).
 There is no watch app: the plan is scheduled through **WorkoutKit**, so it appears in the
 Workout app on the watch the way any Fitness+ or third-party plan does, and the session
 comes back through **HealthKit** like any other.
