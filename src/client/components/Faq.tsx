@@ -2,6 +2,8 @@ import { Accordion, Section } from './Accordion';
 import { CopyButton } from './CopyButton';
 
 export const REPO_URL = 'https://github.com/gja/workout-mcp';
+/** No storefront in the path, so Apple sends each visitor to their own country's. */
+export const APP_STORE_URL = 'https://apps.apple.com/app/workoutsmcp/id6812959117';
 
 // Octicon `mark-github`, inline rather than fetched: a badge on this page must not call out to anyone.
 const GITHUB_MARK =
@@ -52,12 +54,14 @@ export function Faq() {
           </p>
           <p className="note">
             Or use nothing but Apple's own apps: the WorkoutsMCP{' '}
-            <a href={`${REPO_URL}/blob/main/docs/ios.md`} target="_blank" rel="noreferrer">
+            <a href={APP_STORE_URL} target="_blank" rel="noreferrer">
               iPhone app
             </a>{' '}
-            schedules the plan into the Workout app and brings the recorded session back here. It is free, and not on
-            the App Store yet — write to <a href="mailto:tejas@gja.in">tejas@gja.in</a> with the email address on your
-            Apple Account for a TestFlight invite.
+            schedules the plan into the Workout app and brings the recorded session back here. It is free{' '}
+            <a href={APP_STORE_URL} target="_blank" rel="noreferrer">
+              on the App Store
+            </a>
+            .
           </p>
         </Section>
 
@@ -125,7 +129,7 @@ export function Faq() {
             </a>{' '}
             runs it on the wrist, on an Apple Watch or a Wear OS one; on a Garmin the watch's own workout screen does
             that job. On an Apple Watch the{' '}
-            <a href={`${REPO_URL}/tree/main/ios`} target="_blank" rel="noreferrer">
+            <a href={APP_STORE_URL} target="_blank" rel="noreferrer">
               iPhone app
             </a>{' '}
             replaces the last two.

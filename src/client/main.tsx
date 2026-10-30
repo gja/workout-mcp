@@ -8,7 +8,7 @@ import { Calendar } from './components/Calendar';
 import { Contexts } from './components/Contexts';
 import { ConnectedApps } from './components/ConnectedApps';
 import { CONNECT_SECTION_ID, ConnectToClaude } from './components/ConnectToClaude';
-import { Faq, REPO_URL, STARTER_SECTION_ID } from './components/Faq';
+import { APP_STORE_URL, Faq, REPO_URL, STARTER_SECTION_ID } from './components/Faq';
 import { History } from './components/History';
 import { Platforms } from './components/Platforms';
 import { QuickAdd } from './components/QuickAdd';
@@ -197,7 +197,8 @@ function App() {
       )}
 
       <footer className="colophon">
-        <a href="/privacy-policy">Privacy policy</a> · <a href="/support">Support</a>
+        <a href={APP_STORE_URL}>iPhone app</a> · <a href="/privacy-policy">Privacy policy</a> ·{' '}
+        <a href="/support">Support</a>
       </footer>
     </main>
   );

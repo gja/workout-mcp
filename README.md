@@ -8,9 +8,9 @@ comes back as numbers. One Cloudflare Worker, a D1 database and a static dashboa
 the free tier. Sign in with Google or Apple; connect intervals.icu and the plan syncs both
 ways.
 
-Running at **[workouts-mcp.com](https://workouts-mcp.com)**, with an iPhone app in
-[`ios/`](ios/) that sends the plan to Apple Fitness through WorkoutKit and the recorded
-session back as a FIT file.
+Running at **[workouts-mcp.com](https://workouts-mcp.com)**, with an
+[iPhone app on the App Store](https://apps.apple.com/app/workoutsmcp/id6812959117) (source in [`ios/`](ios/)) that sends the
+plan to Apple Fitness through WorkoutKit and the recorded session back as a FIT file.
 
 MIT licensed, and **nothing secret is checked in**: the server's credentials are Wrangler
 secrets (see [docs/deployment.md](docs/deployment.md)); the app holds none at all, because
