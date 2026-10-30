@@ -453,3 +453,24 @@ dialog.quick-add > footer { border-top: 1px solid var(--line); padding-top: 12px
 
 .calendar-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 32px 0 10px; }
 .calendar-head h2 { margin: 0; }
+
+/* The history: one line a workout, the figures dropping under the name on a phone. */
+label.field { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 14px; }
+label.field input { flex: 0 1 auto; }
+select { font: inherit; border-radius: 8px; border: 1px solid var(--line); padding: 8px 10px; background: var(--card); color: var(--ink); }
+.filters { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 14px 0 0; }
+.filters input { width: 5.5em; padding: 6px 8px; }
+.filters .unit { font-size: 12px; }
+ul.history { list-style: none; padding: 0; margin: 12px 0 0; }
+ul.history li {
+  display: grid;
+  grid-template-columns: 9em minmax(0, 1fr);
+  gap: 2px 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.history-date { color: var(--muted); }
+.history-name { color: var(--ink); text-decoration: none; }
+.history-name:hover { color: var(--accent); }
+.history-figures { grid-column: 2; color: var(--muted); font-size: 13px; }

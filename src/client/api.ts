@@ -72,6 +72,7 @@ export type RecordedSession = {
   max_hr: number | null;
   avg_pace_s_km: number | null;
   avg_power_w: number | null;
+  max_power_w: number | null;
   avg_cadence: number | null;
 };
 
@@ -117,8 +118,9 @@ export const currentUser = (): Promise<Me | null> => getMe().then((me) => me, ()
 
 export const listProviders = (): Promise<{ providers: string[] }> => request('/auth/providers');
 
-export const listWorkouts = (to: string): Promise<{ workouts: Workout[]; notes: Note[] }> =>
-  request(`/api/workouts.json?to=${to}`);
+/** Without a `from`, the server starts at the window; with one, it reaches back as far as asked. */
+export const listWorkouts = (to: string, from?: string): Promise<{ workouts: Workout[]; notes: Note[] }> =>
+  request(`/api/workouts.json?to=${to}${from ? `&from=${from}` : ''}`);
 /** By id alone: the server ignores the day in the path, so today stands in for it. */
 export const getWorkout = (id: string, day: string): Promise<Workout> => request(`/api/workouts/${day}/${id}.json`);
 /** A workout as `POST /api/workouts` takes it; quick add drafts one and saves nothing. */

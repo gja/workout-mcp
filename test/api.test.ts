@@ -2,7 +2,7 @@ import { SELF, env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Decoder, Stream } from '@garmin/fitsdk';
 import { plannedTotals } from '../src/describe';
-import { MAX_WORKOUTS_PER_USER, getWorkout, listWorkouts, putWorkout, readWindow } from '../src/db';
+import { MAX_WORKOUTS_PER_USER, MCP_HISTORY_DAYS, getWorkout, listWorkouts, putWorkout, readWindow } from '../src/db';
 import { shiftDate, today } from '../src/units';
 import { MAX_CHANGES, parseWorkout } from '../src/workout';
 import { encodeActivityFit } from './activity-fit';
@@ -1173,10 +1173,30 @@ describe('the read window', () => {
 
     const listed = await listWorkouts(env, userId, '2000-01-01', '2100-01-01');
     expect(listed.map((workout) => workout.date)).toEqual([today()]);
+  });
+
+  it('reaches back without limit over REST, but never ahead of the window', async () => {
+    const longAgo = shiftDate(today(), -900);
+    await stow(longAgo, 'oldone00');
+    await stow(shiftDate(today(), 30), 'newone00');
+    await putWorkout(env, userId, parseWorkout({ date: today(), steps: [{ goal_s: 600 }] }));
 
     const response = await call('/api/workouts.json?from=2000-01-01&to=2100-01-01');
     const { workouts } = (await response.json()) as { workouts: { date: string }[] };
-    expect(workouts.map((workout) => workout.date)).toEqual([today()]);
+    expect(workouts.map((workout) => workout.date)).toEqual([longAgo, today()]);
+
+    // Without a from, the list still starts at the window.
+    const plain = (await (await call('/api/workouts.json')).json()) as { workouts: { date: string }[] };
+    expect(plain.workouts.map((workout) => workout.date)).toEqual([today()]);
+  });
+
+  it(`reaches back ${MCP_HISTORY_DAYS} days over MCP and no further`, async () => {
+    const inside = shiftDate(today(), -MCP_HISTORY_DAYS);
+    await stow(inside, 'inside00');
+    await stow(shiftDate(today(), -(MCP_HISTORY_DAYS + 2)), 'beyond00');
+
+    const listed = await listWorkouts(env, userId, '2000-01-01', today(), MCP_HISTORY_DAYS);
+    expect(listed.map((workout) => workout.id)).toEqual(['inside00']);
   });
 
   it('still narrows a from/to that asks for less', async () => {

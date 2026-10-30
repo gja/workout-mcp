@@ -55,14 +55,21 @@ touch it — see [workouts.md](workouts.md#saying-how-it-went).
 
 ## The retention window
 
-Only a rolling window is readable: **7 days back, 28 ahead**, capped at 50 workouts per
+Only a rolling window is writable: **7 days back, 28 ahead**, capped at 50 workouts per
 athlete. Both are enforced on the way in, so a write outside them is refused rather than
-accepted and thrown away. The dashboard shows only the nearer 14 days ahead: the rest is
-room for an assistant to plan into, not a calendar anyone needs to look at yet.
+accepted and thrown away. The dashboard calendar shows only the nearer 14 days ahead: the
+rest is room for an assistant to plan into, not a calendar anyone needs to look at yet.
+
+A list without a `from` starts at the window too. **With a `from`, a list reaches further
+back, by door**: REST, and so the dashboard's history screen, without limit; MCP
+`MCP_HISTORY_DAYS` (90), because every row it returns lands in an assistant's context.
+Ahead is the window's edge for everyone. Past sessions are history to analyse, not plan to
+change, so the extra reach is read-only.
 
 Reads take the same window plus a day of slack each side, because dates are the
-athlete's local day while the window is computed in UTC. Every list and every write goes
-through that bound, which is the whole of how the window is enforced.
+athlete's local day while the window is computed in UTC. Every write goes through that
+bound, and every list through it widened backwards by its door's reach, which is the whole
+of how the window is enforced.
 
 **A read by id is the exception: an id always opens.** `getWorkout`, `getWorkouts` (behind
 `plan-ids`), `getStats` and the FIT export start from `workoutsOf`, which has no date bound,
@@ -79,7 +86,7 @@ Every single-workout write narrows on the row's *stored* date, never on one the 
 gave, which is how the window survives the caller's date being ignored. Rather
 than each query repeating that bound, `scopedWorkouts` and `scopedUpdate` in `src/db.ts`
 start from it and callers narrow further. Kysely builders are immutable, so an added
-`.where(...)` is an `and` on a fresh builder: a caller can ask for less than the window
+`.where(...)` is an `and` on a fresh builder: a caller can ask for less than its range
 but has no way to ask for more.
 
 Two lookups are deliberately **not** narrowed, because both read a row that is about to

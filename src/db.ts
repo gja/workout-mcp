@@ -16,6 +16,12 @@ export const RETENTION_DAYS_FUTURE = 28;
 export const MAX_WORKOUTS_PER_USER = 50;
 export const MAX_NOTES_PER_USER = 20;
 
+/** How far back a list may reach over MCP. REST and the dashboard reach back without limit. See docs/database.md. */
+export const MCP_HISTORY_DAYS = 90;
+
+/** Days back a list may reach: a number, or `all` for no floor. */
+export type HistoryReach = number | 'all';
+
 /** Reads only: dates are the athlete's local day, the window is UTC, so the edges disagree. */
 export const READ_SLACK_DAYS = 1;
 
@@ -114,7 +120,7 @@ function workoutsOf(userId: string) {
 }
 
 /**
- * Every other workout read starts here: the athlete and the read window are already applied,
+ * Every other workout read starts here: the athlete and a narrowed range are already applied,
  * and a caller adds what it wants on top. Kysely builders are immutable, so narrowing
  * one leaves this untouched, and an `and` is the only thing a caller can add — no read
  * reaches outside the window by forgetting to say so.
@@ -188,17 +194,27 @@ function scopedUpdate(userId: string, id: string) {
     .where('date', '<=', window.to);
 }
 
-/** A caller's range, narrowed to what a read is allowed to see. */
-function readRange(from?: string, to?: string): { from: string; to: string } {
+/**
+ * A caller's range, narrowed to what a read is allowed to see. Without a `from` it starts
+ * where the window does; with one it may reach back as far as `reach` allows.
+ */
+function readRange(from?: string, to?: string, reach: HistoryReach = RETENTION_DAYS_PAST): { from: string; to: string } {
   const window = readWindow();
+  const floor = reach === 'all' ? '' : shiftDate(today(), -(reach + READ_SLACK_DAYS));
   return {
-    from: from && from > window.from ? from : window.from,
+    from: !from ? window.from : from > floor ? from : floor,
     to: to && to < window.to ? to : window.to,
   };
 }
 
-export async function listWorkouts(env: Env, userId: string, from?: string, to?: string): Promise<Workout[]> {
-  const rows = await all(env, scopedWorkouts(userId, readRange(from, to)).orderBy('date').orderBy('created_at'));
+export async function listWorkouts(
+  env: Env,
+  userId: string,
+  from?: string,
+  to?: string,
+  reach?: HistoryReach,
+): Promise<Workout[]> {
+  const rows = await all(env, scopedWorkouts(userId, readRange(from, to, reach)).orderBy('date').orderBy('created_at'));
   return rows.map(parseRow);
 }
 
@@ -521,8 +537,14 @@ function overlappingNotes(userId: string, range: { from: string; to: string }) {
     .where('end_date', '>=', range.from);
 }
 
-export async function listNotes(env: Env, userId: string, from?: string, to?: string): Promise<Note[]> {
-  return all(env, overlappingNotes(userId, readRange(from, to)).orderBy('date').orderBy('created_at'));
+export async function listNotes(
+  env: Env,
+  userId: string,
+  from?: string,
+  to?: string,
+  reach?: HistoryReach,
+): Promise<Note[]> {
+  return all(env, overlappingNotes(userId, readRange(from, to, reach)).orderBy('date').orderBy('created_at'));
 }
 
 /** A note must touch the retention window somewhere, or nothing could read it back. */
