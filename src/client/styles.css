@@ -402,7 +402,13 @@ table.laps .lap-target, table.laps .lap-actual, .lap-sub { white-space: nowrap; 
   border-top: 1px solid var(--line);
   color: var(--muted);
   font-size: 13px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
 }
+.app-store { display: block; line-height: 0; }
 .colophon a { color: inherit; }
 
 /* --- Context documents -------------------------------------------------- */
