@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { listWorkouts, type Workout } from '../api';
+import { Accordion, Section } from './Accordion';
 import { longDate, fromKey, shiftKey, startOfToday, toKey } from '../dates';
 import { plannedSummary, sessionLine, sportIcon } from '../format';
 
@@ -113,7 +114,8 @@ export function History() {
 
   const setBound = (key: string, end: 'min' | 'max', text: string) =>
     setBounds((current) => ({ ...current, [key]: { ...(current[key] ?? { min: '', max: '' }), [end]: text } }));
-  const filtered = sport !== 'all' || Object.values(bounds).some((b) => b.min || b.max);
+  const active = (sport === 'all' ? 0 : 1) + Object.values(bounds).filter((b) => b.min || b.max).length;
+  const filtered = active > 0;
 
   return (
     <>
@@ -128,61 +130,68 @@ export function History() {
         <label className="field">
           To <input type="date" value={to} min={from} onChange={(event) => setTo(event.target.value)} />
         </label>
-        <button className="primary" disabled={matching.length === 0} onClick={() => downloadJsonl(matching, from, to)}>
-          Export JSONL
-        </button>
       </div>
 
-      <div className="filters">
-        <label className="field">
-          Type
-          <select value={sport} onChange={(event) => setSport(event.target.value)}>
-            <option value="all">All</option>
-            {sports.map((each) => (
-              <option key={each} value={each}>
-                {each}
-              </option>
+      {/* Closed by default: on a phone the bounds alone are a screenful. */}
+      <Accordion>
+        <Section group="history" title="Filters" hint={filtered ? `${active} on` : 'Type, distance, pace, HR, power'}>
+          <div className="filters">
+            <label className="field">
+              Type
+              <select value={sport} onChange={(event) => setSport(event.target.value)}>
+                <option value="all">All</option>
+                {sports.map((each) => (
+                  <option key={each} value={each}>
+                    {each}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {MEASURES.map((measure) => (
+              <label className="field" key={measure.key}>
+                {measure.label}
+                <input
+                  inputMode={measure.parse ? 'text' : 'decimal'}
+                  placeholder="min"
+                  value={bounds[measure.key]?.min ?? ''}
+                  onChange={(event) => setBound(measure.key, 'min', event.target.value)}
+                />
+                –
+                <input
+                  inputMode={measure.parse ? 'text' : 'decimal'}
+                  placeholder="max"
+                  value={bounds[measure.key]?.max ?? ''}
+                  onChange={(event) => setBound(measure.key, 'max', event.target.value)}
+                />
+                <span className="unit">{measure.unit}</span>
+              </label>
             ))}
-          </select>
-        </label>
-        {MEASURES.map((measure) => (
-          <label className="field" key={measure.key}>
-            {measure.label}
-            <input
-              inputMode={measure.parse ? 'text' : 'decimal'}
-              placeholder="min"
-              value={bounds[measure.key]?.min ?? ''}
-              onChange={(event) => setBound(measure.key, 'min', event.target.value)}
-            />
-            –
-            <input
-              inputMode={measure.parse ? 'text' : 'decimal'}
-              placeholder="max"
-              value={bounds[measure.key]?.max ?? ''}
-              onChange={(event) => setBound(measure.key, 'max', event.target.value)}
-            />
-            <span className="unit">{measure.unit}</span>
-          </label>
-        ))}
-        {filtered && (
-          <button
-            className="link"
-            onClick={() => {
-              setSport('all');
-              setBounds({});
-            }}
-          >
-            Clear filters
-          </button>
-        )}
-      </div>
+            {filtered && (
+              <button
+                className="link"
+                onClick={() => {
+                  setSport('all');
+                  setBounds({});
+                }}
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        </Section>
+      </Accordion>
 
       {error && <p className="error">{error}</p>}
       {workouts && (
-        <p className="note">
-          {filtered ? `${matching.length} of ${workouts.length}` : workouts.length} completed workout
-          {workouts.length === 1 ? '' : 's'}.{filtered && ' Export takes only these.'}
-        </p>
+        <div className="row history-summary">
+          <p className="note">
+            {filtered ? `${matching.length} of ${workouts.length}` : workouts.length} completed workout
+            {workouts.length === 1 ? '' : 's'}.{filtered && ' Export takes only these.'}
+          </p>
+          <button disabled={matching.length === 0} onClick={() => downloadJsonl(matching, from, to)}>
+            Export JSONL
+          </button>
+        </div>
       )}
 
       <ul className="history">

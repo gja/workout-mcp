@@ -197,8 +197,13 @@ function App() {
       )}
 
       <footer className="colophon">
-        <a href={APP_STORE_URL}>iPhone app</a> · <a href="/privacy-policy">Privacy policy</a> ·{' '}
-        <a href="/support">Support</a>
+        <span>
+          <a href="/privacy-policy">Privacy policy</a> · <a href="/support">Support</a>
+        </span>
+        {/* Apple's own artwork, unaltered, as its badge guidelines ask. */}
+        <a className="app-store" href={APP_STORE_URL}>
+          <img src="/app-store-badge.svg" alt="Download on the App Store" width="120" height="40" />
+        </a>
       </footer>
     </main>
   );
