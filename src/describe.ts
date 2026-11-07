@@ -45,8 +45,9 @@ function describeTarget(target: Target): string | null {
       // A faster pace is a higher speed, so the ends swap back for display.
       const fastest = target.high === null ? null : formatDuration(speedToPace(target.high, metres));
       const slowest = target.low === null ? null : formatDuration(speedToPace(target.low, metres));
-      if (fastest && slowest) return `${fastest}-${slowest}${suffix}`;
-      return slowest ? `faster than ${slowest}${suffix}` : `slower than ${fastest}${suffix}`;
+      const average = target.average ? ' average' : '';
+      if (fastest && slowest) return `${fastest}-${slowest}${suffix}${average}`;
+      return (slowest ? `faster than ${slowest}${suffix}` : `slower than ${fastest}${suffix}`) + average;
     }
   }
 }

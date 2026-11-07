@@ -223,6 +223,30 @@ describe('two targets on a step', () => {
   });
 });
 
+describe('pace basis', () => {
+  it('marks a pace band to be held as an average, primary or secondary', () => {
+    const lone = step(workout([{ goal_km: 1, target_pace_km: ['5:50', '6:00'], pace_basis: 'average' }]));
+    expect(lone.target).toMatchObject({ type: 'speed', average: true });
+
+    const paired = step(workout([{ goal_km: 1, target_cadence: [170, 180], target_pace_km: ['5:50', '6:00'], pace_basis: 'average' }]));
+    expect(paired.target).toMatchObject({ type: 'speed', average: true });
+    expect(paired.secondary_target).not.toHaveProperty('average');
+  });
+
+  it('stores nothing for the default, and leaves the band current without it', () => {
+    const result = workout([{ goal_km: 1, target_pace_km: ['5:50', '6:00'], pace_basis: 'current' }]);
+    expect(result.steps[0]).not.toHaveProperty('pace_basis');
+    expect(step(result).target).not.toHaveProperty('average');
+  });
+
+  it('refuses an average on a step with no pace band, or a basis it does not know', () => {
+    expect(() => workout([{ goal_s: 600, target_heart_rate: [140, 150], pace_basis: 'average' }])).toThrow(
+      /steps\[0\]\.pace_basis: only a target_pace_km/,
+    );
+    expect(() => workout([{ goal_s: 600, target_pace_km: '6:00', pace_basis: 'rolling' }])).toThrow(/unknown pace basis/);
+  });
+});
+
 describe('zone ranges', () => {
   it('reads the endpoints as boundaries on a continuous scale', () => {
     // Garmin's default zones put the bottom of zone 2 at 60% of max HR and

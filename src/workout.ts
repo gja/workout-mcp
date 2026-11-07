@@ -41,6 +41,8 @@ export type PlanEffort = {
   name?: string;
   notes?: string;
   intensity?: Intensity;
+  /** How a pace band is judged: absent is the pace now, the FIT file's only reading. */
+  pace_basis?: 'average';
 } & Partial<Record<(typeof DURATION_KEYS)[number] | (typeof TARGET_KEYS)[number], PlanValue>>;
 
 export type PlanStep = PlanRepeat | PlanEffort;
@@ -92,7 +94,7 @@ export const MAX_REPEAT_DEPTH = 3;
 const DURATION_ALIASES: Record<string, string> = { goal_time: 'goal_s' };
 
 const STEP_KEYS = new Set<string>([
-  'name', 'notes', 'intensity', ...DURATION_KEYS, ...TARGET_KEYS, ...Object.keys(DURATION_ALIASES),
+  'name', 'notes', 'intensity', 'pace_basis', ...DURATION_KEYS, ...TARGET_KEYS, ...Object.keys(DURATION_ALIASES),
 ]);
 
 const REPEAT_KEYS = new Set<string>(['repeat', 'times', 'type', 'steps', 'name', 'notes']);
@@ -165,6 +167,14 @@ function planStep(value: unknown, path: string, depth: number): PlanStep {
       fail(`${path}.intensity`, `unknown intensity ${JSON.stringify(raw.intensity)}, expected one of ${INTENSITIES.join(', ')}`);
     }
     step.intensity = given;
+  }
+  if (raw.pace_basis !== undefined && raw.pace_basis !== null) {
+    const basis = String(raw.pace_basis).toLowerCase();
+    if (basis !== 'current' && basis !== 'average') {
+      fail(`${path}.pace_basis`, `unknown pace basis ${JSON.stringify(raw.pace_basis)}, expected current or average`);
+    }
+    // `current` is the default, so it is not stored.
+    if (basis === 'average') step.pace_basis = 'average';
   }
 
   for (const key of [...DURATION_KEYS, ...TARGET_KEYS, ...Object.keys(DURATION_ALIASES)]) {

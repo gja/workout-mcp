@@ -55,15 +55,15 @@ enum PlanAlerts {
                 Measurement(value: $0, unit: UnitPower.watts)
             })
 
-        case .speed(let low, let high, _):
+        case .speed(let low, let high, _, let average):
             // A pace that came through as zero or less is not an open end but a broken one.
             if let low, low <= 0 { return nil }
             if let high, high <= 0 { return nil }
             guard let ends = bounds(low, high, Open.slowest, Open.fastest) else { return nil }
             return SpeedRangeAlert(
                 target: band(ends.low, ends.high) { Measurement(value: $0, unit: UnitSpeed.metersPerSecond) },
-                // The band is a pace to hold now, not an average to finish the step on.
-                metric: .current
+                // A pace to hold now, unless the plan asked for an average to finish the step on.
+                metric: average ? .average : .current
             )
 
         case .cadence(let low, let high):
