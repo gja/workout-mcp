@@ -5,9 +5,11 @@ Short, and only the things that are not obvious from the code. The coding standa
 
 ## The iPhone app is live on the App Store
 
-Real athletes run every build of `ios/` that ships, and each one goes through App Review.
-Ask the user, explicitly, before changing a feature of the app — a fix requested in so
-many words counts; a change you think the app would benefit from does not.
+Every build of `ios/` that ships goes through App Review. Flag it explicitly, in the PR
+and to the user, when a change asks the athlete for a new permission (location,
+Bluetooth, a new HealthKit type, notifications) or touches what App Store policy covers:
+an `Info.plist` usage string, an entitlement, `PrivacyInfo.xcprivacy`, or the data the
+privacy policy and App Privacy label declare.
 
 ## Migrations run themselves on deploy
 
