@@ -3,6 +3,14 @@
 Short, and only the things that are not obvious from the code. The coding standards are in
 `README.md`; follow them.
 
+## The iPhone app is live on the App Store
+
+Every build of `ios/` that ships goes through App Review. Flag it explicitly, in the PR
+and to the user, when a change asks the athlete for a new permission (location,
+Bluetooth, a new HealthKit type, notifications) or touches what App Store policy covers:
+an `Info.plist` usage string, an entitlement, `PrivacyInfo.xcprivacy`, or the data the
+privacy policy and App Privacy label declare.
+
 ## Migrations run themselves on deploy
 
 The Cloudflare Workers Build applies `migrations/` on a push, so a migration merged
