@@ -3,6 +3,12 @@
 Short, and only the things that are not obvious from the code. The coding standards are in
 `README.md`; follow them.
 
+## The iPhone app is live on the App Store
+
+Real athletes run every build of `ios/` that ships, and each one goes through App Review.
+Ask the user, explicitly, before changing a feature of the app — a fix requested in so
+many words counts; a change you think the app would benefit from does not.
+
 ## Migrations run themselves on deploy
 
 The Cloudflare Workers Build applies `migrations/` on a push, so a migration merged
