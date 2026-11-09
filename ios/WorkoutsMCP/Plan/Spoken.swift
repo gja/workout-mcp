@@ -25,7 +25,7 @@ enum Spoken {
         switch duration {
         case .open: return "Until you tap next"
         case .time(let seconds): return clock(seconds)
-        case .distance(let metres): return distance(metres)
+        case .distance(let metres, _): return distance(metres)
         }
     }
 

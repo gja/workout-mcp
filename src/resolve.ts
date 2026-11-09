@@ -16,7 +16,13 @@ import type { Intensity, PlanStep } from './workout';
 export type HrValue = { unit: 'bpm' | 'percent'; value: number };
 export type PowerValue = { unit: 'watts' | 'percent'; value: number };
 
-export type Duration = { type: 'open' } | { type: 'time'; seconds: number } | { type: 'distance'; meters: number };
+/** `unit` is only how the caller wrote it, so a watch can show 3.5 km rather than 3,500 m. */
+export type DistanceUnit = 'm' | 'km' | 'mi' | 'yd';
+
+export type Duration =
+  | { type: 'open' }
+  | { type: 'time'; seconds: number }
+  | { type: 'distance'; meters: number; unit: DistanceUnit };
 
 export type ZoneMetric = 'heart_rate' | 'pace' | 'power';
 
@@ -111,13 +117,13 @@ function parseDuration(raw: Record<string, unknown>, path: string): Duration {
     case 'goal_time':
       return { type: 'time', seconds: parseSeconds(value, at) };
     case 'goal_meters':
-      return { type: 'distance', meters: parseNumber(value, at) };
+      return { type: 'distance', meters: parseNumber(value, at), unit: 'm' };
     case 'goal_km':
-      return { type: 'distance', meters: parseNumber(value, at) * 1000 };
+      return { type: 'distance', meters: parseNumber(value, at) * 1000, unit: 'km' };
     case 'goal_miles':
-      return { type: 'distance', meters: parseNumber(value, at) * METRES_PER_MILE };
+      return { type: 'distance', meters: parseNumber(value, at) * METRES_PER_MILE, unit: 'mi' };
     default:
-      return { type: 'distance', meters: parseNumber(value, at) * METRES_PER_YARD };
+      return { type: 'distance', meters: parseNumber(value, at) * METRES_PER_YARD, unit: 'yd' };
   }
 }
 

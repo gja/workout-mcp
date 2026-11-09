@@ -199,7 +199,9 @@ enum WorkoutKitSync {
         switch duration {
         case .open: return .open
         case .time(let seconds): goal = .time(seconds, .seconds)
-        case .distance(let meters): goal = .distance(meters, .meters)
+        case .distance(let meters, let unit):
+            // The watch shows a goal in the unit it is handed: 3500 m reads "3,500m", 3.5 km "3.5 km".
+            goal = .distance(Measurement(value: meters, unit: UnitLength.meters).converted(to: unit).value, unit)
         }
         return CustomWorkout.supportsGoal(goal, activity: sport.activity, location: sport.location) ? goal : .open
     }

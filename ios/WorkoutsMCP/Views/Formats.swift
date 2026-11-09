@@ -113,7 +113,7 @@ enum Formats {
         // "0 min" on the step list and over the top of the run screen.
         case .time(let seconds) where seconds < 60: return "\(whole(seconds)) s"
         case .time(let seconds): return minutes(seconds)
-        case .distance(let meters): return distance(meters)
+        case .distance(let meters, _): return distance(meters)
         }
     }
 
