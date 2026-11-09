@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { METRES_PER_MILE } from '../src/units';
+import { METRES_PER_MILE, METRES_PER_YARD } from '../src/units';
 import { resolveSteps } from '../src/resolve';
 import { WorkoutError, countSteps, parseWorkout } from '../src/workout';
 
@@ -67,10 +67,19 @@ describe('durations', () => {
     expect(step(workout([{ goal_s: '1:05:00' }])).duration).toEqual({ type: 'time', seconds: 3900 });
   });
 
-  it('converts every distance unit to metres', () => {
-    expect(step(workout([{ goal_meters: 400 }])).duration).toEqual({ type: 'distance', meters: 400 });
-    expect(step(workout([{ goal_km: 5 }])).duration).toEqual({ type: 'distance', meters: 5000 });
-    expect(step(workout([{ goal_miles: 1 }])).duration).toEqual({ type: 'distance', meters: METRES_PER_MILE });
+  it('converts every distance unit to metres, keeping the unit it was written in', () => {
+    expect(step(workout([{ goal_meters: 400 }])).duration).toEqual({ type: 'distance', meters: 400, unit: 'm' });
+    expect(step(workout([{ goal_km: 5 }])).duration).toEqual({ type: 'distance', meters: 5000, unit: 'km' });
+    expect(step(workout([{ goal_miles: 1 }])).duration).toEqual({
+      type: 'distance',
+      meters: METRES_PER_MILE,
+      unit: 'mi',
+    });
+    expect(step(workout([{ goal_yards: 100 }])).duration).toEqual({
+      type: 'distance',
+      meters: 100 * METRES_PER_YARD,
+      unit: 'yd',
+    });
   });
 
   it('runs until lap press when no duration is given', () => {

@@ -30,7 +30,7 @@ struct RunStep: Codable {
     /// How far this step runs, where it is measured in metres — what the interval distance is
     /// counting towards, and what advances it. Nil for a step measured in time or in taps.
     var metres: Double? {
-        if case .distance(let metres) = duration { return metres }
+        if case .distance(let metres, _) = duration { return metres }
         return nil
     }
 

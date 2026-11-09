@@ -100,15 +100,20 @@ struct PlanEffort: Decodable {
 enum PlanDuration: Codable {
     case open
     case time(seconds: Double)
-    case distance(meters: Double)
+    /// `unit` is how the plan wrote it, for the watch to show; a server that does not say is metres.
+    case distance(meters: Double, unit: UnitLength)
 
-    private enum CodingKeys: String, CodingKey { case type, seconds, meters }
+    private enum CodingKeys: String, CodingKey { case type, seconds, meters, unit }
+
+    private static let units: [String: UnitLength] = ["m": .meters, "km": .kilometers, "mi": .miles, "yd": .yards]
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(String.self, forKey: .type) {
         case "time": self = .time(seconds: try container.decode(Double.self, forKey: .seconds))
-        case "distance": self = .distance(meters: try container.decode(Double.self, forKey: .meters))
+        case "distance":
+            let unit = try container.decodeIfPresent(String.self, forKey: .unit).flatMap { Self.units[$0] }
+            self = .distance(meters: try container.decode(Double.self, forKey: .meters), unit: unit ?? .meters)
         default: self = .open
         }
     }
@@ -123,9 +128,10 @@ enum PlanDuration: Codable {
         case .time(let seconds):
             try container.encode("time", forKey: .type)
             try container.encode(seconds, forKey: .seconds)
-        case .distance(let meters):
+        case .distance(let meters, let unit):
             try container.encode("distance", forKey: .type)
             try container.encode(meters, forKey: .meters)
+            try container.encode(Self.units.first { $0.value == unit }?.key ?? "m", forKey: .unit)
         }
     }
 }

@@ -679,7 +679,7 @@ describe('the resolved plans', () => {
     });
     expect(plan.steps[1]).toMatchObject({ kind: 'repeat', times: 8 });
     expect(plan.steps[1].steps[0]).toMatchObject({
-      duration: { type: 'distance', meters: 400 },
+      duration: { type: 'distance', meters: 400, unit: 'm' },
       target: { type: 'speed', unit: 'km' },
     });
   });

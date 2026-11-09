@@ -329,6 +329,11 @@ sheet asking for what the app cannot do is a question with no answer worth givin
 | `goal_s`, `goal_meters`, no goal | `.time`, `.distance`, `.open` |
 | `completed_at` | `WorkoutScheduler.markComplete` |
 
+**A distance goal goes over in the unit the plan was written in.** The watch shows a goal in
+the unit it is handed, so `goal_km: 3.5` sent as metres would read "3,500m". The resolved
+plan carries that unit beside `meters` (`m`, `km`, `mi` or `yd`); a server that leaves it out
+is read as metres.
+
 The app asks for the plan already resolved (`GET /api/workout-plans`) rather than the steps
 as written: re-implementing `src/resolve.ts` in Swift would be a second set of rules for
 what a workout may say.
